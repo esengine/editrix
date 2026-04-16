@@ -52,7 +52,19 @@ export class ListWidget extends BaseWidget {
   /** Add an item to the end of the list. */
   addItem(item: ListItem): void {
     this._items.push(item);
-    this._renderList();
+
+    // Fast path: append single row if no filters active, avoiding full re-render
+    // that would destroy text selection in existing rows.
+    if (this._listContainer && !this._filterText && !this._externalFilter) {
+      // Remove empty placeholder if present
+      if (this._items.length === 1 && this._emptyPlaceholder?.parentNode === this._listContainer) {
+        this._listContainer.removeChild(this._emptyPlaceholder);
+      }
+      this._listContainer.appendChild(this._buildRow(item));
+    } else {
+      this._renderList();
+    }
+
     if (this._options.autoScroll !== false) {
       this._scrollToBottom();
     }
@@ -116,6 +128,49 @@ export class ListWidget extends BaseWidget {
     this._renderList();
   }
 
+  private _buildRow(item: ListItem): HTMLElement {
+    const row = createElement('div', 'editrix-list-item');
+    if (item.className) {
+      row.classList.add(item.className);
+    }
+    if (item.id === this._selectedId) {
+      row.classList.add('editrix-list-item--selected');
+    }
+
+    if (item.icon) {
+      const icon = createElement('span', 'editrix-list-item-icon');
+      icon.textContent = item.icon;
+      row.appendChild(icon);
+    }
+
+    const text = createElement('span', 'editrix-list-item-text');
+    text.textContent = item.text;
+    row.appendChild(text);
+
+    if (item.detail) {
+      const detail = createElement('span', 'editrix-list-item-detail');
+      detail.textContent = item.detail;
+      row.appendChild(detail);
+    }
+
+    row.addEventListener('click', () => {
+      // Skip selection change if user is selecting text
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+
+      // Toggle selected class without full re-render to preserve DOM state
+      if (this._selectedId !== item.id) {
+        const prev = this._listContainer?.querySelector('.editrix-list-item--selected');
+        prev?.classList.remove('editrix-list-item--selected');
+        row.classList.add('editrix-list-item--selected');
+        this._selectedId = item.id;
+      }
+      this._options.onItemClick?.(item);
+    });
+
+    return row;
+  }
+
   private _renderList(): void {
     if (!this._listContainer) return;
 
@@ -138,37 +193,7 @@ export class ListWidget extends BaseWidget {
     }
 
     for (const item of filtered) {
-      const row = createElement('div', 'editrix-list-item');
-      if (item.className) {
-        row.classList.add(item.className);
-      }
-      if (item.id === this._selectedId) {
-        row.classList.add('editrix-list-item--selected');
-      }
-
-      if (item.icon) {
-        const icon = createElement('span', 'editrix-list-item-icon');
-        icon.textContent = item.icon;
-        row.appendChild(icon);
-      }
-
-      const text = createElement('span', 'editrix-list-item-text');
-      text.textContent = item.text;
-      row.appendChild(text);
-
-      if (item.detail) {
-        const detail = createElement('span', 'editrix-list-item-detail');
-        detail.textContent = item.detail;
-        row.appendChild(detail);
-      }
-
-      row.addEventListener('click', () => {
-        this._selectedId = item.id;
-        this._renderList();
-        this._options.onItemClick?.(item);
-      });
-
-      this._listContainer.appendChild(row);
+      this._listContainer.appendChild(this._buildRow(item));
     }
   }
 

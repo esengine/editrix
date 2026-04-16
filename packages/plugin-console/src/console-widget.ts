@@ -136,6 +136,12 @@ export class ConsoleWidget extends BaseWidget {
         user-select: text;
         cursor: text;
       }
+      .editrix-widget-console .editrix-list-item-text {
+        white-space: pre-wrap;
+        overflow: visible;
+        text-overflow: unset;
+        word-break: break-all;
+      }
       .editrix-console-info .editrix-list-item-icon { color: #3794ff; }
       .editrix-console-warn .editrix-list-item-icon { color: #cca700; }
       .editrix-console-warn .editrix-list-item-text { color: #cca700; }
