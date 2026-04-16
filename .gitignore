@@ -4,3 +4,6 @@ dist/
 .turbo/
 coverage/
 .DS_Store
+
+# WASM build output
+apps/game-editor/wasm/

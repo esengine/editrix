@@ -1,3 +1,4 @@
+import { IEstellaService, EstellaPlugin } from '@editrix/estella';
 import { IConsoleService } from '@editrix/plugin-console';
 import { PluginManagerPanelPlugin } from '@editrix/plugin-manager';
 import { SettingsPlugin } from '@editrix/plugin-settings';
@@ -171,7 +172,7 @@ const EditorPanelsPlugin: IPlugin = {
   descriptor: {
     id: 'editor.panels',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties'],
+    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties', 'editrix.estella'],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
@@ -231,7 +232,27 @@ const EditorPanelsPlugin: IPlugin = {
 
     // ── Scene View ──
     ctx.subscriptions.add(layout.registerPanel({ id: 'scene-view', title: 'Scene View', defaultRegion: 'center', closable: false, draggable: false }));
-    ctx.subscriptions.add(view.registerFactory('scene-view', (id) => new SceneViewWidget(id)));
+    ctx.subscriptions.add(view.registerFactory('scene-view', (id) => {
+      const widget = new SceneViewWidget(id);
+
+      // Connect to estella renderer when WASM module is ready
+      const estella = ctx.services.get(IEstellaService);
+      if (estella.isReady && estella.module) {
+        widget.initRenderer(estella.module);
+      } else {
+        const sub = estella.onReady((module) => {
+          widget.initRenderer(module);
+          sub.dispose();
+        });
+        ctx.subscriptions.add(sub);
+      }
+
+      // Re-render when scene changes
+      ctx.subscriptions.add(scene.onDidChangeScene(() => widget.requestRender()));
+      ctx.subscriptions.add(scene.onDidChangeProperty(() => widget.requestRender()));
+
+      return widget;
+    }));
 
     // ── Hierarchy ──
     let hierarchyTree: TreeWidget | undefined;
@@ -438,12 +459,18 @@ async function main(): Promise<void> {
 
   const editor: EditorInstance = await createEditor({
     container,
-    plugins: [EditorPanelsPlugin, PluginManagerPanelPlugin, SettingsPlugin],
+    plugins: [EstellaPlugin, EditorPanelsPlugin, PluginManagerPanelPlugin, SettingsPlugin],
     pluginScanner: projectPath ? new LocalPluginScanner(projectPath) : undefined,
   });
 
   const documentService = editor.kernel.services.get(IDocumentService);
   const consoleService = editor.kernel.services.get(IConsoleService);
+
+  // ── Load estella WASM ──
+  const estellaService = editor.kernel.services.get(IEstellaService);
+  estellaService.loadCore('./wasm/').catch((err: unknown) => {
+    consoleService.log('error', `Failed to load estella WASM: ${String(err)}`, 'estella');
+  });
 
   // Check plugin API version compatibility
   for (const info of editor.pluginManager.getAll()) {

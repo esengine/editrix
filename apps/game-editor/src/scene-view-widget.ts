@@ -1,4 +1,5 @@
 import { BaseWidget, createIconElement, registerIcon } from '@editrix/view-dom';
+import type { ESEngineModule } from '@editrix/estella';
 
 // ─── Register tool icons ────────────────────────────────
 
@@ -24,6 +25,12 @@ export class SceneViewWidget extends BaseWidget {
   private _activeTool: ToolId = 'select';
   private _toolButtons = new Map<ToolId, HTMLElement>();
   private _snapInput: HTMLInputElement | undefined;
+  private _canvas: HTMLCanvasElement | undefined;
+  private _glContext: WebGL2RenderingContext | null = null;
+  private _glContextHandle = 0;
+  private _module: ESEngineModule | undefined;
+  private _registry: unknown | undefined;
+  private _renderRequested = false;
 
   constructor(id: string) {
     super(id, 'scene-view');
@@ -32,8 +39,13 @@ export class SceneViewWidget extends BaseWidget {
   protected buildContent(root: HTMLElement): void {
     this._injectStyles();
 
-    // Viewport (placeholder background)
+    // Viewport
     const viewport = this.appendElement(root, 'div', 'editrix-sv-viewport');
+
+    // WebGL canvas (fills viewport, behind toolbar)
+    this._canvas = document.createElement('canvas');
+    this._canvas.className = 'editrix-sv-canvas';
+    viewport.appendChild(this._canvas);
 
     // Floating toolbar
     const toolbar = this.appendElement(viewport, 'div', 'editrix-sv-toolbar');
@@ -117,6 +129,77 @@ export class SceneViewWidget extends BaseWidget {
     container.appendChild(svg);
   }
 
+  /**
+   * Connect to an estella WASM module and initialize WebGL rendering.
+   * Called by the editor panel plugin after the module is loaded.
+   */
+  initRenderer(module: ESEngineModule): void {
+    if (!this._canvas || this._module) return;
+
+    this._glContext = this._canvas.getContext('webgl2', {
+      alpha: true,
+      depth: true,
+      stencil: true,
+      antialias: true,
+      premultipliedAlpha: true,
+      preserveDrawingBuffer: false,
+    });
+
+    if (!this._glContext) {
+      console.error('SceneView: Failed to create WebGL2 context');
+      return;
+    }
+
+    // Register the GL context with Emscripten so initRendererWithContext can use it
+    this._glContextHandle = module.GL.registerContext(this._glContext, {
+      majorVersion: 2,
+      minorVersion: 0,
+    });
+
+    if (!module.initRendererWithContext(this._glContextHandle)) {
+      console.error('SceneView: Failed to initialize estella renderer');
+      return;
+    }
+
+    this._module = module;
+    this._registry = new module.Registry();
+    this.requestRender();
+  }
+
+  /** Request a render on the next animation frame (coalesced) */
+  requestRender(): void {
+    if (this._renderRequested) return;
+    this._renderRequested = true;
+    requestAnimationFrame(() => {
+      this._renderRequested = false;
+      this._renderFrame();
+    });
+  }
+
+  private _renderFrame(): void {
+    if (!this._module || !this._registry || !this._canvas) return;
+
+    const w = this._canvas.clientWidth;
+    const h = this._canvas.clientHeight;
+    if (w === 0 || h === 0) return;
+
+    // Sync canvas buffer size
+    if (this._canvas.width !== w || this._canvas.height !== h) {
+      this._canvas.width = w;
+      this._canvas.height = h;
+    }
+
+    this._module.renderFrame(this._registry, w, h);
+  }
+
+  protected onResize(width: number, height: number): void {
+    if (this._canvas) {
+      this._canvas.width = width;
+      this._canvas.height = height;
+      this.requestRender();
+    }
+  }
+
   private _injectStyles(): void {
     const styleId = 'editrix-scene-view-styles';
     if (document.getElementById(styleId)) return;
@@ -131,6 +214,15 @@ export class SceneViewWidget extends BaseWidget {
 
 .editrix-widget-scene-view {
   background: #2b2b2f;
+}
+
+/* ── Canvas ── */
+.editrix-sv-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
 }
 
 /* ── Viewport ── */

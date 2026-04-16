@@ -1,0 +1,22 @@
+{
+  "name": "@editrix/estella",
+  "version": "0.1.0",
+  "description": "Estella rendering engine integration for Editrix",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@editrix/common": "workspace:*",
+    "@editrix/core": "workspace:*"
+  },
+  "sideEffects": false
+}

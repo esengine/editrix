@@ -35,6 +35,9 @@ importers:
 
   apps/game-editor:
     dependencies:
+      '@editrix/estella':
+        specifier: workspace:*
+        version: link:../../packages/estella
       '@editrix/plugin-console':
         specifier: workspace:*
         version: link:../../packages/plugin-console
@@ -77,6 +80,15 @@ importers:
       '@editrix/common':
         specifier: workspace:*
         version: link:../common
+
+  packages/estella:
+    dependencies:
+      '@editrix/common':
+        specifier: workspace:*
+        version: link:../common
+      '@editrix/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/layout:
     dependencies:
