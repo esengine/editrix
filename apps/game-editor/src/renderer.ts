@@ -693,6 +693,7 @@ const EditorPanelsPlugin: IPlugin = {
             items: [...available].sort().map((name) => ({
               id: name,
               label: name,
+              icon: componentIconMap[name] ?? 'component',
               disabled: existing.has(name),
               description: existing.has(name) ? 'Already added' : undefined,
             })),
