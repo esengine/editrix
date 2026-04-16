@@ -443,9 +443,18 @@ export class LayoutRenderer implements IDisposable {
       menu.appendChild(row);
     }
 
-    menu.style.left = `${e.clientX}px`;
-    menu.style.top = `${e.clientY}px`;
+    // Append first (hidden) to measure, then position with boundary check
+    menu.style.visibility = 'hidden';
     document.body.appendChild(menu);
+
+    const menuRect = menu.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const left = e.clientX + menuRect.width > vw ? vw - menuRect.width - 4 : e.clientX;
+    const top = e.clientY + menuRect.height > vh ? vh - menuRect.height - 4 : e.clientY;
+    menu.style.left = `${Math.max(0, left)}px`;
+    menu.style.top = `${Math.max(0, top)}px`;
+    menu.style.visibility = '';
 
     const close = (): void => {
       menu.remove();
