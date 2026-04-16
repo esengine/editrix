@@ -478,7 +478,6 @@ export class PropertyGridWidget extends BaseWidget {
       }
       .editrix-inspector-card-title {
         flex: 1; font-size: 12px; font-weight: 600;
-        text-align: center;
       }
       .editrix-inspector-card-menu {
         font-size: 16px; color: var(--editrix-text-dim);
@@ -599,9 +598,20 @@ export class PropertyGridWidget extends BaseWidget {
       }
       .editrix-inspector-color-row .editrix-inspector-input { flex: 1; }
 
-      /* ── Vector row: XYZ fields ── */
+      /* ── Vector row: label left, XYZ fields right ── */
+      .editrix-inspector-stacked-row:has(.editrix-inspector-vector-fields) {
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+      }
+      .editrix-inspector-stacked-row:has(.editrix-inspector-vector-fields) .editrix-inspector-label {
+        width: 68px;
+        flex-shrink: 0;
+        font-size: 12px;
+      }
       .editrix-inspector-vector-fields {
-        display: flex; gap: 6px;
+        display: flex; gap: 4px;
+        flex: 1;
       }
       .editrix-inspector-vector-field {
         flex: 1;
@@ -614,9 +624,8 @@ export class PropertyGridWidget extends BaseWidget {
       }
       .editrix-inspector-axis-label {
         display: flex; align-items: center; justify-content: center;
-        width: 20px; font-size: 11px; font-weight: 600;
-        color: var(--editrix-text-dim); flex-shrink: 0;
-        background: #4D4D4D;
+        width: 18px; font-size: 11px; font-weight: 600;
+        color: rgba(255,255,255,0.6); flex-shrink: 0;
         cursor: ew-resize; user-select: none;
       }
       .editrix-inspector-vector-input {
@@ -624,7 +633,7 @@ export class PropertyGridWidget extends BaseWidget {
         background: transparent !important;
         flex: 1; min-width: 0;
         padding: 5px 4px; font-size: 12px;
-        text-align: center; color: var(--editrix-text);
+        text-align: left; color: var(--editrix-text);
         font-family: inherit; outline: none;
         -moz-appearance: textfield;
       }
@@ -633,7 +642,7 @@ export class PropertyGridWidget extends BaseWidget {
         -webkit-appearance: none; margin: 0;
       }
       .editrix-inspector-vector-input:focus {
-        background: rgba(255,255,255,0.03) !important;
+        background: rgba(255,255,255,0.05) !important;
       }
     `;
     document.head.appendChild(style);
