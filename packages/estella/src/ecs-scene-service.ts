@@ -1,0 +1,100 @@
+import { createServiceId, type IDisposable, type Event } from '@editrix/common';
+
+// ─── Field Schema ──────────────────────────────────────────
+
+export type FieldType = 'number' | 'boolean' | 'string' | 'color' | 'enum' | 'asset' | 'entity';
+
+export interface ComponentFieldSchema {
+    readonly key: string;
+    readonly label: string;
+    readonly type: FieldType;
+    readonly defaultValue: unknown;
+    readonly group: string;
+    readonly min?: number;
+    readonly max?: number;
+    readonly step?: number;
+    readonly enumValues?: readonly string[];
+}
+
+// ─── Scene Data (serialization) ────────────────────────────
+
+export interface SerializedEntity {
+    readonly id: number;
+    readonly name: string;
+    readonly components: Record<string, Record<string, unknown>>;
+    readonly children: number[];
+}
+
+export interface SceneData {
+    readonly version: number;
+    readonly name: string;
+    readonly entities: SerializedEntity[];
+}
+
+// ─── Events ────────────────────────────────────────────────
+
+export interface EntityEvent {
+    readonly entityId: number;
+    readonly name: string;
+}
+
+export interface ComponentEvent {
+    readonly entityId: number;
+    readonly component: string;
+}
+
+export interface PropertyEvent {
+    readonly entityId: number;
+    readonly component: string;
+    readonly field: string;
+    readonly value: unknown;
+}
+
+// ─── IECSSceneService ──────────────────────────────────────
+
+export interface IECSSceneService extends IDisposable {
+    // Entity lifecycle
+    createEntity(name: string, parentId?: number): number;
+    destroyEntity(entityId: number): void;
+
+    // Hierarchy
+    getChildren(entityId: number): readonly number[];
+    getRootEntities(): readonly number[];
+    reparent(entityId: number, newParentId: number | null): void;
+
+    // Metadata
+    getName(entityId: number): string;
+    setName(entityId: number, name: string): void;
+
+    // Components
+    addComponent(entityId: number, componentName: string): void;
+    removeComponent(entityId: number, componentName: string): void;
+    hasComponent(entityId: number, componentName: string): boolean;
+    getComponents(entityId: number): readonly string[];
+
+    // Properties
+    getProperty(entityId: number, componentName: string, fieldPath: string): unknown;
+    setProperty(entityId: number, componentName: string, fieldPath: string, value: unknown): void;
+    getComponentData(entityId: number, componentName: string): Record<string, unknown>;
+
+    // Schema
+    getComponentSchema(componentName: string): readonly ComponentFieldSchema[];
+    getAvailableComponents(): readonly string[];
+
+    // Events
+    readonly onEntityCreated: Event<EntityEvent>;
+    readonly onEntityDestroyed: Event<{ entityId: number }>;
+    readonly onComponentAdded: Event<ComponentEvent>;
+    readonly onComponentRemoved: Event<ComponentEvent>;
+    readonly onPropertyChanged: Event<PropertyEvent>;
+    readonly onHierarchyChanged: Event<void>;
+
+    // Serialization
+    serialize(): SceneData;
+    deserialize(data: SceneData): void;
+
+    // Rendering
+    requestRender(): void;
+}
+
+export const IECSSceneService = createServiceId<IECSSceneService>('IECSSceneService');
