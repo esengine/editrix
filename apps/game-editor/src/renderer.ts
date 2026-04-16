@@ -1,8 +1,10 @@
+import { IFileSystemService } from '@editrix/core';
 import { IEstellaService, EstellaPlugin, IECSSceneService, ECSSceneService } from '@editrix/estella';
 import type { ComponentFieldSchema, ESEngineModule } from '@editrix/estella';
 import { IConsoleService } from '@editrix/plugin-console';
 import { PluginManagerPanelPlugin } from '@editrix/plugin-manager';
 import { SettingsPlugin } from '@editrix/plugin-settings';
+import type { PropertyGroup, PropertyType } from '@editrix/properties';
 import type { SceneFileData } from '@editrix/scene';
 import { ISceneService, SceneService } from '@editrix/scene';
 import {
@@ -19,13 +21,12 @@ import {
   IViewService,
 } from '@editrix/shell';
 import type { EditorInstance, IPlugin, IPluginContext } from '@editrix/shell';
-import { IFileSystemService } from '@editrix/core';
 import type { TreeNode } from '@editrix/view-dom';
 import { createIconElement, PropertyGridWidget, showContextMenu, showQuickPick, TreeWidget } from '@editrix/view-dom';
 import { ContentBrowserWidget } from './content-browser-widget.js';
+import { GameViewWidget } from './game-view-widget.js';
 import { LocalPluginScanner } from './local-plugin-scanner.js';
 import { ProjectFilesWidget } from './project-files-widget.js';
-import { GameViewWidget } from './game-view-widget.js';
 import { SharedRenderContext } from './render-context.js';
 import { SceneViewWidget } from './scene-view-widget.js';
 
@@ -100,7 +101,7 @@ function showInputDialog(title: string, placeholder: string): Promise<string | n
 
 // ─── Layout Helpers ─────────────────────────────────────
 
-type LayoutTreeNode = { type: string; panels?: readonly string[]; activeIndex?: number; children?: readonly { node: unknown }[] };
+interface LayoutTreeNode { type: string; panels?: readonly string[]; activeIndex?: number; children?: readonly { node: unknown }[] }
 
 /** Find the active panel ID in the tab-group that contains scene-view. */
 function findActiveCenterPanel(node: LayoutTreeNode): string | null {
@@ -159,7 +160,7 @@ function getApi(): ElectronAPI | undefined {
 
 // ─── ECS → PropertyGroup conversion ────────────────────
 
-function fieldTypeToPropertyType(type: ComponentFieldSchema['type']): import('@editrix/properties').PropertyType {
+function fieldTypeToPropertyType(type: ComponentFieldSchema['type']): PropertyType {
   switch (type) {
     case 'float': return 'number';
     case 'int': return 'number';
@@ -172,15 +173,40 @@ function fieldTypeToPropertyType(type: ComponentFieldSchema['type']): import('@e
   }
 }
 
+// ─── Component Icon Mapping ────────────────────────────
+
+const componentIconMap: Record<string, string> = {
+  Transform: 'move',
+  Camera: 'camera',
+  Sprite: 'image',
+  ShapeRenderer: 'square',
+  BitmapText: 'type',
+  SpineAnimation: 'zap',
+  RigidBody: 'shield',
+  BoxCollider: 'square',
+  CircleCollider: 'circle',
+  CapsuleCollider: 'shield',
+  SegmentCollider: 'shield',
+  ParticleEmitter: 'wind',
+  Canvas: 'monitor',
+  UIRect: 'crosshair',
+  UIRenderer: 'image',
+  UIInteraction: 'crosshair',
+  FlexContainer: 'columns',
+  FlexItem: 'columns',
+  GridLayout: 'grid',
+  LayoutGroup: 'layout',
+};
+
 function ecsToPropertyGroups(
   ecsScene: IECSSceneService,
   entityId: number,
-): { groups: import('@editrix/properties').PropertyGroup[]; values: Record<string, unknown> } {
+): { groups: PropertyGroup[]; values: Record<string, unknown> } {
   const componentOrder: Record<string, number> = { Transform: 0 };
   const components = [...ecsScene.getComponents(entityId)].sort((a, b) =>
     (componentOrder[a] ?? 99) - (componentOrder[b] ?? 99),
   );
-  const groups: import('@editrix/properties').PropertyGroup[] = [];
+  const groups: PropertyGroup[] = [];
   const values: Record<string, unknown> = {};
 
   for (const compName of components) {
@@ -190,6 +216,7 @@ function ecsToPropertyGroups(
     groups.push({
       id: compName,
       label: compName,
+      icon: componentIconMap[compName],
       properties: schema.map((f) => ({
         key: `${compName}.${f.key}`,
         label: f.label,
@@ -323,21 +350,22 @@ const EditorPanelsPlugin: IPlugin = {
     ctx.subscriptions.add(
       documentService.registerHandler({
         extensions: ['.scene.json'],
-        async load(_filePath, content) {
+        load(_filePath, content): Promise<void> {
           const raw = JSON.parse(content) as Record<string, unknown>;
           // Validate format — must have $type or at least nodeTypes+nodes
           const data: SceneFileData = {
             $type: 'editrix:scene',
-            $version: (raw['$version'] as number) ?? 1,
-            name: (raw['name'] as string) ?? 'Untitled',
-            nodeTypes: (raw['nodeTypes'] as SceneFileData['nodeTypes']) ?? [],
-            nodes: (raw['nodes'] as SceneFileData['nodes']) ?? [],
+            $version: (raw['$version'] as number | undefined) ?? 1,
+            name: (raw['name'] as string | undefined) ?? 'Untitled',
+            nodeTypes: (raw['nodeTypes'] as SceneFileData['nodeTypes'] | undefined) ?? [],
+            nodes: (raw['nodes'] as SceneFileData['nodes'] | undefined) ?? [],
           };
           scene.deserialize(data);
+          return Promise.resolve();
         },
-        async serialize(_filePath) {
+        serialize(_filePath): Promise<string> {
           const data = scene.serialize();
-          return JSON.stringify(data, null, 2);
+          return Promise.resolve(JSON.stringify(data, null, 2));
         },
       }),
     );
@@ -365,7 +393,7 @@ const EditorPanelsPlugin: IPlugin = {
       const registry = renderContext.registry;
       if (!registry) return;
 
-      ecsScene = new ECSSceneService(module, registry, () => renderContext.requestRender());
+      ecsScene = new ECSSceneService(module, registry, () => { renderContext.requestRender(); });
       ctx.subscriptions.add(ecsScene);
       ctx.services.register(IECSSceneService, ecsScene);
 
@@ -463,13 +491,14 @@ const EditorPanelsPlugin: IPlugin = {
 
         hierarchyTree.onDidRequestAdd(() => {
           if (ecsScene) {
-            const entityId = ecsScene.createEntity('New Entity');
+            const ecs = ecsScene;
+            const entityId = ecs.createEntity('New Entity');
             selection.select([String(entityId)]);
             undoRedo.push({
               label: 'Create Entity',
-              undo: () => { ecsScene!.destroyEntity(entityId); selection.clearSelection(); },
+              undo: () => { ecs.destroyEntity(entityId); selection.clearSelection(); },
               redo: () => {
-                const id = ecsScene!.createEntity('New Entity');
+                const id = ecs.createEntity('New Entity');
                 selection.select([String(id)]);
               },
             });
@@ -479,16 +508,17 @@ const EditorPanelsPlugin: IPlugin = {
         // Delete entities (Delete key or context menu)
         const deleteEntities = (ids: readonly string[]): void => {
           if (!ecsScene || ids.length === 0) return;
+          const ecs = ecsScene;
           // Filter to only root-level entities in the selection (skip children of selected parents)
           const idSet = new Set(ids);
           const toDelete = ids.filter((id) => {
-            const parentId = ecsScene!.getParent(Number(id));
+            const parentId = ecs.getParent(Number(id));
             return parentId === null || !idSet.has(String(parentId));
           });
-          const snapshots = toDelete.map((id) => captureEntitySnapshot(ecsScene!, Number(id)));
+          const snapshots = toDelete.map((id) => captureEntitySnapshot(ecs, Number(id)));
           const previousSelection = [...selection.getSelection()];
           for (const id of toDelete) {
-            ecsScene.destroyEntity(Number(id));
+            ecs.destroyEntity(Number(id));
           }
           selection.clearSelection();
           undoRedo.push({
@@ -496,7 +526,7 @@ const EditorPanelsPlugin: IPlugin = {
             undo: () => {
               const newIds: string[] = [];
               for (const snapshot of snapshots) {
-                const newId = restoreEntitySnapshot(ecsScene!, snapshot, snapshot.parentId ?? undefined);
+                const newId = restoreEntitySnapshot(ecs, snapshot, snapshot.parentId ?? undefined);
                 newIds.push(String(newId));
               }
               selection.select(newIds.length > 0 ? newIds : previousSelection);
@@ -504,12 +534,12 @@ const EditorPanelsPlugin: IPlugin = {
             redo: () => {
               // Re-capture current entities by name match is fragile;
               // just clear selection — the entities created by undo will be gone
-              const currentRoots = ecsScene!.getRootEntities();
+              const currentRoots = ecs.getRootEntities();
               // Delete the most recently created entities (last N)
               const countToDelete = snapshots.length;
               const tail = currentRoots.slice(-countToDelete);
               for (const id of tail) {
-                ecsScene!.destroyEntity(id);
+                ecs.destroyEntity(id);
               }
               selection.clearSelection();
             },
@@ -520,6 +550,8 @@ const EditorPanelsPlugin: IPlugin = {
 
         hierarchyTree.onDidRequestContextMenu(({ ids, x, y }) => {
           if (!ecsScene) return;
+          const ecs = ecsScene;
+          const tree = hierarchyTree;
           const singleId = ids[0];
           showContextMenu({
             x, y,
@@ -529,8 +561,8 @@ const EditorPanelsPlugin: IPlugin = {
                 disabled: ids.length !== 1,
                 onSelect: () => {
                   if (!singleId) return;
-                  const childId = ecsScene!.createEntity('New Entity', Number(singleId));
-                  hierarchyTree!.expand(singleId);
+                  const childId = ecs.createEntity('New Entity', Number(singleId));
+                  tree?.expand(singleId);
                   selection.select([String(childId)]);
                 },
               },
@@ -564,7 +596,11 @@ const EditorPanelsPlugin: IPlugin = {
         return;
       }
 
-      const selectedId = selectedIds[0]!;
+      const selectedId = selectedIds[0];
+      if (!selectedId) {
+        inspectorGrid.setData([], {});
+        return;
+      }
 
       // ECS path: entity selected
       if (ecsScene) {
@@ -644,11 +680,13 @@ const EditorPanelsPlugin: IPlugin = {
         inspectorGrid.onDidRequestAddComponent(() => {
           const selectedId = selection.getSelection()[0];
           if (!selectedId || !ecsScene) return;
+          const ecs = ecsScene;
+          const grid = inspectorGrid;
           const entityId = Number(selectedId);
-          const existing = new Set(ecsScene.getComponents(entityId));
-          const available = ecsScene.getAvailableComponents();
+          const existing = new Set(ecs.getComponents(entityId));
+          const available = ecs.getAvailableComponents();
 
-          const anchor = inspectorGrid!.getRootElement()?.querySelector('.editrix-inspector-add-btn') as HTMLElement | null;
+          const anchor = grid?.getRootElement()?.querySelector('.editrix-inspector-add-btn') as HTMLElement | null;
           if (!anchor) return;
 
           showQuickPick({
@@ -661,11 +699,11 @@ const EditorPanelsPlugin: IPlugin = {
             anchor,
             placeholder: 'Search components...',
             onSelect: (item) => {
-              ecsScene!.addComponent(entityId, item.id);
+              ecs.addComponent(entityId, item.id);
               undoRedo.push({
                 label: `Add ${item.id}`,
-                undo: () => { ecsScene!.removeComponent(entityId, item.id); },
-                redo: () => { ecsScene!.addComponent(entityId, item.id); },
+                undo: () => { ecs.removeComponent(entityId, item.id); },
+                redo: () => { ecs.addComponent(entityId, item.id); },
               });
             },
           });
@@ -675,6 +713,7 @@ const EditorPanelsPlugin: IPlugin = {
         inspectorGrid.onDidRequestComponentMenu(({ componentId, anchor }) => {
           const selectedId = selection.getSelection()[0];
           if (!selectedId || !ecsScene) return;
+          const ecs = ecsScene;
           const entityId = Number(selectedId);
           const isTransform = componentId === 'Transform';
           const rect = anchor.getBoundingClientRect();
@@ -689,17 +728,17 @@ const EditorPanelsPlugin: IPlugin = {
                 label: 'Remove Component', icon: 'x', destructive: true,
                 disabled: isTransform,
                 onSelect: () => {
-                  const data = ecsScene!.getComponentData(entityId, componentId);
-                  ecsScene!.removeComponent(entityId, componentId);
+                  const data = ecs.getComponentData(entityId, componentId);
+                  ecs.removeComponent(entityId, componentId);
                   undoRedo.push({
                     label: `Remove ${componentId}`,
                     undo: () => {
-                      ecsScene!.addComponent(entityId, componentId);
+                      ecs.addComponent(entityId, componentId);
                       for (const [field, value] of Object.entries(data)) {
-                        ecsScene!.setProperty(entityId, componentId, field, value);
+                        ecs.setProperty(entityId, componentId, field, value);
                       }
                     },
-                    redo: () => { ecsScene!.removeComponent(entityId, componentId); },
+                    redo: () => { ecs.removeComponent(entityId, componentId); },
                   });
                 },
               },
@@ -850,7 +889,7 @@ async function main(): Promise<void> {
       { id: 'file.save', label: 'Save', shortcut: 'Ctrl+S', onClick: () => {
         const active = documentService.activeDocument;
         if (active) {
-          documentService.save(active).then(() => {
+          void documentService.save(active).then(() => {
             consoleService.log('info', `Saved: ${active.split('/').pop()}`);
           });
         }
@@ -864,7 +903,7 @@ async function main(): Promise<void> {
       { id: 'edit.undo', label: 'Undo', shortcut: 'Ctrl+Z', onClick: () => { editor.undoRedo.undo(); } },
       { id: 'edit.redo', label: 'Redo', shortcut: 'Ctrl+Shift+Z', onClick: () => { editor.undoRedo.redo(); } },
       { id: 'sep2', label: '', separator: true },
-      { id: 'edit.prefs', label: 'Settings...', shortcut: 'Ctrl+,', onClick: () => { editor.commands.execute('settings.show'); } },
+      { id: 'edit.prefs', label: 'Settings...', shortcut: 'Ctrl+,', onClick: () => { void editor.commands.execute('settings.show'); } },
     ],
   });
   editor.view.menuBar.addMenu({
@@ -876,14 +915,14 @@ async function main(): Promise<void> {
     id: 'project', label: 'Project', items: [
       {
         id: 'project.createPlugin', label: 'Create Plugin...', onClick: () => {
-          showInputDialog('Create Plugin', 'Plugin name (e.g. My Tool)').then((name) => {
+          void showInputDialog('Create Plugin', 'Plugin name (e.g. My Tool)').then((name) => {
             if (!name) return;
             const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
             if (!slug) return;
             const electronApi = getApi() as unknown as {
               createPlugin(p: string, id: string, n: string): Promise<{ success: boolean; error?: string }>;
             };
-            electronApi.createPlugin(projectPath, slug, name).then(async (result: { success: boolean; error?: string }) => {
+            void electronApi.createPlugin(projectPath, slug, name).then(async (result: { success: boolean; error?: string }) => {
               if (!result.success) {
                 consoleService.log('error', `Failed to create plugin: ${result.error ?? 'unknown'}`);
                 return;
@@ -899,7 +938,7 @@ async function main(): Promise<void> {
                 const mod = await import(/* webpackIgnore: true */ entryUrl) as Record<string, unknown>;
                 const plugin = (mod['default'] ?? mod['plugin']) as { descriptor?: { id: string }; activate?: unknown } | undefined;
                 if (plugin?.descriptor && typeof plugin.activate === 'function') {
-                  editor.kernel.registerPlugin(plugin as unknown as import('@editrix/shell').IPlugin);
+                  editor.kernel.registerPlugin(plugin as unknown as IPlugin);
                   await editor.kernel.activatePlugin(plugin.descriptor.id);
                   consoleService.log('info', `Plugin "${name}" loaded and activated.`);
                 }
@@ -1070,7 +1109,7 @@ async function main(): Promise<void> {
       e.preventDefault();
       const active = documentService.activeDocument;
       if (active) {
-        documentService.save(active).then(() => {
+        void documentService.save(active).then(() => {
           consoleService.log('info', `Saved: ${active.split('/').pop()}`);
         });
       }
@@ -1194,7 +1233,7 @@ async function main(): Promise<void> {
     const pluginsDir = projectPath.replace(/\\/g, '/') + '/plugins';
     const fsApi = getApi()?.fs;
     if (fsApi) {
-      fsApi.watch(pluginsDir).then((watchId: string | null) => {
+      void fsApi.watch(pluginsDir).then((watchId: string | null) => {
         if (!watchId) return;
         fsApi.onChange((event: { kind: string; path: string }) => {
           // Only reload when a .js file changes
@@ -1218,7 +1257,7 @@ async function main(): Promise<void> {
           consoleService.log('info', `Plugin "${info.manifest.name}" changed, reloading...`);
 
           // Deactivate old version
-          editor.kernel.deactivatePlugin(info.manifest.id).then(async () => {
+          void editor.kernel.deactivatePlugin(info.manifest.id).then(async () => {
             try {
               // Re-import with cache-busting timestamp
               const entryUrl = `file:///${event.path}?t=${Date.now()}`;

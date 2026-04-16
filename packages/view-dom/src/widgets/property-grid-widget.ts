@@ -26,6 +26,7 @@ export class PropertyGridWidget extends BaseWidget {
   private _values: Record<string, unknown> = {};
   private readonly _collapsed = new Set<string>();
   private _contentEl: HTMLElement | undefined;
+  private _addBtnEl: HTMLElement | undefined;
 
   private readonly _onDidRequestAddComponent = new Emitter<void>();
   private readonly _onDidRequestComponentMenu = new Emitter<{ componentId: string; anchor: HTMLElement }>();
@@ -75,15 +76,15 @@ export class PropertyGridWidget extends BaseWidget {
     }
     filterBar.appendChild(filterMore);
 
-    // Add Component button with SVG icon
-    const addBtn = this.appendElement(root, 'button', 'editrix-inspector-add-btn');
+    // Add Component button with SVG icon (hidden when no entity selected)
+    this._addBtnEl = this.appendElement(root, 'button', 'editrix-inspector-add-btn');
     if (getIcon('plus-circle')) {
-      addBtn.appendChild(createIconElement('plus-circle', 14));
+      this._addBtnEl.appendChild(createIconElement('plus-circle', 14));
     }
     const addLabel = createElement('span');
     addLabel.textContent = 'Add Component';
-    addBtn.appendChild(addLabel);
-    addBtn.addEventListener('click', () => { this._onDidRequestAddComponent.fire(); });
+    this._addBtnEl.appendChild(addLabel);
+    this._addBtnEl.addEventListener('click', () => { this._onDidRequestAddComponent.fire(); });
 
     this._contentEl = this.appendElement(root, 'div', 'editrix-inspector');
     this._renderGrid();
@@ -92,6 +93,11 @@ export class PropertyGridWidget extends BaseWidget {
   private _renderGrid(): void {
     if (!this._contentEl) return;
     this._contentEl.innerHTML = '';
+
+    // Hide Add Component button when no entity is selected
+    if (this._addBtnEl) {
+      this._addBtnEl.style.display = this._groups.length === 0 ? 'none' : '';
+    }
 
     if (this._groups.length === 0) {
       const empty = createElement('div', 'editrix-inspector-empty');
@@ -122,8 +128,9 @@ export class PropertyGridWidget extends BaseWidget {
 
     // Title group (icon + name, centered together)
     const titleGroup = createElement('span', 'editrix-inspector-card-title');
-    if (getIcon('settings')) {
-      const ico = createIconElement('settings', 14);
+    const groupIcon = group.icon ?? 'component';
+    if (getIcon(groupIcon)) {
+      const ico = createIconElement(groupIcon, 14);
       ico.style.opacity = '0.6';
       titleGroup.appendChild(ico);
     }

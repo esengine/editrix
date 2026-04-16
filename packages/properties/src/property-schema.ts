@@ -67,6 +67,8 @@ export interface PropertyGroup {
   readonly id: string;
   /** Display name. */
   readonly label: string;
+  /** Icon name from the icon registry. */
+  readonly icon?: string;
   /** Properties in this group. */
   readonly properties: readonly PropertyDescriptor[];
   /** Whether the group is collapsed by default. */
