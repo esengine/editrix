@@ -107,16 +107,17 @@ export class PropertyGridWidget extends BaseWidget {
     }
     header.appendChild(chevron);
 
-    // Component icon
+    // Title group (icon + name, centered together)
+    const titleGroup = createElement('span', 'editrix-inspector-card-title');
     if (getIcon('settings')) {
       const ico = createIconElement('settings', 14);
       ico.style.opacity = '0.6';
-      header.appendChild(ico);
+      titleGroup.appendChild(ico);
     }
-
-    const title = createElement('span', 'editrix-inspector-card-title');
-    title.textContent = group.label;
-    header.appendChild(title);
+    const titleText = createElement('span');
+    titleText.textContent = group.label;
+    titleGroup.appendChild(titleText);
+    header.appendChild(titleGroup);
 
     const menu = createElement('span', 'editrix-inspector-card-menu');
     menu.textContent = '\u22EF';
@@ -478,6 +479,9 @@ export class PropertyGridWidget extends BaseWidget {
       }
       .editrix-inspector-card-title {
         flex: 1; font-size: 12px; font-weight: 600;
+        text-align: center;
+        display: flex; align-items: center; justify-content: center;
+        gap: 6px;
       }
       .editrix-inspector-card-menu {
         font-size: 16px; color: var(--editrix-text-dim);
@@ -598,42 +602,31 @@ export class PropertyGridWidget extends BaseWidget {
       }
       .editrix-inspector-color-row .editrix-inspector-input { flex: 1; }
 
-      /* ── Vector row: label left, XYZ fields right ── */
-      .editrix-inspector-stacked-row:has(.editrix-inspector-vector-fields) {
-        flex-direction: row;
-        align-items: center;
-        gap: 8px;
-      }
-      .editrix-inspector-stacked-row:has(.editrix-inspector-vector-fields) .editrix-inspector-label {
-        width: 68px;
-        flex-shrink: 0;
-        font-size: 12px;
-      }
+      /* ── Vector row: label above, XYZ fields below ── */
       .editrix-inspector-vector-fields {
-        display: flex; gap: 4px;
-        flex: 1;
+        display: flex; gap: 5px;
       }
       .editrix-inspector-vector-field {
         flex: 1;
         display: flex; align-items: stretch;
         min-width: 0;
-        border-radius: 3px; overflow: hidden;
-        border: none;
+        border-radius: 4px;
+        overflow: hidden;
         border-left: 3px solid var(--editrix-text-dim);
-        background: #3D3D3D;
       }
       .editrix-inspector-axis-label {
         display: flex; align-items: center; justify-content: center;
-        width: 18px; font-size: 11px; font-weight: 600;
-        color: rgba(255,255,255,0.6); flex-shrink: 0;
+        width: 20px; font-size: 11px; font-weight: normal;
+        color: rgba(255,255,255,0.85); flex-shrink: 0;
+        background: #46474C;
         cursor: ew-resize; user-select: none;
       }
       .editrix-inspector-vector-input {
         border: none !important; border-radius: 0 !important;
-        background: transparent !important;
+        background: #36373B !important;
         flex: 1; min-width: 0;
-        padding: 5px 4px; font-size: 12px;
-        text-align: left; color: var(--editrix-text);
+        padding: 5px 6px; font-size: 12px;
+        text-align: center; color: var(--editrix-text);
         font-family: inherit; outline: none;
         -moz-appearance: textfield;
       }
@@ -642,7 +635,7 @@ export class PropertyGridWidget extends BaseWidget {
         -webkit-appearance: none; margin: 0;
       }
       .editrix-inspector-vector-input:focus {
-        background: rgba(255,255,255,0.05) !important;
+        background: #3E3F44 !important;
       }
     `;
     document.head.appendChild(style);
