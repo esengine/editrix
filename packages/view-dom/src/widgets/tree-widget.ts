@@ -233,7 +233,7 @@ export class TreeWidget extends BaseWidget {
       return;
     }
 
-    this._renderNodes(roots, 0);
+    this._renderNodes(roots, 0, false, []);
   }
 
   private _hasSelectedDescendant(nodes: readonly TreeNode[]): boolean {
@@ -244,10 +244,17 @@ export class TreeWidget extends BaseWidget {
     return false;
   }
 
-  private _renderNodes(nodes: readonly TreeNode[], depth: number, parentHidden = false): void {
+  /**
+   * @param guides Array of booleans, one per ancestor depth.
+   *               true = ancestor at that depth has more siblings below → draw continuing line.
+   *               false = ancestor was the last child → no line at that depth.
+   */
+  private _renderNodes(nodes: readonly TreeNode[], depth: number, parentHidden: boolean, guides: boolean[]): void {
     const indent = this._options.indentSize ?? 16;
 
-    for (const node of nodes) {
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i]!;
+      const isLastChild = i === nodes.length - 1;
       const hasChildren = node.children !== undefined && node.children.length > 0;
       const isExpanded = this._expanded.has(node.id);
       const isSelected = this._selected.has(node.id);
@@ -258,12 +265,21 @@ export class TreeWidget extends BaseWidget {
 
       const row = createElement('div', 'editrix-tree-row');
       row.dataset['nodeId'] = node.id;
-      row.style.paddingLeft = `${String(depth * indent + 4)}px`;
 
       if (isSelected) row.classList.add('editrix-tree-row--selected');
       if (isFocused) row.classList.add('editrix-tree-row--focused');
       if (isParentOfSelected) row.classList.add('editrix-tree-row--parent-selected');
       if (isHidden) row.classList.add('editrix-tree-row--hidden');
+
+      // Indent guides — one vertical line segment per ancestor level
+      for (let g = 0; g < depth; g++) {
+        const guide = createElement('span', 'editrix-tree-guide');
+        guide.style.width = `${String(indent)}px`;
+        if (guides[g]) {
+          guide.classList.add('editrix-tree-guide--active');
+        }
+        row.appendChild(guide);
+      }
 
       // Arrow (SVG chevron) or leaf dot
       const arrow = createElement('span', 'editrix-tree-arrow');
@@ -332,8 +348,9 @@ export class TreeWidget extends BaseWidget {
       this._listEl?.appendChild(row);
 
       // Render children if expanded
-      if (hasChildren && isExpanded) {
-        this._renderNodes(node.children!, depth + 1, isHidden);
+      if (hasChildren && isExpanded && node.children) {
+        const childGuides = [...guides, !isLastChild];
+        this._renderNodes(node.children, depth + 1, isHidden, childGuides);
       }
     }
   }
@@ -467,7 +484,7 @@ export class TreeWidget extends BaseWidget {
         display: flex;
         align-items: center;
         gap: 3px;
-        padding: 0 8px;
+        padding: 0 8px 0 4px;
         cursor: pointer;
         font-size: 12px;
         height: 24px;
@@ -492,6 +509,22 @@ export class TreeWidget extends BaseWidget {
       }
       .editrix-tree-row--parent-selected {
         background: rgba(255, 255, 255, 0.03);
+      }
+
+      /* ── Indent guides ── */
+      .editrix-tree-guide {
+        position: relative;
+        height: 100%;
+        flex-shrink: 0;
+      }
+      .editrix-tree-guide--active::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: rgba(255, 255, 255, 0.08);
       }
 
       /* ── Arrow (SVG chevron) / Leaf dot ── */
