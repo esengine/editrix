@@ -28,7 +28,7 @@ const DEFAULT_CSS = /* css */ `
   color: var(--editrix-text);
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 13px;
-  overflow: hidden; user-select: none;
+  user-select: none;
 }
 
 /* ─── Menu bar ──────────────────────────────────── */
@@ -392,7 +392,8 @@ const DEFAULT_CSS = /* css */ `
 
 /* ─── Panel content ─────────────────────────────── */
 .editrix-panel-content {
-  flex: 1; overflow: auto;
+  flex: 1; min-height: 0; overflow: hidden;
+  display: flex; flex-direction: column;
   background: var(--editrix-surface);
   position: relative;
 }

@@ -69,13 +69,14 @@ export class ECSSceneService implements IECSSceneService {
         for (const name of this._availableComponents) {
             const json = this._module.editor_getComponentSchema(name);
             try {
-                const raw = JSON.parse(json) as { key: string; type: string; group: string }[];
+                const raw = JSON.parse(json) as { key: string; type: string; group: string; values?: string[] }[];
                 const fields: ComponentFieldSchema[] = raw.map((f) => ({
                     key: f.key,
                     label: this._humanize(f.key),
                     type: f.type as ComponentFieldSchema['type'],
                     defaultValue: this._defaultForType(f.type),
                     group: f.group,
+                    ...(f.values ? { enumValues: f.values } : {}),
                 }));
                 this._schemas.set(name, fields);
             } catch {

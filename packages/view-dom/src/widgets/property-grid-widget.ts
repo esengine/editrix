@@ -141,12 +141,36 @@ export class PropertyGridWidget extends BaseWidget {
       let i = 0;
       while (i < props.length) {
         const p = props[i]!;
-        const base = p.key.replace(/\.x$/, '');
-        const pY = props[i + 1];
-        const pZ = props[i + 2];
-        if (p.key.endsWith('.x') && pY?.key === `${base}.y` && pZ?.key === `${base}.z`) {
-          body.appendChild(this._renderVectorRow(base.split('.').pop() ?? base, p, pY, pZ));
-          i += 3;
+        if (p.key.endsWith('.r')) {
+          // Color: r/g/b/a
+          const base = p.key.replace(/\.r$/, '');
+          const pG = props[i + 1];
+          const pB = props[i + 2];
+          const pA = props[i + 3];
+          if (pG?.key === `${base}.g` && pB?.key === `${base}.b` && pA?.key === `${base}.a`) {
+            body.appendChild(this._renderColorRow(base.split('.').pop() ?? base, [p, pG, pB, pA]));
+            i += 4;
+            continue;
+          }
+        }
+        if (p.key.endsWith('.x')) {
+          const base = p.key.replace(/\.x$/, '');
+          const pY = props[i + 1];
+          const pZ = props[i + 2];
+          const pW = props[i + 3];
+          if (pY?.key === `${base}.y` && pZ?.key === `${base}.z` && pW?.key === `${base}.w`) {
+            body.appendChild(this._renderVectorNRow(base.split('.').pop() ?? base, [p, pY, pZ, pW]));
+            i += 4;
+          } else if (pY?.key === `${base}.y` && pZ?.key === `${base}.z`) {
+            body.appendChild(this._renderVectorNRow(base.split('.').pop() ?? base, [p, pY, pZ]));
+            i += 3;
+          } else if (pY?.key === `${base}.y`) {
+            body.appendChild(this._renderVectorNRow(base.split('.').pop() ?? base, [p, pY]));
+            i += 2;
+          } else {
+            body.appendChild(this._renderProperty(p));
+            i++;
+          }
         } else {
           body.appendChild(this._renderProperty(p));
           i++;
@@ -158,42 +182,140 @@ export class PropertyGridWidget extends BaseWidget {
     this._contentEl.appendChild(card);
   }
 
-  /** Render vector property: label on own row, XYZ inputs on next row (full width). */
-  private _renderVectorRow(label: string, px: PropertyDescriptor, py: PropertyDescriptor, pz: PropertyDescriptor): HTMLElement {
+  /** Axis colors by index: X=red, Y=green, Z=blue, W=purple */
+  private static readonly _AXIS_COLORS = [
+    'var(--editrix-axis-x)', 'var(--editrix-axis-y)',
+    'var(--editrix-axis-z)', 'var(--editrix-axis-w, #b080ff)',
+  ];
+  private static readonly _AXIS_LABELS = ['X', 'Y', 'Z', 'W'];
+
+  /** Render N-component vector property: label on own row, inputs below. vec4 uses 2×2 grid. */
+  private _renderVectorNRow(label: string, props: PropertyDescriptor[]): HTMLElement {
     const row = createElement('div', 'editrix-inspector-stacked-row');
 
     const lbl = createElement('label', 'editrix-inspector-label');
     lbl.textContent = label.charAt(0).toUpperCase() + label.slice(1);
     row.appendChild(lbl);
 
-    const fields = createElement('div', 'editrix-inspector-vector-fields');
-    const axes: Array<{ prop: PropertyDescriptor; axis: string; color: string }> = [
-      { prop: px, axis: 'X', color: 'var(--editrix-axis-x)' },
-      { prop: py, axis: 'Y', color: 'var(--editrix-axis-y)' },
-      { prop: pz, axis: 'Z', color: 'var(--editrix-axis-z)' },
+    if (props.length === 4) {
+      // 2×2 grid for vec4
+      const grid = createElement('div', 'editrix-inspector-vector-grid');
+      for (let idx = 0; idx < 4; idx++) {
+        grid.appendChild(this._renderVectorField(props[idx]!, idx));
+      }
+      row.appendChild(grid);
+    } else {
+      const fields = createElement('div', 'editrix-inspector-vector-fields');
+      for (let idx = 0; idx < props.length; idx++) {
+        fields.appendChild(this._renderVectorField(props[idx]!, idx));
+      }
+      row.appendChild(fields);
+    }
+
+    return row;
+  }
+
+  private _renderVectorField(prop: PropertyDescriptor, idx: number): HTMLElement {
+    const field = createElement('div', 'editrix-inspector-vector-field');
+    field.style.borderLeftColor = PropertyGridWidget._AXIS_COLORS[idx] ?? 'var(--editrix-text-dim)';
+
+    const axisLabel = createElement('span', 'editrix-inspector-axis-label');
+    axisLabel.textContent = PropertyGridWidget._AXIS_LABELS[idx] ?? '';
+    field.appendChild(axisLabel);
+
+    const input = createElement('input', 'editrix-inspector-input editrix-inspector-vector-input');
+    input.type = 'number';
+    input.value = String(parseFloat(Number(this._values[prop.key] ?? 0).toPrecision(7)));
+    input.addEventListener('change', () => { this._fireChange(prop.key, parseFloat(input.value)); });
+
+    this._setupDragAdjust(axisLabel, prop);
+
+    field.appendChild(input);
+    return field;
+  }
+
+  /** Render color property: swatch + RGBA inputs in 2×2 grid. */
+  private _renderColorRow(label: string, props: PropertyDescriptor[]): HTMLElement {
+    const row = createElement('div', 'editrix-inspector-stacked-row');
+
+    const lbl = createElement('label', 'editrix-inspector-label');
+    lbl.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+    row.appendChild(lbl);
+
+    const container = createElement('div', 'editrix-inspector-color-container');
+
+    // Collect input refs so the picker can update them
+    const inputs: HTMLInputElement[] = [];
+
+    // Color swatch (preview) — click to open custom picker
+    const swatch = createElement('div', 'editrix-inspector-color-swatch');
+
+    const getRGB = (): [number, number, number] => [
+      Number(this._values[props[0]!.key] ?? 1),
+      Number(this._values[props[1]!.key] ?? 1),
+      Number(this._values[props[2]!.key] ?? 1),
     ];
 
-    for (const { prop, axis, color } of axes) {
+    const updateSwatch = (): void => {
+      const [cr, cg, cb] = getRGB();
+      swatch.style.background = `rgb(${Math.round(cr * 255)},${Math.round(cg * 255)},${Math.round(cb * 255)})`;
+    };
+    updateSwatch();
+
+    const setRGBFromPicker = (r: number, g: number, b: number): void => {
+      const vals = [r, g, b];
+      for (let ci = 0; ci < 3; ci++) {
+        this._values[props[ci]!.key] = vals[ci]!;
+        this._fireChange(props[ci]!.key, vals[ci]!);
+        if (inputs[ci]) inputs[ci]!.value = String(parseFloat(vals[ci]!.toPrecision(4)));
+      }
+      updateSwatch();
+    };
+
+    swatch.addEventListener('click', () => {
+      const [r, g, b] = getRGB();
+      this._openColorPicker(swatch, r, g, b, setRGBFromPicker);
+    });
+
+    container.appendChild(swatch);
+
+    // RGBA grid (2×2)
+    const grid = createElement('div', 'editrix-inspector-vector-grid');
+    const labels = ['R', 'G', 'B', 'A'];
+    const colors = ['#e05555', '#55b853', '#5588e0', '#aaaaaa'];
+
+    for (let idx = 0; idx < 4; idx++) {
+      const prop = props[idx]!;
       const field = createElement('div', 'editrix-inspector-vector-field');
-      field.style.borderLeftColor = color;
+      field.style.borderLeftColor = colors[idx]!;
 
       const axisLabel = createElement('span', 'editrix-inspector-axis-label');
-      axisLabel.textContent = axis;
+      axisLabel.textContent = labels[idx]!;
       field.appendChild(axisLabel);
 
       const input = createElement('input', 'editrix-inspector-input editrix-inspector-vector-input');
       input.type = 'number';
-      input.value = String(this._values[prop.key] ?? 0);
-      input.addEventListener('change', () => { this._fireChange(prop.key, parseFloat(input.value)); });
+      input.step = '0.01';
+      input.min = '0';
+      input.max = '1';
+      input.value = String(parseFloat(Number(this._values[prop.key] ?? 0).toPrecision(4)));
+      input.addEventListener('change', () => {
+        const v = Math.max(0, Math.min(1, parseFloat(input.value) || 0));
+        this._values[prop.key] = v;
+        this._fireChange(prop.key, v);
+        updateSwatch();
+      });
 
-      // Drag-to-adjust on axis label
-      this._setupDragAdjust(axisLabel, prop);
+      // Drag-to-adjust on axis label (clamped 0–1)
+      this._setupDragAdjust(axisLabel, { ...prop, min: 0, max: 1, step: 0.01 });
 
+      inputs.push(input);
       field.appendChild(input);
-      fields.appendChild(field);
+      grid.appendChild(field);
     }
 
-    row.appendChild(fields);
+    container.appendChild(grid);
+    row.appendChild(container);
     return row;
   }
 
@@ -250,7 +372,7 @@ export class PropertyGridWidget extends BaseWidget {
       case 'number': {
         const input = createElement('input', 'editrix-inspector-input');
         input.type = 'number';
-        input.value = String(value ?? 0);
+        input.value = String(parseFloat(Number(value ?? 0).toPrecision(7)));
         input.readOnly = readOnly;
         input.addEventListener('change', () => { this._fireChange(prop.key, parseFloat(input.value)); });
         wrapper.appendChild(input);
@@ -270,14 +392,15 @@ export class PropertyGridWidget extends BaseWidget {
       case 'enum': {
         const select = createElement('select', 'editrix-inspector-select');
         select.disabled = readOnly;
-        for (const v of prop.enumValues ?? []) {
+        const enumValues = prop.enumValues ?? [];
+        for (let ei = 0; ei < enumValues.length; ei++) {
           const opt = createElement('option');
-          opt.value = v;
-          opt.textContent = v;
-          if (v === value) opt.selected = true;
+          opt.value = String(ei);
+          opt.textContent = enumValues[ei]!;
+          if (ei === value) opt.selected = true;
           select.appendChild(opt);
         }
-        select.addEventListener('change', () => { this._fireChange(prop.key, select.value); });
+        select.addEventListener('change', () => { this._fireChange(prop.key, parseInt(select.value, 10)); });
         wrapper.appendChild(select);
         break;
       }
@@ -387,6 +510,258 @@ export class PropertyGridWidget extends BaseWidget {
     });
   }
 
+  // ── Color Picker ──────────────────────────────────────
+
+  private _colorPickerEl: HTMLElement | undefined;
+
+  private _openColorPicker(
+    anchor: HTMLElement, r: number, g: number, b: number,
+    onChange: (r: number, g: number, b: number) => void,
+  ): void {
+    this._colorPickerEl?.remove();
+
+    // ── Color conversion helpers ──
+    const rgbToHsv = (rr: number, gg: number, bb: number): [number, number, number] => {
+      const max = Math.max(rr, gg, bb), min = Math.min(rr, gg, bb), d = max - min;
+      const s = max === 0 ? 0 : d / max, v = max;
+      let h = 0;
+      if (d !== 0) {
+        if (max === rr) h = ((gg - bb) / d + 6) % 6;
+        else if (max === gg) h = (bb - rr) / d + 2;
+        else h = (rr - gg) / d + 4;
+        h /= 6;
+      }
+      return [h, s, v];
+    };
+    const hsvToRgb = (h: number, s: number, v: number): [number, number, number] => {
+      const i = Math.floor(h * 6), f = h * 6 - i;
+      const p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+      switch (i % 6) {
+        case 0: return [v, t, p];
+        case 1: return [q, v, p];
+        case 2: return [p, v, t];
+        case 3: return [p, q, v];
+        case 4: return [t, p, v];
+        default: return [v, p, q];
+      }
+    };
+    const rgbToHex = (rr: number, gg: number, bb: number): string =>
+      '#' + [rr, gg, bb].map(c => Math.round(c * 255).toString(16).padStart(2, '0')).join('');
+
+    let [hue, sat, val] = rgbToHsv(r, g, b);
+    let mode: 'hex' | 'rgb' | 'hsv' = 'hex';
+    let currentInputs: HTMLInputElement[] = [];
+
+    // ── Popup container ──
+    const popup = createElement('div', 'editrix-color-picker');
+    this._colorPickerEl = popup;
+
+    // ── SV area ──
+    const svArea = createElement('div', 'editrix-cp-sv');
+    const svCursor = createElement('div', 'editrix-cp-sv-cursor');
+    svArea.appendChild(svCursor);
+    const updateSV = (): void => {
+      const [hr, hg, hb] = hsvToRgb(hue, 1, 1);
+      svArea.style.background = `rgb(${Math.round(hr * 255)},${Math.round(hg * 255)},${Math.round(hb * 255)})`;
+      svCursor.style.left = `${sat * 100}%`;
+      svCursor.style.top = `${(1 - val) * 100}%`;
+    };
+    const handleSV = (e: MouseEvent): void => {
+      const r2 = svArea.getBoundingClientRect();
+      sat = Math.max(0, Math.min(1, (e.clientX - r2.left) / r2.width));
+      val = Math.max(0, Math.min(1, 1 - (e.clientY - r2.top) / r2.height));
+      update();
+    };
+    svArea.addEventListener('mousedown', (e) => {
+      e.preventDefault(); handleSV(e);
+      const onMove = (ev: MouseEvent): void => handleSV(ev);
+      const onUp = (): void => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+      document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+    });
+    popup.appendChild(svArea);
+
+    // ── Hue bar ──
+    const hueBar = createElement('div', 'editrix-cp-hue');
+    const hueCursor = createElement('div', 'editrix-cp-hue-cursor');
+    hueBar.appendChild(hueCursor);
+    const handleHue = (e: MouseEvent): void => {
+      const r2 = hueBar.getBoundingClientRect();
+      hue = Math.max(0, Math.min(1, (e.clientX - r2.left) / r2.width));
+      update();
+    };
+    hueBar.addEventListener('mousedown', (e) => {
+      e.preventDefault(); handleHue(e);
+      const onMove = (ev: MouseEvent): void => handleHue(ev);
+      const onUp = (): void => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+      document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+    });
+    popup.appendChild(hueBar);
+
+    // ── Toolbar: preview + mode dropdown + eyedropper ──
+    const toolbar = createElement('div', 'editrix-cp-toolbar');
+
+    const previewEl = createElement('div', 'editrix-cp-preview');
+    toolbar.appendChild(previewEl);
+
+    const modeSelect = createElement('select', 'editrix-cp-mode-select');
+    for (const m of ['Hex', 'RGB', 'HSV']) {
+      const opt = createElement('option');
+      opt.value = m.toLowerCase();
+      opt.textContent = m;
+      modeSelect.appendChild(opt);
+    }
+    modeSelect.addEventListener('change', () => {
+      mode = modeSelect.value as typeof mode;
+      renderInputRow();
+      syncInputs();
+    });
+    toolbar.appendChild(modeSelect);
+
+    // Eyedropper button
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const hasEyeDropper = typeof (window as any).EyeDropper === 'function';
+    const eyedropperBtn = createElement('button', 'editrix-cp-eyedropper-btn');
+    eyedropperBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3L15 6"/></svg>';
+    eyedropperBtn.title = hasEyeDropper ? 'Pick color from screen' : 'Eyedropper not supported';
+    if (!hasEyeDropper) eyedropperBtn.classList.add('editrix-cp-eyedropper-btn--disabled');
+    else {
+      eyedropperBtn.addEventListener('click', () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ED = (window as any).EyeDropper as new () => { open(): Promise<{ sRGBHex: string }> };
+        new ED().open().then((result) => {
+          const hex = result.sRGBHex;
+          const nr = parseInt(hex.slice(1, 3), 16) / 255;
+          const ng = parseInt(hex.slice(3, 5), 16) / 255;
+          const nb = parseInt(hex.slice(5, 7), 16) / 255;
+          [hue, sat, val] = rgbToHsv(nr, ng, nb);
+          update();
+        }).catch(() => { /* user cancelled */ });
+      });
+    }
+    toolbar.appendChild(eyedropperBtn);
+    popup.appendChild(toolbar);
+
+    // ── Mode-specific input area ──
+    const inputArea = createElement('div', 'editrix-cp-input-area');
+
+    const renderInputRow = (): void => {
+      inputArea.innerHTML = '';
+      currentInputs = [];
+
+      if (mode === 'hex') {
+        const row = createElement('div', 'editrix-cp-input-row');
+        const label = createElement('span', 'editrix-cp-field-label');
+        label.textContent = '#';
+        const input = createElement('input', 'editrix-cp-field-input');
+        input.type = 'text'; input.maxLength = 7;
+        input.addEventListener('change', () => {
+          const hex = input.value.trim();
+          if (/^#?[0-9a-fA-F]{6}$/.test(hex)) {
+            const h = hex.startsWith('#') ? hex : '#' + hex;
+            const nr = parseInt(h.slice(1, 3), 16) / 255;
+            const ng = parseInt(h.slice(3, 5), 16) / 255;
+            const nb = parseInt(h.slice(5, 7), 16) / 255;
+            [hue, sat, val] = rgbToHsv(nr, ng, nb);
+            update();
+          }
+        });
+        currentInputs.push(input);
+        row.appendChild(label); row.appendChild(input);
+        inputArea.appendChild(row);
+      } else {
+        const labels = mode === 'rgb' ? ['R', 'G', 'B'] : ['H', 'S', 'V'];
+        const row = createElement('div', 'editrix-cp-input-row');
+        for (let i = 0; i < 3; i++) {
+          const label = createElement('span', 'editrix-cp-field-label');
+          label.textContent = labels[i]!;
+          const input = createElement('input', 'editrix-cp-field-input');
+          input.type = 'number';
+          if (mode === 'rgb') { input.min = '0'; input.max = '255'; input.step = '1'; }
+          else { input.min = '0'; input.max = i === 0 ? '360' : '100'; input.step = '1'; }
+          const idx = i;
+          input.addEventListener('change', () => {
+            const v = parseFloat(input.value) || 0;
+            if (mode === 'rgb') {
+              const [cr, cg, cb] = hsvToRgb(hue, sat, val);
+              const rgb: [number, number, number] = [cr, cg, cb];
+              rgb[idx] = Math.max(0, Math.min(255, v)) / 255;
+              [hue, sat, val] = rgbToHsv(...rgb);
+            } else {
+              if (idx === 0) hue = Math.max(0, Math.min(360, v)) / 360;
+              else if (idx === 1) sat = Math.max(0, Math.min(100, v)) / 100;
+              else val = Math.max(0, Math.min(100, v)) / 100;
+            }
+            update();
+          });
+          currentInputs.push(input);
+          row.appendChild(label); row.appendChild(input);
+        }
+        inputArea.appendChild(row);
+      }
+    };
+
+    const syncInputs = (): void => {
+      const [nr, ng, nb] = hsvToRgb(hue, sat, val);
+      if (mode === 'hex') {
+        if (currentInputs[0] && document.activeElement !== currentInputs[0])
+          currentInputs[0].value = rgbToHex(nr, ng, nb);
+      } else if (mode === 'rgb') {
+        const vals = [Math.round(nr * 255), Math.round(ng * 255), Math.round(nb * 255)];
+        for (let i = 0; i < 3; i++)
+          if (currentInputs[i] && document.activeElement !== currentInputs[i])
+            currentInputs[i]!.value = String(vals[i]);
+      } else {
+        const vals = [Math.round(hue * 360), Math.round(sat * 100), Math.round(val * 100)];
+        for (let i = 0; i < 3; i++)
+          if (currentInputs[i] && document.activeElement !== currentInputs[i])
+            currentInputs[i]!.value = String(vals[i]);
+      }
+    };
+
+    renderInputRow();
+    popup.appendChild(inputArea);
+
+    // ── Central update ──
+    const update = (): void => {
+      const [nr, ng, nb] = hsvToRgb(hue, sat, val);
+      onChange(nr, ng, nb);
+      previewEl.style.background = rgbToHex(nr, ng, nb);
+      updateSV();
+      hueCursor.style.left = `${hue * 100}%`;
+      syncInputs();
+    };
+
+    // ── Init ──
+    previewEl.style.background = rgbToHex(r, g, b);
+    updateSV();
+    hueCursor.style.left = `${hue * 100}%`;
+    syncInputs();
+
+    // Append hidden, measure, then position with boundary check
+    popup.style.visibility = 'hidden';
+    document.body.appendChild(popup);
+
+    const anchorRect = anchor.getBoundingClientRect();
+    const popupRect = popup.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const left = anchorRect.left + popupRect.width > vw ? vw - popupRect.width - 4 : anchorRect.left;
+    const top = anchorRect.bottom + 4 + popupRect.height > vh ? anchorRect.top - popupRect.height - 4 : anchorRect.bottom + 4;
+    popup.style.left = `${Math.max(0, left)}px`;
+    popup.style.top = `${Math.max(0, top)}px`;
+    popup.style.visibility = '';
+
+    // Close on click outside
+    const closeOnClick = (e: MouseEvent): void => {
+      if (!popup.contains(e.target as Node) && e.target !== anchor) {
+        popup.remove();
+        this._colorPickerEl = undefined;
+        document.removeEventListener('mousedown', closeOnClick);
+      }
+    };
+    requestAnimationFrame(() => document.addEventListener('mousedown', closeOnClick));
+  }
+
   private _fireChange(key: string, value: unknown): void {
     this._values[key] = value;
     this._onChange?.(key, value);
@@ -444,7 +819,7 @@ export class PropertyGridWidget extends BaseWidget {
 
       /* ── Scrollable inspector body ── */
       .editrix-inspector {
-        flex: 1; overflow-y: auto;
+        flex: 1; min-height: 0; overflow-y: auto;
         padding: 0 6px 6px;
         display: flex; flex-direction: column;
         gap: 6px;
@@ -460,6 +835,7 @@ export class PropertyGridWidget extends BaseWidget {
         border-radius: 6px;
         overflow: hidden;
         border: 1px solid rgba(255,255,255,0.04);
+        flex-shrink: 0;
       }
 
       /* Section header — raised bar at top of card */
@@ -592,19 +968,108 @@ export class PropertyGridWidget extends BaseWidget {
       }
 
       /* ── Color row ── */
-      .editrix-inspector-color-row {
-        display: flex; gap: 6px; align-items: center;
+      .editrix-inspector-color-container {
+        display: flex; gap: 6px; align-items: stretch;
       }
-      .editrix-inspector-color {
-        width: 28px; height: 24px;
-        border: 1px solid var(--editrix-border);
-        border-radius: 4px; cursor: pointer; padding: 0; flex-shrink: 0;
+      .editrix-inspector-color-swatch {
+        width: 32px; flex-shrink: 0;
+        border-radius: 4px;
+        border: 1px solid rgba(255,255,255,0.1);
+        cursor: pointer;
       }
-      .editrix-inspector-color-row .editrix-inspector-input { flex: 1; }
 
-      /* ── Vector row: label above, XYZ fields below ── */
+      /* ── Color Picker Popup ── */
+      .editrix-color-picker {
+        position: fixed; z-index: 1000;
+        width: 220px; padding: 8px;
+        background: #2b2b2b; border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      .editrix-cp-sv {
+        width: 100%; height: 150px; position: relative; cursor: crosshair;
+        border-radius: 4px; overflow: hidden;
+        background: red;
+      }
+      .editrix-cp-sv::before {
+        content: ''; position: absolute; inset: 0;
+        background: linear-gradient(to right, #fff, transparent);
+      }
+      .editrix-cp-sv::after {
+        content: ''; position: absolute; inset: 0;
+        background: linear-gradient(to top, #000, transparent);
+      }
+      .editrix-cp-sv-cursor {
+        position: absolute; width: 12px; height: 12px; z-index: 1;
+        border: 2px solid #fff; border-radius: 50%;
+        box-shadow: 0 0 2px rgba(0,0,0,0.6);
+        transform: translate(-50%, -50%); pointer-events: none;
+      }
+      .editrix-cp-hue {
+        width: 100%; height: 14px; position: relative; cursor: crosshair;
+        border-radius: 3px;
+        background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+      }
+      .editrix-cp-hue-cursor {
+        position: absolute; top: -1px; width: 6px; height: 16px;
+        background: #fff; border-radius: 2px;
+        box-shadow: 0 0 3px rgba(0,0,0,0.5);
+        transform: translateX(-50%); pointer-events: none;
+      }
+      /* Toolbar: preview + mode + eyedropper */
+      .editrix-cp-toolbar {
+        display: flex; align-items: center; gap: 6px;
+      }
+      .editrix-cp-preview {
+        width: 24px; height: 24px; border-radius: 4px; flex-shrink: 0;
+        border: 1px solid rgba(255,255,255,0.12);
+      }
+      .editrix-cp-mode-select {
+        flex: 1; min-width: 0;
+        background: #3D3D3D; border: none; border-radius: 4px;
+        padding: 4px 22px 4px 8px; font-size: 11px; font-family: inherit;
+        color: var(--editrix-text); outline: none; cursor: pointer;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23aaaaaa' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+        background-repeat: no-repeat; background-position: right 6px center;
+      }
+      .editrix-cp-mode-select option { background: #3D3D3D; color: var(--editrix-text); }
+      .editrix-cp-eyedropper-btn {
+        width: 24px; height: 24px;
+        display: flex; align-items: center; justify-content: center;
+        background: #3D3D3D; border: none; border-radius: 4px;
+        color: var(--editrix-text-dim); cursor: pointer; flex-shrink: 0;
+      }
+      .editrix-cp-eyedropper-btn:hover { background: #454545; color: var(--editrix-text); }
+      .editrix-cp-eyedropper-btn:focus { outline: none; }
+      .editrix-cp-eyedropper-btn:active { background: #505050; }
+      .editrix-cp-eyedropper-btn--disabled { opacity: 0.3; pointer-events: none; }
+
+      /* Mode-specific input area */
+      .editrix-cp-input-area { display: flex; flex-direction: column; gap: 4px; }
+      .editrix-cp-input-row { display: flex; align-items: center; gap: 4px; }
+      .editrix-cp-field-label {
+        font-size: 11px; color: var(--editrix-text-dim);
+        width: 14px; text-align: center; flex-shrink: 0; user-select: none;
+      }
+      .editrix-cp-field-input {
+        flex: 1; min-width: 0;
+        background: #3D3D3D; border: none; border-radius: 4px;
+        padding: 4px 6px; font-size: 12px; font-family: inherit;
+        color: var(--editrix-text); outline: none; text-align: center;
+        -moz-appearance: textfield;
+      }
+      .editrix-cp-field-input::-webkit-inner-spin-button,
+      .editrix-cp-field-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+      .editrix-cp-field-input:focus { background: #454545; }
+      .editrix-inspector-color-container .editrix-inspector-vector-grid { flex: 1; }
+
+      /* ── Vector row: label above, fields below ── */
       .editrix-inspector-vector-fields {
         display: flex; gap: 5px;
+      }
+      .editrix-inspector-vector-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 5px;
       }
       .editrix-inspector-vector-field {
         flex: 1;

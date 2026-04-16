@@ -51,6 +51,7 @@ export abstract class BaseWidget implements IWidget {
     this.root.style.overflow = 'hidden';
     this.root.style.display = 'flex';
     this.root.style.flexDirection = 'column';
+    this.root.style.minHeight = '0';
 
     this.buildContent(this.root);
     parent.appendChild(this.root);
