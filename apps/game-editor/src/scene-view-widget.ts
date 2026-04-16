@@ -197,7 +197,7 @@ export class SceneViewWidget extends BaseWidget {
     this._module.renderFrame(this._registry, w, h);
   }
 
-  protected onResize(width: number, height: number): void {
+  protected override onResize(width: number, height: number): void {
     if (this._canvas) {
       this._canvas.width = width;
       this._canvas.height = height;

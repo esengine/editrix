@@ -49,7 +49,7 @@ export class ProjectFilesWidget extends BaseWidget {
     super(id, 'project-files');
   }
 
-  protected buildContent(root: HTMLElement): void {
+  protected override buildContent(root: HTMLElement): void {
     this._injectStyles();
 
     this._tree = new TreeWidget(`${this.id}-tree`, {
@@ -97,7 +97,7 @@ export class ProjectFilesWidget extends BaseWidget {
         id: entry.path,
         label: entry.name,
         icon,
-        children: entry.type === 'directory' ? (children ?? []) : undefined,
+        ...(entry.type === 'directory' ? { children: children ?? [] } : {}),
       });
     }
 
@@ -140,7 +140,7 @@ export class ProjectFilesWidget extends BaseWidget {
     document.head.appendChild(style);
   }
 
-  dispose(): void {
+  override dispose(): void {
     if (this._watchId) {
       getFsAPI()?.unwatch(this._watchId);
     }

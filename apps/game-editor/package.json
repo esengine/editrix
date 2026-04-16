@@ -12,8 +12,11 @@
     "start": "npm run build && electron src/main.cjs"
   },
   "dependencies": {
+    "@editrix/common": "workspace:*",
+    "@editrix/core": "workspace:*",
     "@editrix/estella": "workspace:*",
     "@editrix/plugin-console": "workspace:*",
+    "@editrix/properties": "workspace:*",
     "@editrix/plugin-manager": "workspace:*",
     "@editrix/plugin-settings": "workspace:*",
     "@editrix/scene": "workspace:*",

@@ -18,7 +18,6 @@ export class AssetBrowserWidget extends BaseWidget {
   private _gridEl: HTMLElement | undefined;
   private _breadcrumbEl: HTMLElement | undefined;
   private _searchInput: HTMLInputElement | undefined;
-  private _selectedCardId: string | undefined;
 
   constructor(id: string) {
     super(id, 'asset-browser');
@@ -28,13 +27,12 @@ export class AssetBrowserWidget extends BaseWidget {
   navigateTo(folderId: string): void {
     this._currentFolderId = folderId;
     this._filterText = '';
-    this._selectedCardId = undefined;
     if (this._searchInput) this._searchInput.value = '';
     this._renderBreadcrumbs();
     this._renderGrid();
   }
 
-  protected buildContent(root: HTMLElement): void {
+  protected override buildContent(root: HTMLElement): void {
     this._injectStyles();
 
     // Top breadcrumb bar
@@ -137,7 +135,6 @@ export class AssetBrowserWidget extends BaseWidget {
     if (!this._gridEl) return;
     const prev = this._gridEl.querySelector('.editrix-ab-card--selected');
     if (prev) prev.classList.remove('editrix-ab-card--selected');
-    this._selectedCardId = id;
     const card = this._gridEl.querySelector(`[data-id="${id}"]`);
     if (card) card.classList.add('editrix-ab-card--selected');
   }
@@ -296,7 +293,7 @@ export class AssetBrowserWidget extends BaseWidget {
     document.head.appendChild(style);
   }
 
-  dispose(): void {
+  override dispose(): void {
     super.dispose();
   }
 }

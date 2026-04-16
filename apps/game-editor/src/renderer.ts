@@ -144,6 +144,8 @@ interface ElectronAPI {
   fs: {
     readFile(path: string): Promise<string>;
     writeFile(path: string, content: string): Promise<void>;
+    watch(dirPath: string): Promise<string | null>;
+    onChange(callback: (event: { kind: string; path: string }) => void): void;
   };
 }
 
@@ -188,10 +190,10 @@ function ecsToPropertyGroups(
         label: f.label,
         type: fieldTypeToPropertyType(f.type),
         defaultValue: f.defaultValue,
-        min: f.min,
-        max: f.max,
-        step: f.step,
-        enumValues: f.enumValues,
+        ...(f.min !== undefined ? { min: f.min } : {}),
+        ...(f.max !== undefined ? { max: f.max } : {}),
+        ...(f.step !== undefined ? { step: f.step } : {}),
+        ...(f.enumValues !== undefined ? { enumValues: f.enumValues } : {}),
       })),
     });
 
@@ -212,7 +214,7 @@ function ecsToTreeNodes(ecsScene: IECSSceneService, entityIds: readonly number[]
     return {
       id: String(id),
       label: ecsScene.getName(id) || `Entity ${String(id)}`,
-      children: children.length > 0 ? ecsToTreeNodes(ecsScene, children) : undefined,
+      ...(children.length > 0 ? { children: ecsToTreeNodes(ecsScene, children) } : {}),
     };
   });
 }
@@ -225,8 +227,8 @@ function sceneToTreeNodes(scene: ISceneService, nodeIds: readonly string[]): Tre
     return {
       id: node.id,
       label: node.name,
-      icon: node.icon,
-      children: children.length > 0 ? sceneToTreeNodes(scene, children.map((c) => c.id)) : undefined,
+      ...(node.icon !== undefined ? { icon: node.icon } : {}),
+      ...(children.length > 0 ? { children: sceneToTreeNodes(scene, children.map((c) => c.id)) } : {}),
     };
   });
 }
@@ -429,11 +431,11 @@ const EditorPanelsPlugin: IPlugin = {
           label: p.label,
           type: p.type,
           defaultValue: p.defaultValue,
-          description: p.description,
-          min: p.min,
-          max: p.max,
-          step: p.step,
-          enumValues: p.enumValues,
+          ...(p.description !== undefined ? { description: p.description } : {}),
+          ...(p.min !== undefined ? { min: p.min } : {}),
+          ...(p.max !== undefined ? { max: p.max } : {}),
+          ...(p.step !== undefined ? { step: p.step } : {}),
+          ...(p.enumValues !== undefined ? { enumValues: p.enumValues } : {}),
         })),
       }));
       inspectorGrid.setData(groups, scene.getProperties(selectedId));
@@ -485,7 +487,7 @@ const EditorPanelsPlugin: IPlugin = {
           }
         });
         // Double-click file → open document
-        widget.onDidSelectFolder((selectedPath) => {
+        widget.onDidSelectFolder((_selectedPath) => {
           // onDidSelectFolder fires for all selections; check if it's a file
           // Files are handled by the Asset Browser double-click instead
         });
@@ -543,7 +545,7 @@ async function main(): Promise<void> {
   // Expose framework service identifiers globally so dynamically loaded plugins
   // can resolve services without importing npm packages (which aren't available in file:// modules)
   // Expose all framework service identifiers for dynamically loaded plugins
-  (window as unknown as Record<string, unknown>).__editrix = {
+  (window as unknown as Record<string, unknown>)['__editrix'] = {
     // Layout & View
     ILayoutService,
     IViewService,
@@ -569,7 +571,7 @@ async function main(): Promise<void> {
   const editor: EditorInstance = await createEditor({
     container,
     plugins: [EstellaPlugin, EditorPanelsPlugin, PluginManagerPanelPlugin, SettingsPlugin],
-    pluginScanner: projectPath ? new LocalPluginScanner(projectPath) : undefined,
+    ...(projectPath ? { pluginScanner: new LocalPluginScanner(projectPath) } : {}),
   });
 
   const documentService = editor.kernel.services.get(IDocumentService);
@@ -648,8 +650,8 @@ async function main(): Promise<void> {
                 const mainFile = manifest.main ?? 'dist/index.js';
                 const entryUrl = `file:///${pluginDir}/${mainFile}`;
                 const mod = await import(/* webpackIgnore: true */ entryUrl) as Record<string, unknown>;
-                const plugin = (mod['default'] ?? mod['plugin']) as { descriptor: { id: string }; activate: unknown };
-                if (plugin?.activate) {
+                const plugin = (mod['default'] ?? mod['plugin']) as { descriptor?: { id: string }; activate?: unknown } | undefined;
+                if (plugin?.descriptor && typeof plugin.activate === 'function') {
                   editor.kernel.registerPlugin(plugin as unknown as import('@editrix/shell').IPlugin);
                   await editor.kernel.activatePlugin(plugin.descriptor.id);
                   consoleService.log('info', `Plugin "${name}" loaded and activated.`);
@@ -954,8 +956,8 @@ async function main(): Promise<void> {
               // Re-import with cache-busting timestamp
               const entryUrl = `file:///${event.path}?t=${Date.now()}`;
               const mod = await import(/* webpackIgnore: true */ entryUrl) as Record<string, unknown>;
-              const plugin = (mod['default'] ?? mod['plugin']) as IPlugin;
-              if (plugin?.activate) {
+              const plugin = (mod['default'] ?? mod['plugin']) as IPlugin | undefined;
+              if (plugin && typeof plugin.activate === 'function') {
                 editor.kernel.registerPlugin(plugin);
                 await editor.kernel.activatePlugin(plugin.descriptor.id);
                 consoleService.log('info', `Plugin "${info.manifest.name}" reloaded successfully.`);

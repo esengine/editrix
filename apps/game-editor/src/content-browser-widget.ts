@@ -76,7 +76,6 @@ export class ContentBrowserWidget extends BaseWidget {
   private _gridEl: HTMLElement | undefined;
   private _breadcrumbEl: HTMLElement | undefined;
   private _searchInput: HTMLInputElement | undefined;
-  private _selectedCardId: string | undefined;
   private _cachedEntries: FsEntry[] = [];
 
   // Console state
@@ -95,7 +94,6 @@ export class ContentBrowserWidget extends BaseWidget {
   navigateTo(dirPath: string): void {
     this._currentDirPath = dirPath;
     this._filterText = '';
-    this._selectedCardId = undefined;
     if (this._searchInput) this._searchInput.value = '';
     this._renderBreadcrumbs();
     this._loadAndRenderGrid();
@@ -125,7 +123,7 @@ export class ContentBrowserWidget extends BaseWidget {
     this._updateView();
   }
 
-  protected buildContent(root: HTMLElement): void {
+  protected override buildContent(root: HTMLElement): void {
     this._injectStyles();
 
     this._projectPath = getProjectPath();
@@ -298,7 +296,6 @@ export class ContentBrowserWidget extends BaseWidget {
     if (!this._gridEl) return;
     const prev = this._gridEl.querySelector('.editrix-cb-card--selected');
     if (prev) prev.classList.remove('editrix-cb-card--selected');
-    this._selectedCardId = id;
     const card = this._gridEl.querySelector(`[data-id="${CSS.escape(id)}"]`);
     if (card) card.classList.add('editrix-cb-card--selected');
   }
@@ -573,7 +570,7 @@ export class ContentBrowserWidget extends BaseWidget {
     document.head.appendChild(style);
   }
 
-  dispose(): void {
+  override dispose(): void {
     this._onDidOpenFile.dispose();
     super.dispose();
   }

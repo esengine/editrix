@@ -29,7 +29,7 @@ export class ContentSidebarWidget extends BaseWidget {
     this._updateActiveState();
   }
 
-  protected buildContent(root: HTMLElement): void {
+  protected override buildContent(root: HTMLElement): void {
     this._injectStyles();
 
     this._termBtn = this.appendElement(root, 'div', 'editrix-cs-btn');
@@ -131,7 +131,7 @@ export class ContentSidebarWidget extends BaseWidget {
     document.head.appendChild(style);
   }
 
-  dispose(): void {
+  override dispose(): void {
     this._onDidChangeView.dispose();
     super.dispose();
   }
