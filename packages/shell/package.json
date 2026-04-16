@@ -1,0 +1,29 @@
+{
+  "name": "@editrix/shell",
+  "version": "0.1.0",
+  "description": "Editor shell — assembles all framework plugins into a ready-to-use editor instance",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@editrix/commands": "workspace:*",
+    "@editrix/common": "workspace:*",
+    "@editrix/core": "workspace:*",
+    "@editrix/layout": "workspace:*",
+    "@editrix/properties": "workspace:*",
+    "@editrix/view": "workspace:*",
+    "@editrix/view-dom": "workspace:*"
+  },
+  "sideEffects": false
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@editrix/plugin-settings",
+  "version": "0.1.0",
+  "description": "Settings panel plugin for the Editrix editor framework",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@editrix/commands": "workspace:*",
+    "@editrix/common": "workspace:*",
+    "@editrix/core": "workspace:*",
+    "@editrix/view": "workspace:*",
+    "@editrix/view-dom": "workspace:*"
+  },
+  "sideEffects": false
+}

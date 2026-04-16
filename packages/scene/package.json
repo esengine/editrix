@@ -1,0 +1,23 @@
+{
+  "name": "@editrix/scene",
+  "version": "0.1.0",
+  "description": "Scene data model service — node tree, property schemas, property values, change events",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@editrix/common": "workspace:*",
+    "@editrix/core": "workspace:*"
+  },
+  "sideEffects": false
+}

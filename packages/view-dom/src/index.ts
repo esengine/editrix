@@ -1,0 +1,58 @@
+// Icons
+export { createIconElement, getIcon, registerIcon } from './icons.js';
+
+// DOM utilities
+export { clearChildren, createElement, setCssVars } from './dom-utils.js';
+
+// Theme system
+export type { EditorTheme, ThemeColors } from './theme.js';
+export { applyTheme, DARK_THEME } from './theme.js';
+
+// Menu bar
+export type { MenuBarTab, MenuDescriptor, MenuItem } from './menu-bar.js';
+export { MenuBar } from './menu-bar.js';
+
+// Editor toolbar
+export type { EditorToolbarItem } from './editor-toolbar.js';
+export { EditorToolbar } from './editor-toolbar.js';
+
+// Layout renderer
+export type { PanelCloseHandler, TabAddHandler, TabClickHandler, TabDropHandler, TitleResolver, WidgetResolver } from './layout-renderer.js';
+export { LayoutRenderer } from './layout-renderer.js';
+
+// Command palette
+export { CommandPalette } from './command-palette.js';
+
+// Status bar
+export type { StatusBarItem } from './status-bar.js';
+export { StatusBar } from './status-bar.js';
+
+// Activity bar + Sidebar
+export type { SidebarViewDescriptor } from './activity-bar.js';
+export { ActivityBar } from './activity-bar.js';
+export type { SidebarWidgetFactory } from './sidebar.js';
+export { Sidebar } from './sidebar.js';
+
+// DOM view adapter
+export type { DomViewAdapterOptions } from './dom-view-adapter.js';
+export { DomViewAdapter } from './dom-view-adapter.js';
+
+// Default styles
+export { injectDefaultStyles } from './default-styles.js';
+
+// Widget primitives
+export { BaseWidget } from './widgets/base-widget.js';
+export type { ListItem, ListWidgetOptions } from './widgets/list-widget.js';
+export { ListWidget } from './widgets/list-widget.js';
+export type { PropertyChangeHandler, PropertyGridOptions } from './widgets/property-grid-widget.js';
+export { PropertyGridWidget } from './widgets/property-grid-widget.js';
+export type { ToolbarAction } from './widgets/toolbar-widget.js';
+export { Toolbar } from './widgets/toolbar-widget.js';
+export type { TreeNode, TreeWidgetOptions } from './widgets/tree-widget.js';
+export { TreeWidget } from './widgets/tree-widget.js';
+
+// Settings binding
+export { SettingsBinding } from './settings-binding.js';
+
+// Plugin factory
+export { createDomViewPlugin } from './dom-view-plugin.js';

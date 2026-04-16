@@ -1,0 +1,26 @@
+{
+  "name": "@editrix/plugin-manager",
+  "version": "0.1.0",
+  "description": "Plugin management panel — browse, enable, disable, and uninstall plugins",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@editrix/common": "workspace:*",
+    "@editrix/core": "workspace:*",
+    "@editrix/commands": "workspace:*",
+    "@editrix/layout": "workspace:*",
+    "@editrix/view": "workspace:*",
+    "@editrix/view-dom": "workspace:*"
+  },
+  "sideEffects": false
+}

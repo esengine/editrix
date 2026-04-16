@@ -1,0 +1,17 @@
+{
+  "name": "@editrix/platform-electron",
+  "version": "0.1.0",
+  "description": "Electron platform adapter — window management and main process bootstrap for Editrix editors",
+  "type": "module",
+  "exports": {
+    "./main": "./src/main.cjs"
+  },
+  "files": ["src/main.cjs"],
+  "scripts": {
+    "clean": "rm -rf dist dist-renderer *.tsbuildinfo"
+  },
+  "peerDependencies": {
+    "electron": ">=30.0.0"
+  },
+  "sideEffects": false
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@editrix/layout",
+  "version": "0.1.0",
+  "description": "Dockable panel layout system for the Editrix editor framework",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@editrix/common": "workspace:*",
+    "@editrix/core": "workspace:*"
+  },
+  "sideEffects": false
+}

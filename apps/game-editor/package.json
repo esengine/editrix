@@ -1,0 +1,23 @@
+{
+  "name": "@editrix/game-editor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Game editor built with Editrix framework",
+  "main": "src/main.cjs",
+  "scripts": {
+    "build": "esbuild src/renderer.ts --bundle --outfile=dist/renderer.js --format=esm --platform=browser --target=es2022 --sourcemap --packages=bundle && esbuild src/launcher.ts --bundle --outfile=dist/launcher.js --format=esm --platform=browser --target=es2022 --sourcemap",
+    "start": "npm run build && electron src/main.cjs"
+  },
+  "dependencies": {
+    "@editrix/plugin-console": "workspace:*",
+    "@editrix/plugin-manager": "workspace:*",
+    "@editrix/plugin-settings": "workspace:*",
+    "@editrix/scene": "workspace:*",
+    "@editrix/shell": "workspace:*",
+    "@editrix/view-dom": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.0",
+    "electron": "^35.0.0"
+  }
+}

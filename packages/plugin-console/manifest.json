@@ -1,0 +1,12 @@
+{
+  "id": "editrix.console",
+  "name": "Console",
+  "version": "0.1.0",
+  "description": "Log output and debug console panel",
+  "main": "./dist/index.js",
+  "dependencies": [
+    "editrix.commands",
+    "editrix.layout",
+    "editrix.view"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "@editrix/view-dom",
+  "version": "0.1.0",
+  "description": "DOM view adapter for the Editrix editor framework — renders layout tree, panel chrome, and command palette",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@editrix/common": "workspace:*",
+    "@editrix/core": "workspace:*",
+    "@editrix/commands": "workspace:*",
+    "@editrix/layout": "workspace:*",
+    "@editrix/properties": "workspace:*",
+    "@editrix/view": "workspace:*"
+  },
+  "sideEffects": false
+}
