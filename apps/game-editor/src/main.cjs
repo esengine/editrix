@@ -944,7 +944,6 @@ app.whenReady().then(() => {
     const filename = request.url.replace(/^estella:\/\/\/?/, '');
     const filePath = path.join(__dirname, '..', 'wasm', decodeURIComponent(filename));
     const fileUrl = pathToFileURL(filePath).href;
-    console.log('[estella-protocol]', request.url, '->', fileUrl);
     return net.fetch(fileUrl);
   });
 
