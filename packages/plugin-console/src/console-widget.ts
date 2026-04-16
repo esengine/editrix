@@ -133,6 +133,8 @@ export class ConsoleWidget extends BaseWidget {
     style.textContent = `
       .editrix-widget-console .editrix-list-item {
         font-family: var(--editrix-mono-font, Consolas, monospace);
+        user-select: text;
+        cursor: text;
       }
       .editrix-console-info .editrix-list-item-icon { color: #3794ff; }
       .editrix-console-warn .editrix-list-item-icon { color: #cca700; }

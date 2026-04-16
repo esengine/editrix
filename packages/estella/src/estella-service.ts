@@ -47,20 +47,20 @@ export class EstellaService implements IEstellaService {
 
     async loadCore(wasmBasePath: string): Promise<void> {
         if (this._module) return;
-        this._wasmBasePath = wasmBasePath;
 
-        // Load the Emscripten wrapper script which defines the module factory
-        const jsUrl = new URL('esengine.js', wasmBasePath).href;
+        // Resolve relative paths against the current document location
+        const base = new URL(wasmBasePath, globalThis.location?.href ?? 'file:///').href;
+        this._wasmBasePath = base.endsWith('/') ? base : base + '/';
 
-        // Dynamic import of the Emscripten-generated JS wrapper.
-        // The wrapper exports a factory function that returns a promise.
+        const jsUrl = this._wasmBasePath + 'esengine.js';
+        const wasmUrl = this._wasmBasePath + 'esengine.wasm';
+
         const factory = await this.loadScript(jsUrl);
-        const wasmUrl = new URL('esengine.wasm', wasmBasePath).href;
 
         this._module = await factory({
             locateFile: (file: string) => {
                 if (file.endsWith('.wasm')) return wasmUrl;
-                return new URL(file, wasmBasePath).href;
+                return this._wasmBasePath + file;
             },
         }) as ESEngineModule;
 
@@ -82,7 +82,7 @@ export class EstellaService implements IEstellaService {
         const file = fileMap[name];
         if (!file) throw new Error(`Unknown module: ${name}`);
 
-        const url = new URL(file, this._wasmBasePath).href;
+        const url = this._wasmBasePath + file;
         const response = await fetch(url);
         if (!response.ok) throw new Error(`Failed to fetch ${url}: ${response.status}`);
 
