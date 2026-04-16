@@ -48,9 +48,7 @@ export class EstellaService implements IEstellaService {
     async loadCore(wasmBasePath: string): Promise<void> {
         if (this._module) return;
 
-        // Resolve relative paths against the current document location
-        const base = new URL(wasmBasePath, globalThis.location?.href ?? 'file:///').href;
-        this._wasmBasePath = base.endsWith('/') ? base : base + '/';
+        this._wasmBasePath = wasmBasePath.endsWith('/') ? wasmBasePath : wasmBasePath + '/';
 
         const jsUrl = this._wasmBasePath + 'esengine.js';
         const wasmUrl = this._wasmBasePath + 'esengine.wasm';
@@ -96,10 +94,26 @@ export class EstellaService implements IEstellaService {
     }
 
     private async loadScript(url: string): Promise<(opts: Record<string, unknown>) => Promise<unknown>> {
-        // In Electron, we can use dynamic import for the Emscripten wrapper.
-        // The wrapper is a UMD/ESM module that exports a factory.
-        const mod = await import(/* @vite-ignore */ url);
-        return mod.default ?? mod;
+        // Emscripten outputs an async function (e.g. `async function ESEngineModule(...)`)
+        // as a plain script (not ESM export). Load via <script> tag so it registers
+        // on globalThis, which works reliably under Electron's file:// protocol.
+        // Emscripten output uses import.meta.url, so it must run as a module.
+        // We fetch the source, wrap it to export the factory, and import via Blob URL.
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Failed to fetch ${url}: ${response.status}`);
+        const source = await response.text();
+
+        // The Emscripten output defines `async function ESEngineModule(...)`.
+        // Append an export so we can import it as a module.
+        const wrapped = source + '\nexport default ESEngineModule;\n';
+        const blob = new Blob([wrapped], { type: 'text/javascript' });
+        const blobUrl = URL.createObjectURL(blob);
+        try {
+            const mod = await import(/* @vite-ignore */ blobUrl);
+            return mod.default as (opts: Record<string, unknown>) => Promise<unknown>;
+        } finally {
+            URL.revokeObjectURL(blobUrl);
+        }
     }
 
     dispose(): void {

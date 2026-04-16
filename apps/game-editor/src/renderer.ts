@@ -468,7 +468,7 @@ async function main(): Promise<void> {
 
   // ── Load estella WASM ──
   const estellaService = editor.kernel.services.get(IEstellaService);
-  estellaService.loadCore('./wasm/').catch((err: unknown) => {
+  estellaService.loadCore('estella:///').catch((err: unknown) => {
     consoleService.log('error', `Failed to load estella WASM: ${String(err)}`, 'estella');
   });
 

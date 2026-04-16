@@ -135,11 +135,12 @@ export class ConsoleWidget extends BaseWidget {
         font-family: var(--editrix-mono-font, Consolas, monospace);
         user-select: text;
         cursor: text;
+        align-items: flex-start;
       }
-      .editrix-widget-console .editrix-list-item-text {
-        white-space: pre-wrap;
-        overflow: visible;
-        text-overflow: unset;
+      .editrix-widget-console .editrix-list-item .editrix-list-item-text {
+        white-space: pre-wrap !important;
+        overflow: visible !important;
+        text-overflow: unset !important;
         word-break: break-all;
       }
       .editrix-console-info .editrix-list-item-icon { color: #3794ff; }

@@ -5,7 +5,7 @@
  * closes the launcher and opens the editor window.
  * Manages project creation on disk and launcher config persistence.
  */
-const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, protocol, net } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -926,9 +926,23 @@ ipcMain.handle('fs:unwatch', (_e, watchId) => {
   }
 });
 
+// ── Custom Protocol for WASM assets ────────────────────
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'estella',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+}]);
+
 // ── App Lifecycle ───────────────────────────────────────
 
 app.whenReady().then(() => {
+  // Serve files from the wasm/ directory via estella:// protocol
+  protocol.handle('estella', (request) => {
+    const url = new URL(request.url);
+    const filePath = path.join(__dirname, '..', 'wasm', decodeURIComponent(url.pathname));
+    return net.fetch('file://' + filePath.replace(/\\/g, '/'));
+  });
+
   Menu.setApplicationMenu(null);
   ensureDir(EDITRIX_HOME);
   createLauncherWindow();
