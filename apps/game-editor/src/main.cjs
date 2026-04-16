@@ -6,6 +6,7 @@
  * Manages project creation on disk and launcher config persistence.
  */
 const { app, BrowserWindow, Menu, ipcMain, dialog, protocol, net } = require('electron');
+const { pathToFileURL } = require('url');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -930,7 +931,7 @@ ipcMain.handle('fs:unwatch', (_e, watchId) => {
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'estella',
-  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+  privileges: { secure: true, supportFetchAPI: true, corsEnabled: true },
 }]);
 
 // ── App Lifecycle ───────────────────────────────────────
@@ -938,9 +939,13 @@ protocol.registerSchemesAsPrivileged([{
 app.whenReady().then(() => {
   // Serve files from the wasm/ directory via estella:// protocol
   protocol.handle('estella', (request) => {
-    const url = new URL(request.url);
-    const filePath = path.join(__dirname, '..', 'wasm', decodeURIComponent(url.pathname));
-    return net.fetch('file://' + filePath.replace(/\\/g, '/'));
+    // URL format: estella:///esengine.js  (non-standard scheme, no host)
+    // Strip scheme prefix to get the filename
+    const filename = request.url.replace(/^estella:\/\/\/?/, '');
+    const filePath = path.join(__dirname, '..', 'wasm', decodeURIComponent(filename));
+    const fileUrl = pathToFileURL(filePath).href;
+    console.log('[estella-protocol]', request.url, '->', fileUrl);
+    return net.fetch(fileUrl);
   });
 
   Menu.setApplicationMenu(null);

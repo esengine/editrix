@@ -94,19 +94,13 @@ export class EstellaService implements IEstellaService {
     }
 
     private async loadScript(url: string): Promise<(opts: Record<string, unknown>) => Promise<unknown>> {
-        // Emscripten outputs an async function (e.g. `async function ESEngineModule(...)`)
-        // as a plain script (not ESM export). Load via <script> tag so it registers
-        // on globalThis, which works reliably under Electron's file:// protocol.
-        // Emscripten output uses import.meta.url, so it must run as a module.
-        // We fetch the source, wrap it to export the factory, and import via Blob URL.
+        // Emscripten ESM output already has `export default ESEngineModule`.
+        // Fetch source, import via Blob URL (avoids file:// import restrictions).
         const response = await fetch(url);
         if (!response.ok) throw new Error(`Failed to fetch ${url}: ${response.status}`);
         const source = await response.text();
 
-        // The Emscripten output defines `async function ESEngineModule(...)`.
-        // Append an export so we can import it as a module.
-        const wrapped = source + '\nexport default ESEngineModule;\n';
-        const blob = new Blob([wrapped], { type: 'text/javascript' });
+        const blob = new Blob([source], { type: 'text/javascript' });
         const blobUrl = URL.createObjectURL(blob);
         try {
             const mod = await import(/* @vite-ignore */ blobUrl);
