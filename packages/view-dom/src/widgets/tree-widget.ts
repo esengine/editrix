@@ -67,6 +67,7 @@ export class TreeWidget extends BaseWidget {
   private readonly _onDidChangeSelection = new Emitter<readonly string[]>();
   private readonly _onDidChangeExpansion = new Emitter<{ id: string; expanded: boolean }>();
   private readonly _onDidChangeVisibility = new Emitter<{ id: string; visible: boolean }>();
+  private readonly _onDidRequestAdd = new Emitter<void>();
 
   /** Fired when the selection changes. */
   readonly onDidChangeSelection: Event<readonly string[]> = this._onDidChangeSelection.event;
@@ -76,6 +77,9 @@ export class TreeWidget extends BaseWidget {
 
   /** Fired when a node's visibility is toggled. */
   readonly onDidChangeVisibility: Event<{ id: string; visible: boolean }> = this._onDidChangeVisibility.event;
+
+  /** Fired when the "Add" button is clicked. */
+  readonly onDidRequestAdd: Event<void> = this._onDidRequestAdd.event;
 
   constructor(id: string, options: TreeWidgetOptions = {}) {
     super(id, 'tree');
@@ -200,6 +204,7 @@ export class TreeWidget extends BaseWidget {
       const addLabel = createElement('span');
       addLabel.textContent = this._options.addButtonLabel ?? 'Add Entity';
       addBtn.appendChild(addLabel);
+      addBtn.addEventListener('click', () => { this._onDidRequestAdd.fire(); });
     }
 
     this._listEl = this.appendElement(root, 'div', 'editrix-tree-list');
@@ -215,6 +220,7 @@ export class TreeWidget extends BaseWidget {
     this._onDidChangeSelection.dispose();
     this._onDidChangeExpansion.dispose();
     this._onDidChangeVisibility.dispose();
+    this._onDidRequestAdd.dispose();
     super.dispose();
   }
 

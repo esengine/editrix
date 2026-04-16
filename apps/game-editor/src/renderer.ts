@@ -371,6 +371,13 @@ const EditorPanelsPlugin: IPlugin = {
           scene.setNodeVisible(nodeId, visible);
         });
 
+        hierarchyTree.onDidRequestAdd(() => {
+          if (ecsScene) {
+            const entityId = ecsScene.createEntity('New Entity');
+            selection.select([String(entityId)]);
+          }
+        });
+
         return hierarchyTree;
       }),
     );
