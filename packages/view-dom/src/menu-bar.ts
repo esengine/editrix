@@ -275,9 +275,7 @@ export class MenuBar implements IDisposable {
     }
 
     // Right section: reuse existing or create new
-    if (!this._rightSection) {
-      this._rightSection = createElement('div', 'editrix-menubar-right');
-    }
+    this._rightSection ??= createElement('div', 'editrix-menubar-right');
     this._container.appendChild(this._rightSection);
   }
 

@@ -40,6 +40,14 @@ export { DomViewAdapter } from './dom-view-adapter.js';
 // Default styles
 export { injectDefaultStyles } from './default-styles.js';
 
+// Context menu
+export type { ContextMenuItem, ContextMenuOptions } from './context-menu.js';
+export { showContextMenu } from './context-menu.js';
+
+// Quick pick
+export type { QuickPickItem, QuickPickOptions } from './quick-pick.js';
+export { showQuickPick } from './quick-pick.js';
+
 // Widget primitives
 export { BaseWidget } from './widgets/base-widget.js';
 export type { ListItem, ListWidgetOptions } from './widgets/list-widget.js';

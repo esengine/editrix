@@ -57,17 +57,19 @@ export interface TreeWidgetOptions {
 export class TreeWidget extends BaseWidget {
   private readonly _options: TreeWidgetOptions;
   private _roots: readonly TreeNode[] = [];
-  private _expanded = new Set<string>();
+  private readonly _expanded = new Set<string>();
   private _selected = new Set<string>();
   private _focusedId: string | undefined;
   private _filterText = '';
-  private _hidden = new Set<string>();
+  private readonly _hidden = new Set<string>();
   private _listEl: HTMLElement | undefined;
 
   private readonly _onDidChangeSelection = new Emitter<readonly string[]>();
   private readonly _onDidChangeExpansion = new Emitter<{ id: string; expanded: boolean }>();
   private readonly _onDidChangeVisibility = new Emitter<{ id: string; visible: boolean }>();
   private readonly _onDidRequestAdd = new Emitter<void>();
+  private readonly _onDidRequestDelete = new Emitter<readonly string[]>();
+  private readonly _onDidRequestContextMenu = new Emitter<{ ids: readonly string[]; x: number; y: number }>();
 
   /** Fired when the selection changes. */
   readonly onDidChangeSelection: Event<readonly string[]> = this._onDidChangeSelection.event;
@@ -80,6 +82,12 @@ export class TreeWidget extends BaseWidget {
 
   /** Fired when the "Add" button is clicked. */
   readonly onDidRequestAdd: Event<void> = this._onDidRequestAdd.event;
+
+  /** Fired when Delete or Backspace is pressed with nodes selected. */
+  readonly onDidRequestDelete: Event<readonly string[]> = this._onDidRequestDelete.event;
+
+  /** Fired on right-click, providing selected IDs and mouse position. */
+  readonly onDidRequestContextMenu: Event<{ ids: readonly string[]; x: number; y: number }> = this._onDidRequestContextMenu.event;
 
   constructor(id: string, options: TreeWidgetOptions = {}) {
     super(id, 'tree');
@@ -221,6 +229,8 @@ export class TreeWidget extends BaseWidget {
     this._onDidChangeExpansion.dispose();
     this._onDidChangeVisibility.dispose();
     this._onDidRequestAdd.dispose();
+    this._onDidRequestDelete.dispose();
+    this._onDidRequestContextMenu.dispose();
     super.dispose();
   }
 
@@ -259,7 +269,8 @@ export class TreeWidget extends BaseWidget {
     const indent = this._options.indentSize ?? 16;
 
     for (let i = 0; i < nodes.length; i++) {
-      const node = nodes[i]!;
+      const node = nodes[i];
+      if (!node) continue;
       const isLastChild = i === nodes.length - 1;
       const hasChildren = node.children !== undefined && node.children.length > 0;
       const isExpanded = this._expanded.has(node.id);
@@ -338,6 +349,24 @@ export class TreeWidget extends BaseWidget {
         row.appendChild(eyeBtn);
       }
 
+      // Right-click = context menu
+      row.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        // If the right-clicked node isn't selected, select it first
+        if (!this._selected.has(node.id)) {
+          this._selected.clear();
+          this._selected.add(node.id);
+          this._focusedId = node.id;
+          this._render();
+          this._onDidChangeSelection.fire([...this._selected]);
+        }
+        this._onDidRequestContextMenu.fire({
+          ids: [...this._selected],
+          x: e.clientX,
+          y: e.clientY,
+        });
+      });
+
       // Click = select
       row.addEventListener('click', (e) => {
         this._handleRowClick(node.id, e);
@@ -354,7 +383,7 @@ export class TreeWidget extends BaseWidget {
       this._listEl?.appendChild(row);
 
       // Render children if expanded
-      if (hasChildren && isExpanded && node.children) {
+      if (hasChildren && isExpanded) {
         const childGuides = [...guides, !isLastChild];
         this._renderNodes(node.children, depth + 1, isHidden, childGuides);
       }
@@ -383,7 +412,7 @@ export class TreeWidget extends BaseWidget {
 
   private _handleKeyDown(e: KeyboardEvent): void {
     const flatIds = this._getFlatVisibleIds();
-    const currentIdx = this._focusedId ? flatIds.indexOf(this._focusedId) : -1;
+    const currentIdx = this._focusedId !== undefined ? flatIds.indexOf(this._focusedId) : -1;
 
     switch (e.key) {
       case 'ArrowDown': {
@@ -421,6 +450,14 @@ export class TreeWidget extends BaseWidget {
       case 'ArrowLeft': {
         if (this._focusedId) {
           this.collapse(this._focusedId);
+        }
+        break;
+      }
+      case 'Delete':
+      case 'Backspace': {
+        e.preventDefault();
+        if (this._selected.size > 0) {
+          this._onDidRequestDelete.fire([...this._selected]);
         }
         break;
       }

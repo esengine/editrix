@@ -176,6 +176,10 @@ export class ECSSceneService implements IECSSceneService {
 
     // ── Hierarchy ───────────────────────────────────────────
 
+    getParent(entityId: number): number | null {
+        return this._entities.get(entityId)?.parentId ?? null;
+    }
+
     getChildren(entityId: number): readonly number[] {
         return this._entities.get(entityId)?.childIds ?? [];
     }

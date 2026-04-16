@@ -21,7 +21,7 @@ import {
 import type { EditorInstance, IPlugin, IPluginContext } from '@editrix/shell';
 import { IFileSystemService } from '@editrix/core';
 import type { TreeNode } from '@editrix/view-dom';
-import { createIconElement, PropertyGridWidget, TreeWidget } from '@editrix/view-dom';
+import { createIconElement, PropertyGridWidget, showContextMenu, showQuickPick, TreeWidget } from '@editrix/view-dom';
 import { ContentBrowserWidget } from './content-browser-widget.js';
 import { LocalPluginScanner } from './local-plugin-scanner.js';
 import { ProjectFilesWidget } from './project-files-widget.js';
@@ -224,6 +224,55 @@ function ecsToTreeNodes(ecsScene: IECSSceneService, entityIds: readonly number[]
   });
 }
 
+// ─── Entity Snapshot for Undo ──────────────────────────
+
+interface EntitySnapshot {
+  readonly name: string;
+  readonly parentId: number | null;
+  readonly components: readonly string[];
+  readonly componentData: Record<string, Record<string, unknown>>;
+  readonly children: readonly EntitySnapshot[];
+}
+
+/** Recursively capture an entity's full state for undo. */
+function captureEntitySnapshot(ecsScene: IECSSceneService, entityId: number): EntitySnapshot {
+  const components = ecsScene.getComponents(entityId);
+  const componentData: Record<string, Record<string, unknown>> = {};
+  for (const comp of components) {
+    componentData[comp] = ecsScene.getComponentData(entityId, comp);
+  }
+  const childIds = ecsScene.getChildren(entityId);
+  return {
+    name: ecsScene.getName(entityId) || `Entity ${String(entityId)}`,
+    parentId: ecsScene.getParent(entityId),
+    components: [...components],
+    componentData,
+    children: childIds.map((id) => captureEntitySnapshot(ecsScene, id)),
+  };
+}
+
+/** Recursively restore an entity from a snapshot. Returns the new entity ID. */
+function restoreEntitySnapshot(
+  ecsScene: IECSSceneService,
+  snapshot: EntitySnapshot,
+  parentId?: number,
+): number {
+  const newId = ecsScene.createEntity(snapshot.name, parentId);
+  for (const comp of snapshot.components) {
+    if (comp === 'Transform') continue; // createEntity already adds Transform
+    ecsScene.addComponent(newId, comp);
+  }
+  for (const [comp, data] of Object.entries(snapshot.componentData)) {
+    for (const [field, value] of Object.entries(data)) {
+      ecsScene.setProperty(newId, comp, field, value);
+    }
+  }
+  for (const childSnapshot of snapshot.children) {
+    restoreEntitySnapshot(ecsScene, childSnapshot, newId);
+  }
+  return newId;
+}
+
 function sceneToTreeNodes(scene: ISceneService, nodeIds: readonly string[]): TreeNode[] {
   return nodeIds.map((id) => {
     const node = scene.getNode(id);
@@ -416,7 +465,86 @@ const EditorPanelsPlugin: IPlugin = {
           if (ecsScene) {
             const entityId = ecsScene.createEntity('New Entity');
             selection.select([String(entityId)]);
+            undoRedo.push({
+              label: 'Create Entity',
+              undo: () => { ecsScene!.destroyEntity(entityId); selection.clearSelection(); },
+              redo: () => {
+                const id = ecsScene!.createEntity('New Entity');
+                selection.select([String(id)]);
+              },
+            });
           }
+        });
+
+        // Delete entities (Delete key or context menu)
+        const deleteEntities = (ids: readonly string[]): void => {
+          if (!ecsScene || ids.length === 0) return;
+          // Filter to only root-level entities in the selection (skip children of selected parents)
+          const idSet = new Set(ids);
+          const toDelete = ids.filter((id) => {
+            const parentId = ecsScene!.getParent(Number(id));
+            return parentId === null || !idSet.has(String(parentId));
+          });
+          const snapshots = toDelete.map((id) => captureEntitySnapshot(ecsScene!, Number(id)));
+          const previousSelection = [...selection.getSelection()];
+          for (const id of toDelete) {
+            ecsScene.destroyEntity(Number(id));
+          }
+          selection.clearSelection();
+          undoRedo.push({
+            label: ids.length === 1 ? 'Delete Entity' : `Delete ${String(ids.length)} Entities`,
+            undo: () => {
+              const newIds: string[] = [];
+              for (const snapshot of snapshots) {
+                const newId = restoreEntitySnapshot(ecsScene!, snapshot, snapshot.parentId ?? undefined);
+                newIds.push(String(newId));
+              }
+              selection.select(newIds.length > 0 ? newIds : previousSelection);
+            },
+            redo: () => {
+              // Re-capture current entities by name match is fragile;
+              // just clear selection — the entities created by undo will be gone
+              const currentRoots = ecsScene!.getRootEntities();
+              // Delete the most recently created entities (last N)
+              const countToDelete = snapshots.length;
+              const tail = currentRoots.slice(-countToDelete);
+              for (const id of tail) {
+                ecsScene!.destroyEntity(id);
+              }
+              selection.clearSelection();
+            },
+          });
+        };
+
+        hierarchyTree.onDidRequestDelete((ids) => { deleteEntities(ids); });
+
+        hierarchyTree.onDidRequestContextMenu(({ ids, x, y }) => {
+          if (!ecsScene) return;
+          const singleId = ids[0];
+          showContextMenu({
+            x, y,
+            items: [
+              {
+                label: 'Add Child Entity', icon: 'plus',
+                disabled: ids.length !== 1,
+                onSelect: () => {
+                  if (!singleId) return;
+                  const childId = ecsScene!.createEntity('New Entity', Number(singleId));
+                  hierarchyTree!.expand(singleId);
+                  selection.select([String(childId)]);
+                },
+              },
+              { separator: true, label: '' },
+              { label: 'Rename', shortcut: 'F2', disabled: true },
+              { label: 'Duplicate', shortcut: 'Ctrl+D', disabled: true },
+              { separator: true, label: '' },
+              {
+                label: ids.length === 1 ? 'Delete' : `Delete (${String(ids.length)})`,
+                icon: 'x', shortcut: 'Del', destructive: true,
+                onSelect: () => { deleteEntities(ids); },
+              },
+            ],
+          });
         });
 
         return hierarchyTree;
@@ -511,6 +639,74 @@ const EditorPanelsPlugin: IPlugin = {
             }
           },
         });
+
+        // ── Add Component ──
+        inspectorGrid.onDidRequestAddComponent(() => {
+          const selectedId = selection.getSelection()[0];
+          if (!selectedId || !ecsScene) return;
+          const entityId = Number(selectedId);
+          const existing = new Set(ecsScene.getComponents(entityId));
+          const available = ecsScene.getAvailableComponents();
+
+          const anchor = inspectorGrid!.getRootElement()?.querySelector('.editrix-inspector-add-btn') as HTMLElement | null;
+          if (!anchor) return;
+
+          showQuickPick({
+            items: [...available].sort().map((name) => ({
+              id: name,
+              label: name,
+              disabled: existing.has(name),
+              description: existing.has(name) ? 'Already added' : undefined,
+            })),
+            anchor,
+            placeholder: 'Search components...',
+            onSelect: (item) => {
+              ecsScene!.addComponent(entityId, item.id);
+              undoRedo.push({
+                label: `Add ${item.id}`,
+                undo: () => { ecsScene!.removeComponent(entityId, item.id); },
+                redo: () => { ecsScene!.addComponent(entityId, item.id); },
+              });
+            },
+          });
+        });
+
+        // ── Component Card Menu (⋯) ──
+        inspectorGrid.onDidRequestComponentMenu(({ componentId, anchor }) => {
+          const selectedId = selection.getSelection()[0];
+          if (!selectedId || !ecsScene) return;
+          const entityId = Number(selectedId);
+          const isTransform = componentId === 'Transform';
+          const rect = anchor.getBoundingClientRect();
+
+          showContextMenu({
+            x: rect.right,
+            y: rect.bottom,
+            items: [
+              { label: 'Reset to Default', icon: 'refresh', disabled: true },
+              { separator: true, label: '' },
+              {
+                label: 'Remove Component', icon: 'x', destructive: true,
+                disabled: isTransform,
+                onSelect: () => {
+                  const data = ecsScene!.getComponentData(entityId, componentId);
+                  ecsScene!.removeComponent(entityId, componentId);
+                  undoRedo.push({
+                    label: `Remove ${componentId}`,
+                    undo: () => {
+                      ecsScene!.addComponent(entityId, componentId);
+                      for (const [field, value] of Object.entries(data)) {
+                        ecsScene!.setProperty(entityId, componentId, field, value);
+                      }
+                    },
+                    redo: () => { ecsScene!.removeComponent(entityId, componentId); },
+                  });
+                },
+              },
+            ],
+          });
+        });
+
         refreshInspector();
         return inspectorGrid;
       }),

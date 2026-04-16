@@ -149,7 +149,8 @@ export class LayoutRenderer implements IDisposable {
     const childEls: HTMLElement[] = [];
 
     for (let ci = 0; ci < node.children.length; ci++) {
-      const child = node.children[ci]!;
+      const child = node.children[ci];
+      if (!child) continue;
       const childWrapper = createElement('div', 'editrix-split-child');
       childWrapper.style.flex = String(child.weight);
 
@@ -343,7 +344,7 @@ export class LayoutRenderer implements IDisposable {
 
     // Drop zone overlay — 5 zones: top, bottom, left, right, center
     const overlay = createElement('div', 'editrix-drop-overlay');
-    const zones: Array<{ el: HTMLElement; side: 'left' | 'right' | 'top' | 'bottom' | 'center' }> = [];
+    const zones: { el: HTMLElement; side: 'left' | 'right' | 'top' | 'bottom' | 'center' }[] = [];
     for (const side of ['left', 'right', 'top', 'bottom', 'center'] as const) {
       const zone = createElement('div', `editrix-drop-zone editrix-drop-zone--${side}`);
       zone.dataset['side'] = side;
@@ -437,7 +438,7 @@ export class LayoutRenderer implements IDisposable {
         row.appendChild(createIconElement(item.icon, 14));
       }
       const lbl = createElement('span');
-      lbl.textContent = item.label!;
+      lbl.textContent = item.label ?? '';
       row.appendChild(lbl);
       row.addEventListener('click', () => { menu.remove(); });
       menu.appendChild(row);
@@ -460,7 +461,7 @@ export class LayoutRenderer implements IDisposable {
       menu.remove();
       document.removeEventListener('mousedown', close);
     };
-    setTimeout(() => document.addEventListener('mousedown', close), 0);
+    setTimeout(() => { document.addEventListener('mousedown', close); }, 0);
   }
 
   private _mountWidget(panelId: string, container: HTMLElement): void {

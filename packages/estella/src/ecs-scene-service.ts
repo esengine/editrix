@@ -58,6 +58,7 @@ export interface IECSSceneService extends IDisposable {
     destroyEntity(entityId: number): void;
 
     // Hierarchy
+    getParent(entityId: number): number | null;
     getChildren(entityId: number): readonly number[];
     getRootEntities(): readonly number[];
     reparent(entityId: number, newParentId: number | null): void;

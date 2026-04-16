@@ -279,6 +279,7 @@ export class SceneService implements ISceneService {
         visible: node.visible,
         properties: this.getProperties(node.id),
         ...(node.icon !== undefined ? { icon: node.icon } : {}),
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         ...(parentMap.has(node.id) ? { parentId: parentMap.get(node.id)! } : {}),
       };
       nodes.push(serialized);

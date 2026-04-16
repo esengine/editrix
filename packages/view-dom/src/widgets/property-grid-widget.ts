@@ -1,3 +1,5 @@
+import type { Event } from '@editrix/common';
+import { Emitter } from '@editrix/common';
 import type { PropertyDescriptor, PropertyGroup } from '@editrix/properties';
 import { createElement } from '../dom-utils.js';
 import { createIconElement, getIcon } from '../icons.js';
@@ -22,8 +24,18 @@ export class PropertyGridWidget extends BaseWidget {
   private readonly _onChange: PropertyChangeHandler | undefined;
   private _groups: readonly PropertyGroup[] = [];
   private _values: Record<string, unknown> = {};
-  private _collapsed = new Set<string>();
+  private readonly _collapsed = new Set<string>();
   private _contentEl: HTMLElement | undefined;
+
+  private readonly _onDidRequestAddComponent = new Emitter<void>();
+  private readonly _onDidRequestComponentMenu = new Emitter<{ componentId: string; anchor: HTMLElement }>();
+
+  /** Fired when the "Add Component" button is clicked. */
+  readonly onDidRequestAddComponent: Event<void> = this._onDidRequestAddComponent.event;
+
+  /** Fired when a component card's menu button (⋯) is clicked. */
+  readonly onDidRequestComponentMenu: Event<{ componentId: string; anchor: HTMLElement }> =
+    this._onDidRequestComponentMenu.event;
 
   constructor(id: string, options?: PropertyGridOptions) {
     super(id, 'property-grid');
@@ -71,6 +83,7 @@ export class PropertyGridWidget extends BaseWidget {
     const addLabel = createElement('span');
     addLabel.textContent = 'Add Component';
     addBtn.appendChild(addLabel);
+    addBtn.addEventListener('click', () => { this._onDidRequestAddComponent.fire(); });
 
     this._contentEl = this.appendElement(root, 'div', 'editrix-inspector');
     this._renderGrid();
@@ -121,6 +134,10 @@ export class PropertyGridWidget extends BaseWidget {
 
     const menu = createElement('span', 'editrix-inspector-card-menu');
     menu.textContent = '\u22EF';
+    menu.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._onDidRequestComponentMenu.fire({ componentId: group.id, anchor: menu });
+    });
     header.appendChild(menu);
 
     header.addEventListener('click', () => {
@@ -140,7 +157,8 @@ export class PropertyGridWidget extends BaseWidget {
       const props = group.properties;
       let i = 0;
       while (i < props.length) {
-        const p = props[i]!;
+        const p = props[i];
+        if (!p) break;
         if (p.key.endsWith('.r')) {
           // Color: r/g/b/a
           const base = p.key.replace(/\.r$/, '');
@@ -183,11 +201,11 @@ export class PropertyGridWidget extends BaseWidget {
   }
 
   /** Axis colors by index: X=red, Y=green, Z=blue, W=purple */
-  private static readonly _AXIS_COLORS = [
+  private static readonly _axisColors = [
     'var(--editrix-axis-x)', 'var(--editrix-axis-y)',
     'var(--editrix-axis-z)', 'var(--editrix-axis-w, #b080ff)',
   ];
-  private static readonly _AXIS_LABELS = ['X', 'Y', 'Z', 'W'];
+  private static readonly _axisLabels = ['X', 'Y', 'Z', 'W'];
 
   /** Render N-component vector property: label on own row, inputs below. vec4 uses 2×2 grid. */
   private _renderVectorNRow(label: string, props: PropertyDescriptor[]): HTMLElement {
@@ -201,13 +219,15 @@ export class PropertyGridWidget extends BaseWidget {
       // 2×2 grid for vec4
       const grid = createElement('div', 'editrix-inspector-vector-grid');
       for (let idx = 0; idx < 4; idx++) {
-        grid.appendChild(this._renderVectorField(props[idx]!, idx));
+        const p = props[idx];
+        if (p) grid.appendChild(this._renderVectorField(p, idx));
       }
       row.appendChild(grid);
     } else {
       const fields = createElement('div', 'editrix-inspector-vector-fields');
       for (let idx = 0; idx < props.length; idx++) {
-        fields.appendChild(this._renderVectorField(props[idx]!, idx));
+        const p = props[idx];
+        if (p) fields.appendChild(this._renderVectorField(p, idx));
       }
       row.appendChild(fields);
     }
@@ -217,10 +237,10 @@ export class PropertyGridWidget extends BaseWidget {
 
   private _renderVectorField(prop: PropertyDescriptor, idx: number): HTMLElement {
     const field = createElement('div', 'editrix-inspector-vector-field');
-    field.style.borderLeftColor = PropertyGridWidget._AXIS_COLORS[idx] ?? 'var(--editrix-text-dim)';
+    field.style.borderLeftColor = PropertyGridWidget._axisColors[idx] ?? 'var(--editrix-text-dim)';
 
     const axisLabel = createElement('span', 'editrix-inspector-axis-label');
-    axisLabel.textContent = PropertyGridWidget._AXIS_LABELS[idx] ?? '';
+    axisLabel.textContent = PropertyGridWidget._axisLabels[idx] ?? '';
     field.appendChild(axisLabel);
 
     const input = createElement('input', 'editrix-inspector-input editrix-inspector-vector-input');
@@ -250,10 +270,11 @@ export class PropertyGridWidget extends BaseWidget {
     // Color swatch (preview) — click to open custom picker
     const swatch = createElement('div', 'editrix-inspector-color-swatch');
 
+    const pR = props[0], pG2 = props[1], pB2 = props[2];
     const getRGB = (): [number, number, number] => [
-      Number(this._values[props[0]!.key] ?? 1),
-      Number(this._values[props[1]!.key] ?? 1),
-      Number(this._values[props[2]!.key] ?? 1),
+      Number(this._values[pR?.key ?? ''] ?? 1),
+      Number(this._values[pG2?.key ?? ''] ?? 1),
+      Number(this._values[pB2?.key ?? ''] ?? 1),
     ];
 
     const updateSwatch = (): void => {
@@ -265,9 +286,13 @@ export class PropertyGridWidget extends BaseWidget {
     const setRGBFromPicker = (r: number, g: number, b: number): void => {
       const vals = [r, g, b];
       for (let ci = 0; ci < 3; ci++) {
-        this._values[props[ci]!.key] = vals[ci]!;
-        this._fireChange(props[ci]!.key, vals[ci]!);
-        if (inputs[ci]) inputs[ci]!.value = String(parseFloat(vals[ci]!.toPrecision(4)));
+        const cp = props[ci];
+        const cv = vals[ci];
+        if (!cp || cv === undefined) continue;
+        this._values[cp.key] = cv;
+        this._fireChange(cp.key, cv);
+        const inp = inputs[ci];
+        if (inp) inp.value = String(parseFloat(cv.toPrecision(4)));
       }
       updateSwatch();
     };
@@ -285,12 +310,13 @@ export class PropertyGridWidget extends BaseWidget {
     const colors = ['#e05555', '#55b853', '#5588e0', '#aaaaaa'];
 
     for (let idx = 0; idx < 4; idx++) {
-      const prop = props[idx]!;
+      const prop = props[idx];
+      if (!prop) continue;
       const field = createElement('div', 'editrix-inspector-vector-field');
-      field.style.borderLeftColor = colors[idx]!;
+      field.style.borderLeftColor = colors[idx] ?? '#aaa';
 
       const axisLabel = createElement('span', 'editrix-inspector-axis-label');
-      axisLabel.textContent = labels[idx]!;
+      axisLabel.textContent = labels[idx] ?? '';
       field.appendChild(axisLabel);
 
       const input = createElement('input', 'editrix-inspector-input editrix-inspector-vector-input');
@@ -382,7 +408,7 @@ export class PropertyGridWidget extends BaseWidget {
       case 'string': {
         const input = createElement('input', 'editrix-inspector-input');
         input.type = 'text';
-        input.value = value as string ?? '';
+        input.value = (value as string | undefined) ?? '';
         input.readOnly = readOnly;
         input.addEventListener('change', () => { this._fireChange(prop.key, input.value); });
         wrapper.appendChild(input);
@@ -396,7 +422,7 @@ export class PropertyGridWidget extends BaseWidget {
         for (let ei = 0; ei < enumValues.length; ei++) {
           const opt = createElement('option');
           opt.value = String(ei);
-          opt.textContent = enumValues[ei]!;
+          opt.textContent = enumValues[ei] ?? '';
           if (ei === value) opt.selected = true;
           select.appendChild(opt);
         }
@@ -412,7 +438,7 @@ export class PropertyGridWidget extends BaseWidget {
         input.min = String(prop.min ?? 0);
         input.max = String(prop.max ?? 100);
         input.step = String(prop.step ?? 1);
-        input.value = String(value ?? 0);
+        input.value = String(Number(value ?? 0));
         input.readOnly = readOnly;
 
         const slider = createElement('input', 'editrix-inspector-slider');
@@ -420,7 +446,7 @@ export class PropertyGridWidget extends BaseWidget {
         slider.min = String(prop.min ?? 0);
         slider.max = String(prop.max ?? 100);
         slider.step = String(prop.step ?? 1);
-        slider.value = String(value ?? 0);
+        slider.value = String(Number(value ?? 0));
         slider.disabled = readOnly;
 
         slider.addEventListener('input', () => {
@@ -442,12 +468,12 @@ export class PropertyGridWidget extends BaseWidget {
         const row = createElement('div', 'editrix-inspector-color-row');
         const swatch = createElement('input', 'editrix-inspector-color');
         swatch.type = 'color';
-        swatch.value = value as string ?? '#000000';
+        swatch.value = (value as string | undefined) ?? '#000000';
         swatch.disabled = readOnly;
 
         const hex = createElement('input', 'editrix-inspector-input');
         hex.type = 'text';
-        hex.value = value as string ?? '#000000';
+        hex.value = (value as string | undefined) ?? '#000000';
         hex.readOnly = readOnly;
 
         swatch.addEventListener('input', () => {
@@ -486,7 +512,7 @@ export class PropertyGridWidget extends BaseWidget {
     label.addEventListener('mousedown', (startEvent) => {
       startEvent.preventDefault();
       const startX = startEvent.clientX;
-      const startValue = this._values[prop.key] as number ?? 0;
+      const startValue = (this._values[prop.key] as number | undefined) ?? 0;
       label.classList.add('editrix-inspector-label--dragging');
 
       const onMove = (e: MouseEvent): void => {
@@ -574,7 +600,7 @@ export class PropertyGridWidget extends BaseWidget {
     };
     svArea.addEventListener('mousedown', (e) => {
       e.preventDefault(); handleSV(e);
-      const onMove = (ev: MouseEvent): void => handleSV(ev);
+      const onMove = (ev: MouseEvent): void => { handleSV(ev); };
       const onUp = (): void => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
       document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
     });
@@ -591,7 +617,7 @@ export class PropertyGridWidget extends BaseWidget {
     };
     hueBar.addEventListener('mousedown', (e) => {
       e.preventDefault(); handleHue(e);
-      const onMove = (ev: MouseEvent): void => handleHue(ev);
+      const onMove = (ev: MouseEvent): void => { handleHue(ev); };
       const onUp = (): void => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
       document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
     });
@@ -618,7 +644,7 @@ export class PropertyGridWidget extends BaseWidget {
     toolbar.appendChild(modeSelect);
 
     // Eyedropper button
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     const hasEyeDropper = typeof (window as any).EyeDropper === 'function';
     const eyedropperBtn = createElement('button', 'editrix-cp-eyedropper-btn');
     eyedropperBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3L15 6"/></svg>';
@@ -626,7 +652,7 @@ export class PropertyGridWidget extends BaseWidget {
     if (!hasEyeDropper) eyedropperBtn.classList.add('editrix-cp-eyedropper-btn--disabled');
     else {
       eyedropperBtn.addEventListener('click', () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
         const ED = (window as any).EyeDropper as new () => { open(): Promise<{ sRGBHex: string }> };
         new ED().open().then((result) => {
           const hex = result.sRGBHex;
@@ -673,7 +699,7 @@ export class PropertyGridWidget extends BaseWidget {
         const row = createElement('div', 'editrix-cp-input-row');
         for (let i = 0; i < 3; i++) {
           const label = createElement('span', 'editrix-cp-field-label');
-          label.textContent = labels[i]!;
+          label.textContent = labels[i] ?? '';
           const input = createElement('input', 'editrix-cp-field-input');
           input.type = 'number';
           if (mode === 'rgb') { input.min = '0'; input.max = '255'; input.step = '1'; }
@@ -707,14 +733,16 @@ export class PropertyGridWidget extends BaseWidget {
           currentInputs[0].value = rgbToHex(nr, ng, nb);
       } else if (mode === 'rgb') {
         const vals = [Math.round(nr * 255), Math.round(ng * 255), Math.round(nb * 255)];
-        for (let i = 0; i < 3; i++)
-          if (currentInputs[i] && document.activeElement !== currentInputs[i])
-            currentInputs[i]!.value = String(vals[i]);
+        for (let i = 0; i < 3; i++) {
+          const inp = currentInputs[i];
+          if (inp && document.activeElement !== inp) inp.value = String(vals[i]);
+        }
       } else {
         const vals = [Math.round(hue * 360), Math.round(sat * 100), Math.round(val * 100)];
-        for (let i = 0; i < 3; i++)
-          if (currentInputs[i] && document.activeElement !== currentInputs[i])
-            currentInputs[i]!.value = String(vals[i]);
+        for (let i = 0; i < 3; i++) {
+          const inp = currentInputs[i];
+          if (inp && document.activeElement !== inp) inp.value = String(vals[i]);
+        }
       }
     };
 
@@ -759,7 +787,14 @@ export class PropertyGridWidget extends BaseWidget {
         document.removeEventListener('mousedown', closeOnClick);
       }
     };
-    requestAnimationFrame(() => document.addEventListener('mousedown', closeOnClick));
+    requestAnimationFrame(() => { document.addEventListener('mousedown', closeOnClick); });
+  }
+
+  override dispose(): void {
+    this._onDidRequestAddComponent.dispose();
+    this._onDidRequestComponentMenu.dispose();
+    this._colorPickerEl?.remove();
+    super.dispose();
   }
 
   private _fireChange(key: string, value: unknown): void {

@@ -161,7 +161,7 @@ export class UndoRedoService implements IUndoRedoService {
 
     // Undo in reverse order
     for (let i = entry.operations.length - 1; i >= 0; i--) {
-      entry.operations[i]!.undo();
+      entry.operations[i]?.undo();
     }
 
     this._redoStack.push(entry);
