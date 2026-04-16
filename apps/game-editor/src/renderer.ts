@@ -1,4 +1,5 @@
-import { IEstellaService, EstellaPlugin } from '@editrix/estella';
+import { IEstellaService, EstellaPlugin, IECSSceneService, ECSSceneService } from '@editrix/estella';
+import type { ComponentFieldSchema, ESEngineModule } from '@editrix/estella';
 import { IConsoleService } from '@editrix/plugin-console';
 import { PluginManagerPanelPlugin } from '@editrix/plugin-manager';
 import { SettingsPlugin } from '@editrix/plugin-settings';
@@ -152,6 +153,70 @@ function getApi(): ElectronAPI | undefined {
 
 // ─── Convert SceneService tree → TreeWidget TreeNode[] ───
 
+// ─── ECS → PropertyGroup conversion ────────────────────
+
+function fieldTypeToPropertyType(type: ComponentFieldSchema['type']): import('@editrix/properties').PropertyType {
+  switch (type) {
+    case 'float': return 'number';
+    case 'int': return 'number';
+    case 'bool': return 'boolean';
+    case 'color': return 'color';
+    case 'enum': return 'enum';
+    case 'string': return 'string';
+    case 'asset': return 'number';
+    case 'entity': return 'number';
+  }
+}
+
+function ecsToPropertyGroups(
+  ecsScene: IECSSceneService,
+  entityId: number,
+): { groups: import('@editrix/properties').PropertyGroup[]; values: Record<string, unknown> } {
+  const components = ecsScene.getComponents(entityId);
+  const groups: import('@editrix/properties').PropertyGroup[] = [];
+  const values: Record<string, unknown> = {};
+
+  for (const compName of components) {
+    const schema = ecsScene.getComponentSchema(compName);
+    if (schema.length === 0) continue;
+
+    groups.push({
+      id: compName,
+      label: compName,
+      properties: schema.map((f) => ({
+        key: `${compName}.${f.key}`,
+        label: f.label,
+        type: fieldTypeToPropertyType(f.type),
+        defaultValue: f.defaultValue,
+        min: f.min,
+        max: f.max,
+        step: f.step,
+        enumValues: f.enumValues,
+      })),
+    });
+
+    for (const f of schema) {
+      const fullKey = `${compName}.${f.key}`;
+      values[fullKey] = ecsScene.getProperty(entityId, compName, f.key);
+    }
+  }
+
+  return { groups, values };
+}
+
+// ─── Scene tree helpers ────────────────────────────────
+
+function ecsToTreeNodes(ecsScene: IECSSceneService, entityIds: readonly number[]): TreeNode[] {
+  return entityIds.map((id) => {
+    const children = ecsScene.getChildren(id);
+    return {
+      id: String(id),
+      label: ecsScene.getName(id) || `Entity ${String(id)}`,
+      children: children.length > 0 ? ecsToTreeNodes(ecsScene, children) : undefined,
+    };
+  });
+}
+
 function sceneToTreeNodes(scene: ISceneService, nodeIds: readonly string[]): TreeNode[] {
   return nodeIds.map((id) => {
     const node = scene.getNode(id);
@@ -180,10 +245,14 @@ const EditorPanelsPlugin: IPlugin = {
     const selection = ctx.services.get(ISelectionService);
     const api = getApi();
 
-    // ── Scene Service ──
+    // ── Scene Service (legacy, kept for document handler compatibility) ──
     const scene = new SceneService();
     ctx.subscriptions.add(scene);
     ctx.subscriptions.add(ctx.services.register(ISceneService, scene));
+
+    // ── ECS Scene Service (created when WASM is ready) ──
+    let ecsScene: ECSSceneService | undefined;
+    const estella = ctx.services.get(IEstellaService);
 
     // ── Document Service ──
     const documentService = new DocumentService(
@@ -231,27 +300,45 @@ const EditorPanelsPlugin: IPlugin = {
     );
 
     // ── Scene View ──
+    let sceneViewWidget: SceneViewWidget | undefined;
+
+    const initECSScene = (module: ESEngineModule): void => {
+      if (ecsScene) return;
+      // SceneView creates the registry; get it from the widget
+      const registry = sceneViewWidget?.getRegistry();
+      if (!registry) return;
+
+      ecsScene = new ECSSceneService(module, registry, () => sceneViewWidget?.requestRender());
+      ctx.subscriptions.add(ecsScene);
+      ctx.services.register(IECSSceneService, ecsScene);
+
+      // Wire ECS events to Hierarchy + Inspector refresh
+      ctx.subscriptions.add(ecsScene.onHierarchyChanged(() => { refreshHierarchy(); }));
+      ctx.subscriptions.add(ecsScene.onPropertyChanged(() => { refreshInspector(); }));
+      ctx.subscriptions.add(ecsScene.onComponentAdded(() => { refreshInspector(); }));
+      ctx.subscriptions.add(ecsScene.onComponentRemoved(() => { refreshInspector(); }));
+
+      refreshHierarchy();
+      refreshInspector();
+    };
+
     ctx.subscriptions.add(layout.registerPanel({ id: 'scene-view', title: 'Scene View', defaultRegion: 'center', closable: false, draggable: false }));
     ctx.subscriptions.add(view.registerFactory('scene-view', (id) => {
-      const widget = new SceneViewWidget(id);
+      sceneViewWidget = new SceneViewWidget(id);
 
-      // Connect to estella renderer when WASM module is ready
-      const estella = ctx.services.get(IEstellaService);
       if (estella.isReady && estella.module) {
-        widget.initRenderer(estella.module);
+        sceneViewWidget.initRenderer(estella.module);
+        initECSScene(estella.module);
       } else {
         const sub = estella.onReady((module) => {
-          widget.initRenderer(module);
+          sceneViewWidget?.initRenderer(module);
+          initECSScene(module);
           sub.dispose();
         });
         ctx.subscriptions.add(sub);
       }
 
-      // Re-render when scene changes
-      ctx.subscriptions.add(scene.onDidChangeScene(() => widget.requestRender()));
-      ctx.subscriptions.add(scene.onDidChangeProperty(() => widget.requestRender()));
-
-      return widget;
+      return sceneViewWidget;
     }));
 
     // ── Hierarchy ──
@@ -259,11 +346,13 @@ const EditorPanelsPlugin: IPlugin = {
 
     const refreshHierarchy = (): void => {
       if (!hierarchyTree) return;
-      const roots = sceneToTreeNodes(scene, scene.getRootIds());
-      hierarchyTree.setRoots(roots);
-      // Expand first root if any
-      const firstRoot = scene.getRootIds()[0];
-      if (firstRoot) hierarchyTree.expand(firstRoot);
+      if (ecsScene) {
+        const roots = ecsToTreeNodes(ecsScene, ecsScene.getRootEntities());
+        hierarchyTree.setRoots(roots);
+      } else {
+        const roots = sceneToTreeNodes(scene, scene.getRootIds());
+        hierarchyTree.setRoots(roots);
+      }
     };
 
     ctx.subscriptions.add(layout.registerPanel({ id: 'hierarchy', title: 'Hierarchy', defaultRegion: 'left' }));
@@ -297,19 +386,31 @@ const EditorPanelsPlugin: IPlugin = {
         return;
       }
 
-      const nodeId = selectedIds[0]!;
-      const node = scene.getNode(nodeId);
+      const selectedId = selectedIds[0]!;
+
+      // ECS path: entity selected
+      if (ecsScene) {
+        const entityId = Number(selectedId);
+        if (isNaN(entityId)) {
+          inspectorGrid.setData([], {});
+          return;
+        }
+        const { groups, values } = ecsToPropertyGroups(ecsScene, entityId);
+        inspectorGrid.setData(groups, values);
+        return;
+      }
+
+      // Legacy path: SceneService node selected
+      const node = scene.getNode(selectedId);
       if (!node) {
         inspectorGrid.setData([], {});
         return;
       }
-
       const schema = scene.getNodeTypeSchema(node.type);
       if (!schema) {
         inspectorGrid.setData([], {});
         return;
       }
-
       const groupMap = new Map<string, typeof schema.properties[number][]>();
       for (const prop of schema.properties) {
         const groupName = prop.group ?? 'Properties';
@@ -320,7 +421,6 @@ const EditorPanelsPlugin: IPlugin = {
         }
         arr.push(prop);
       }
-
       const groups = [...groupMap.entries()].map(([label, props]) => ({
         id: label.toLowerCase(),
         label,
@@ -336,8 +436,7 @@ const EditorPanelsPlugin: IPlugin = {
           enumValues: p.enumValues,
         })),
       }));
-
-      inspectorGrid.setData(groups, scene.getProperties(nodeId));
+      inspectorGrid.setData(groups, scene.getProperties(selectedId));
     };
 
     ctx.subscriptions.add(layout.registerPanel({ id: 'inspector', title: 'Inspector', defaultRegion: 'right' }));
@@ -346,9 +445,19 @@ const EditorPanelsPlugin: IPlugin = {
         inspectorGrid = new PropertyGridWidget(id, {
           onChange: (key, value) => {
             const selectedIds = selection.getSelection();
-            const nodeId = selectedIds[0];
-            if (nodeId) {
-              scene.setProperty(nodeId, key, value);
+            const selectedId = selectedIds[0];
+            if (!selectedId) return;
+
+            if (ecsScene) {
+              // ECS path: key format is "ComponentName.fieldPath"
+              const dotIdx = key.indexOf('.');
+              if (dotIdx > 0) {
+                const comp = key.substring(0, dotIdx);
+                const field = key.substring(dotIdx + 1);
+                ecsScene.setProperty(Number(selectedId), comp, field, value);
+              }
+            } else {
+              scene.setProperty(selectedId, key, value);
             }
           },
         });

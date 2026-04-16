@@ -166,6 +166,11 @@ export class SceneViewWidget extends BaseWidget {
     this.requestRender();
   }
 
+  /** Get the C++ registry (available after initRenderer). */
+  getRegistry(): CppRegistry | undefined {
+    return this._registry;
+  }
+
   /** Request a render on the next animation frame (coalesced) */
   requestRender(): void {
     if (this._renderRequested) return;
