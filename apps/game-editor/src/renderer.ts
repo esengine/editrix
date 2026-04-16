@@ -25,6 +25,8 @@ import { createIconElement, PropertyGridWidget, TreeWidget } from '@editrix/view
 import { ContentBrowserWidget } from './content-browser-widget.js';
 import { LocalPluginScanner } from './local-plugin-scanner.js';
 import { ProjectFilesWidget } from './project-files-widget.js';
+import { GameViewWidget } from './game-view-widget.js';
+import { SharedRenderContext } from './render-context.js';
 import { SceneViewWidget } from './scene-view-widget.js';
 
 // ─── Simple Input Dialog ────────────────────────────────
@@ -162,7 +164,7 @@ function fieldTypeToPropertyType(type: ComponentFieldSchema['type']): import('@e
     case 'float': return 'number';
     case 'int': return 'number';
     case 'bool': return 'boolean';
-    case 'color': return 'color';
+    case 'color': return 'number';
     case 'enum': return 'enum';
     case 'string': return 'string';
     case 'asset': return 'number';
@@ -174,7 +176,10 @@ function ecsToPropertyGroups(
   ecsScene: IECSSceneService,
   entityId: number,
 ): { groups: import('@editrix/properties').PropertyGroup[]; values: Record<string, unknown> } {
-  const components = ecsScene.getComponents(entityId);
+  const componentOrder: Record<string, number> = { Transform: 0 };
+  const components = [...ecsScene.getComponents(entityId)].sort((a, b) =>
+    (componentOrder[a] ?? 99) - (componentOrder[b] ?? 99),
+  );
   const groups: import('@editrix/properties').PropertyGroup[] = [];
   const values: Record<string, unknown> = {};
 
@@ -245,6 +250,7 @@ const EditorPanelsPlugin: IPlugin = {
     const layout = ctx.services.get(ILayoutService);
     const view = ctx.services.get(IViewService);
     const selection = ctx.services.get(ISelectionService);
+    const undoRedo = ctx.services.get(IUndoRedoService);
     const api = getApi();
 
     // ── Scene Service (legacy, kept for document handler compatibility) ──
@@ -301,16 +307,16 @@ const EditorPanelsPlugin: IPlugin = {
       }),
     );
 
-    // ── Scene View ──
-    let sceneViewWidget: SceneViewWidget | undefined;
+    // ── Shared Render Context ──
+    const renderContext = new SharedRenderContext();
+    ctx.subscriptions.add(renderContext);
 
     const initECSScene = (module: ESEngineModule): void => {
       if (ecsScene) return;
-      // SceneView creates the registry; get it from the widget
-      const registry = sceneViewWidget?.getRegistry();
+      const registry = renderContext.registry;
       if (!registry) return;
 
-      ecsScene = new ECSSceneService(module, registry, () => sceneViewWidget?.requestRender());
+      ecsScene = new ECSSceneService(module, registry, () => renderContext.requestRender());
       ctx.subscriptions.add(ecsScene);
       ctx.services.register(IECSSceneService, ecsScene);
 
@@ -320,27 +326,53 @@ const EditorPanelsPlugin: IPlugin = {
       ctx.subscriptions.add(ecsScene.onComponentAdded(() => { refreshInspector(); }));
       ctx.subscriptions.add(ecsScene.onComponentRemoved(() => { refreshInspector(); }));
 
+      // Create default scene: Camera (for Game View) + test Shape
+      const camId = ecsScene.createEntity('Main Camera');
+      ecsScene.addComponent(camId, 'Camera');
+      ecsScene.setProperty(camId, 'Camera', 'isActive', true);
+      ecsScene.setProperty(camId, 'Transform', 'position.z', 200);
+
+      const shapeId = ecsScene.createEntity('Test Shape');
+      ecsScene.addComponent(shapeId, 'ShapeRenderer');
+
+      sceneViewWidget?.setECSScene(ecsScene);
+
       refreshHierarchy();
       refreshInspector();
     };
 
+    const initRenderer = (module: ESEngineModule): void => {
+      if (!renderContext.init(module)) return;
+      initECSScene(module);
+    };
+
+    if (estella.isReady && estella.module) {
+      initRenderer(estella.module);
+    } else {
+      const sub = estella.onReady((module) => { initRenderer(module); sub.dispose(); });
+      ctx.subscriptions.add(sub);
+    }
+
+    // ── Scene View ──
+    let sceneViewWidget: SceneViewWidget | undefined;
+
     ctx.subscriptions.add(layout.registerPanel({ id: 'scene-view', title: 'Scene View', defaultRegion: 'center', closable: false, draggable: false }));
     ctx.subscriptions.add(view.registerFactory('scene-view', (id) => {
-      sceneViewWidget = new SceneViewWidget(id);
-
+      sceneViewWidget = new SceneViewWidget(id, renderContext, selection, undoRedo);
+      if (ecsScene) sceneViewWidget.setECSScene(ecsScene);
       if (estella.isReady && estella.module) {
-        sceneViewWidget.initRenderer(estella.module);
-        initECSScene(estella.module);
+        sceneViewWidget.initCamera(estella.module);
       } else {
-        const sub = estella.onReady((module) => {
-          sceneViewWidget?.initRenderer(module);
-          initECSScene(module);
-          sub.dispose();
-        });
+        const sub = estella.onReady((module) => { sceneViewWidget?.initCamera(module); sub.dispose(); });
         ctx.subscriptions.add(sub);
       }
-
       return sceneViewWidget;
+    }));
+
+    // ── Game View ──
+    ctx.subscriptions.add(layout.registerPanel({ id: 'game-view', title: 'Game View', defaultRegion: 'center', closable: false, draggable: false }));
+    ctx.subscriptions.add(view.registerFactory('game-view', (id) => {
+      return new GameViewWidget(id, renderContext);
     }));
 
     // ── Hierarchy ──
@@ -363,9 +395,18 @@ const EditorPanelsPlugin: IPlugin = {
         hierarchyTree = new TreeWidget(id, { showFilter: true, showVisibility: true, showAddButton: true, addButtonLabel: 'Add Entity' });
         refreshHierarchy();
 
+        let syncingSelection = false;
         hierarchyTree.onDidChangeSelection((ids) => {
+          if (syncingSelection) return;
           selection.select(ids);
         });
+
+        ctx.subscriptions.add(selection.onDidChangeSelection((ids) => {
+          if (!hierarchyTree) return;
+          syncingSelection = true;
+          hierarchyTree.setSelection(ids);
+          syncingSelection = false;
+        }));
 
         hierarchyTree.onDidChangeVisibility(({ id: nodeId, visible }) => {
           scene.setNodeVisible(nodeId, visible);
@@ -475,7 +516,10 @@ const EditorPanelsPlugin: IPlugin = {
       }),
     );
 
-    ctx.subscriptions.add(selection.onDidChangeSelection(() => { refreshInspector(); }));
+    ctx.subscriptions.add(selection.onDidChangeSelection(() => {
+      refreshInspector();
+      renderContext.requestRender(); // update selection highlight in Scene View
+    }));
     ctx.subscriptions.add(scene.onDidChangeProperty(() => { refreshInspector(); }));
 
     // ── Project Files ──
@@ -686,6 +730,13 @@ async function main(): Promise<void> {
     color: '#56b6c2',
     closable: false,
   }));
+  tabDisposables.set('game-view', editor.view.menuBar.addTab({
+    id: 'game-view',
+    label: 'Game View',
+    icon: 'play',
+    color: '#98c379',
+    closable: false,
+  }));
   editor.view.menuBar.setActiveTab('scene-view');
 
   documentService.onDidChangeDocuments(() => {
@@ -753,7 +804,7 @@ async function main(): Promise<void> {
   // ── Section C: Tab Interactions (user clicks) ──
 
   editor.view.menuBar.onDidSelectTab((tabId) => {
-    if (tabId === 'scene-view' || layoutPanelTabs.has(tabId)) {
+    if (tabId === 'scene-view' || tabId === 'game-view' || layoutPanelTabs.has(tabId)) {
       // Layout panel tab — switch the visible panel in layout
       editor.layout.activatePanel(tabId);
     } else {
@@ -898,7 +949,20 @@ async function main(): Promise<void> {
           direction: 'vertical',
           children: [
             {
-              node: { type: 'tab-group', panels: ['scene-view'], activeIndex: 0 },
+              node: {
+                type: 'split',
+                direction: 'horizontal',
+                children: [
+                  {
+                    node: { type: 'tab-group', panels: ['scene-view'], activeIndex: 0 },
+                    weight: 0.6,
+                  },
+                  {
+                    node: { type: 'tab-group', panels: ['game-view'], activeIndex: 0 },
+                    weight: 0.4,
+                  },
+                ],
+              },
               weight: 0.65,
             },
             {

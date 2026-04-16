@@ -16,6 +16,13 @@ export interface ESEngineModule {
     initRendererWithContext(contextHandle: number): boolean;
     shutdownRenderer(): void;
     renderFrame(registry: CppRegistry, width: number, height: number): void;
+    renderFrameWithMatrix(registry: CppRegistry, width: number, height: number, matrixPtr: number): void;
+
+    // Emscripten memory access
+    _malloc(size: number): number;
+    _free(ptr: number): void;
+    HEAPF32: Float32Array;
+
     GL: {
         registerContext(ctx: WebGLRenderingContext | WebGL2RenderingContext, attrs: Record<string, unknown>): number;
     };
