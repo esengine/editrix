@@ -1,4 +1,4 @@
-import type { IPlugin } from '@editrix/core';
+import type { IPlugin, IPluginContext } from '@editrix/core';
 import { IEstellaService, EstellaService } from './estella-service.js';
 
 /**
@@ -8,9 +8,9 @@ import { IEstellaService, EstellaService } from './estella-service.js';
 export const EstellaPlugin: IPlugin = {
     descriptor: {
         id: 'editrix.estella',
-        displayName: 'Estella Renderer',
+        version: '0.1.0',
     },
-    activate(ctx) {
+    activate(ctx: IPluginContext) {
         const service = new EstellaService();
         ctx.services.register(IEstellaService, service);
         ctx.subscriptions.add(service);
