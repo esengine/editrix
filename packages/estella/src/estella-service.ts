@@ -68,7 +68,7 @@ export const IEstellaService = createServiceId<IEstellaService>('IEstellaService
 
 export class EstellaService implements IEstellaService {
     private _module: ESEngineModule | undefined;
-    private _ready = new Emitter<ESEngineModule>();
+    private readonly _ready = new Emitter<ESEngineModule>();
     private _wasmBasePath = '';
 
     get module(): ESEngineModule | undefined { return this._module; }
@@ -83,7 +83,7 @@ export class EstellaService implements IEstellaService {
         const jsUrl = this._wasmBasePath + 'esengine.js';
         const wasmUrl = this._wasmBasePath + 'esengine.wasm';
 
-        const factory = await this.loadScript(jsUrl);
+        const factory = await this._loadScript(jsUrl);
 
         this._module = await factory({
             locateFile: (file: string) => {
@@ -123,7 +123,7 @@ export class EstellaService implements IEstellaService {
         }
     }
 
-    private async loadScript(url: string): Promise<(opts: Record<string, unknown>) => Promise<unknown>> {
+    private async _loadScript(url: string): Promise<(opts: Record<string, unknown>) => Promise<unknown>> {
         // Emscripten ESM output already has `export default ESEngineModule`.
         // Fetch source, import via Blob URL (avoids file:// import restrictions).
         const response = await fetch(url);
@@ -133,7 +133,11 @@ export class EstellaService implements IEstellaService {
         const blob = new Blob([source], { type: 'text/javascript' });
         const blobUrl = URL.createObjectURL(blob);
         try {
-            const mod = await import(/* @vite-ignore */ blobUrl);
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- dynamic import returns any
+            const mod: { default?: unknown } = await import(/* @vite-ignore */ blobUrl);
+            if (typeof mod.default !== 'function') {
+                throw new Error('Emscripten module did not export a default factory function');
+            }
             return mod.default as (opts: Record<string, unknown>) => Promise<unknown>;
         } finally {
             URL.revokeObjectURL(blobUrl);

@@ -31,21 +31,21 @@ interface EntityMeta {
  * and delegates component CRUD + property access to WASM.
  */
 export class ECSSceneService implements IECSSceneService {
-    private _module: ESEngineModule;
-    private _registry: CppRegistry;
-    private _entities = new Map<number, EntityMeta>();
+    private readonly _module: ESEngineModule;
+    private readonly _registry: CppRegistry;
+    private readonly _entities = new Map<number, EntityMeta>();
     private _rootIds: number[] = [];
-    private _schemas = new Map<string, ComponentFieldSchema[]>();
+    private readonly _schemas = new Map<string, ComponentFieldSchema[]>();
     private _availableComponents: string[] = [];
-    private _renderCallback: (() => void) | undefined;
+    private readonly _renderCallback: (() => void) | undefined;
 
     // Events
-    private _onEntityCreated = new Emitter<EntityEvent>();
-    private _onEntityDestroyed = new Emitter<{ entityId: number }>();
-    private _onComponentAdded = new Emitter<ComponentEvent>();
-    private _onComponentRemoved = new Emitter<ComponentEvent>();
-    private _onPropertyChanged = new Emitter<PropertyEvent>();
-    private _onHierarchyChanged = new Emitter<void>();
+    private readonly _onEntityCreated = new Emitter<EntityEvent>();
+    private readonly _onEntityDestroyed = new Emitter<{ entityId: number }>();
+    private readonly _onComponentAdded = new Emitter<ComponentEvent>();
+    private readonly _onComponentRemoved = new Emitter<ComponentEvent>();
+    private readonly _onPropertyChanged = new Emitter<PropertyEvent>();
+    private readonly _onHierarchyChanged = new Emitter<void>();
 
     readonly onEntityCreated = this._onEntityCreated.event;
     readonly onEntityDestroyed = this._onEntityDestroyed.event;
@@ -69,7 +69,7 @@ export class ECSSceneService implements IECSSceneService {
         for (const name of this._availableComponents) {
             const json = this._module.editor_getComponentSchema(name);
             try {
-                const raw = JSON.parse(json) as Array<{ key: string; type: string; group: string }>;
+                const raw = JSON.parse(json) as { key: string; type: string; group: string }[];
                 const fields: ComponentFieldSchema[] = raw.map((f) => ({
                     key: f.key,
                     label: this._humanize(f.key),
@@ -85,7 +85,8 @@ export class ECSSceneService implements IECSSceneService {
     }
 
     private _humanize(key: string): string {
-        const leaf = key.includes('.') ? key.split('.').pop()! : key;
+        const parts = key.split('.');
+        const leaf = parts.length > 1 ? parts[parts.length - 1] ?? key : key;
         return leaf
             .replace(/([a-z])([A-Z])/g, '$1 $2')
             .replace(/[_-]/g, ' ')
@@ -129,7 +130,7 @@ export class ECSSceneService implements IECSSceneService {
         };
         this._entities.set(entityId, meta);
 
-        if (parentId != null) {
+        if (parentId !== undefined) {
             const parentMeta = this._entities.get(parentId);
             if (parentMeta) {
                 parentMeta.childIds.push(entityId);
@@ -155,7 +156,7 @@ export class ECSSceneService implements IECSSceneService {
         }
 
         // Remove from parent
-        if (meta.parentId != null) {
+        if (meta.parentId !== null) {
             const parentMeta = this._entities.get(meta.parentId);
             if (parentMeta) {
                 parentMeta.childIds = parentMeta.childIds.filter((id) => id !== entityId);
@@ -187,7 +188,7 @@ export class ECSSceneService implements IECSSceneService {
         if (!meta) return;
 
         // Remove from old parent
-        if (meta.parentId != null) {
+        if (meta.parentId !== null) {
             const oldParent = this._entities.get(meta.parentId);
             if (oldParent) {
                 oldParent.childIds = oldParent.childIds.filter((id) => id !== entityId);
@@ -198,7 +199,7 @@ export class ECSSceneService implements IECSSceneService {
 
         // Add to new parent
         meta.parentId = newParentId;
-        if (newParentId != null) {
+        if (newParentId !== null) {
             const newParent = this._entities.get(newParentId);
             if (newParent) {
                 newParent.childIds.push(entityId);
@@ -297,6 +298,9 @@ export class ECSSceneService implements IECSSceneService {
             case 'bool':
                 success = this._module.editor_setBool(this._registry, entityId, componentName, fieldPath, value as boolean);
                 break;
+            case 'string':
+                // String properties not yet supported in editor API
+                break;
         }
 
         if (success) {
@@ -371,12 +375,14 @@ export class ECSSceneService implements IECSSceneService {
 
         // Phase 2: establish hierarchy
         for (const entityData of data.entities) {
-            const entityId = idMap.get(entityData.id)!;
+            const entityId = idMap.get(entityData.id);
+            if (entityId === undefined) continue;
             for (const childSerializedId of entityData.children) {
                 const childId = idMap.get(childSerializedId);
-                if (childId != null) {
-                    const meta = this._entities.get(entityId)!;
-                    const childMeta = this._entities.get(childId)!;
+                if (childId === undefined) continue;
+                const meta = this._entities.get(entityId);
+                const childMeta = this._entities.get(childId);
+                if (meta && childMeta) {
                     meta.childIds.push(childId);
                     childMeta.parentId = entityId;
                     this._registry.setParent(childId, entityId);
@@ -387,16 +393,18 @@ export class ECSSceneService implements IECSSceneService {
         // Compute roots
         this._rootIds = [];
         for (const entityData of data.entities) {
-            const entityId = idMap.get(entityData.id)!;
-            const meta = this._entities.get(entityId)!;
-            if (meta.parentId == null) {
+            const entityId = idMap.get(entityData.id);
+            if (entityId === undefined) continue;
+            const meta = this._entities.get(entityId);
+            if (meta?.parentId === null) {
                 this._rootIds.push(entityId);
             }
         }
 
         // Phase 3: add components and set properties
         for (const entityData of data.entities) {
-            const entityId = idMap.get(entityData.id)!;
+            const entityId = idMap.get(entityData.id);
+            if (entityId === undefined) continue;
             for (const [compName, compData] of Object.entries(entityData.components)) {
                 this._module.editor_addComponent(this._registry, entityId, compName);
                 for (const [field, value] of Object.entries(compData)) {
