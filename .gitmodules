@@ -1,0 +1,3 @@
+[submodule "vendor/estella"]
+	path = vendor/estella
+	url = https://github.com/esengine/estella.git
