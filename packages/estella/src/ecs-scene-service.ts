@@ -2,7 +2,7 @@ import { createServiceId, type IDisposable, type Event } from '@editrix/common';
 
 // ─── Field Schema ──────────────────────────────────────────
 
-export type FieldType = 'number' | 'boolean' | 'string' | 'color' | 'enum' | 'asset' | 'entity';
+export type FieldType = 'float' | 'int' | 'bool' | 'string' | 'color' | 'enum' | 'asset' | 'entity';
 
 export interface ComponentFieldSchema {
     readonly key: string;

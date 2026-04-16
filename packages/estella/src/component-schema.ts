@@ -66,10 +66,10 @@ function deriveField(
 
     // Infer from value type
     if (typeof value === 'number') {
-        return [{ key, label: humanize(key), type: 'number', defaultValue: value, group }];
+        return [{ key, label: humanize(key), type: 'float', defaultValue: value, group }];
     }
     if (typeof value === 'boolean') {
-        return [{ key, label: humanize(key), type: 'boolean', defaultValue: value, group }];
+        return [{ key, label: humanize(key), type: 'bool', defaultValue: value, group }];
     }
     if (typeof value === 'string') {
         return [{ key, label: humanize(key), type: 'string', defaultValue: value, group }];
@@ -80,7 +80,7 @@ function deriveField(
         return ['x', 'y', 'z', 'w'].map((c) => ({
             key: `${key}.${c}`,
             label: `${humanize(key)} ${c.toUpperCase()}`,
-            type: 'number' as FieldType,
+            type: 'float' as FieldType,
             defaultValue: (value as Record<string, number>)[c],
             group,
         }));
@@ -89,7 +89,7 @@ function deriveField(
         return ['x', 'y', 'z'].map((c) => ({
             key: `${key}.${c}`,
             label: `${humanize(key)} ${c.toUpperCase()}`,
-            type: 'number' as FieldType,
+            type: 'float' as FieldType,
             defaultValue: (value as Record<string, number>)[c],
             group,
         }));
@@ -98,7 +98,7 @@ function deriveField(
         return ['x', 'y'].map((c) => ({
             key: `${key}.${c}`,
             label: `${humanize(key)} ${c.toUpperCase()}`,
-            type: 'number' as FieldType,
+            type: 'float' as FieldType,
             defaultValue: (value as Record<string, number>)[c],
             group,
         }));

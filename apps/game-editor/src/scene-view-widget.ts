@@ -1,5 +1,5 @@
 import { BaseWidget, createIconElement, registerIcon } from '@editrix/view-dom';
-import type { ESEngineModule } from '@editrix/estella';
+import type { ESEngineModule, CppRegistry } from '@editrix/estella';
 
 // ─── Register tool icons ────────────────────────────────
 
@@ -29,7 +29,7 @@ export class SceneViewWidget extends BaseWidget {
   private _glContext: WebGL2RenderingContext | null = null;
   private _glContextHandle = 0;
   private _module: ESEngineModule | undefined;
-  private _registry: unknown | undefined;
+  private _registry: CppRegistry | undefined;
   private _renderRequested = false;
 
   constructor(id: string) {
