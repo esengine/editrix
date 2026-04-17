@@ -600,16 +600,21 @@ export class TreeWidget extends BaseWidget {
         display: flex; align-items: center; justify-content: center;
         gap: 6px;
         margin: 4px 8px; padding: 5px 0;
-        background: rgba(255,255,255,0.06);
-        border: 1px solid var(--editrix-border);
+        background: rgba(255,255,255,0.08);
+        border: 1px dashed rgba(255,255,255,0.15);
         border-radius: 4px;
-        color: var(--editrix-text-dim);
+        color: var(--editrix-text);
         font-family: inherit; font-size: 12px;
         cursor: pointer; flex-shrink: 0;
+        transition: background 0.1s, border-color 0.1s;
       }
       .editrix-tree-add-btn:hover {
-        background: rgba(255,255,255,0.1);
-        color: var(--editrix-text);
+        background: rgba(74, 143, 255, 0.12);
+        border-color: var(--editrix-accent);
+        color: var(--editrix-accent);
+      }
+      .editrix-tree-add-btn:active {
+        background: rgba(74, 143, 255, 0.18);
       }
 
       /* ── Filter ── */
