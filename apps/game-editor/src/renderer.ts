@@ -351,6 +351,17 @@ const EditorPanelsPlugin: IPlugin = {
     const selection = ctx.services.get(ISelectionService);
     const undoRedo = ctx.services.get(IUndoRedoService);
     const api = getApi();
+    // Resolved lazily because the IConsoleService registration may
+    // happen in a sibling plugin that activates after us.
+    const logError = (msg: string, source = 'editor'): void => {
+      try {
+        ctx.services.get(IConsoleService).log('error', msg, source);
+      } catch {
+        // consoleService not yet available — fall back.
+        // eslint-disable-next-line no-console
+        console.error(`[${source}] ${msg}`);
+      }
+    };
 
     // ── Scene Service (legacy, kept for document handler compatibility) ──
     const scene = new SceneService();
@@ -723,16 +734,15 @@ const EditorPanelsPlugin: IPlugin = {
             anchor,
             placeholder: 'Search components...',
             onSelect: (item) => {
-              // eslint-disable-next-line no-console
-              console.log('[add-component] onSelect', item.id, 'entity=', entityId);
+              // Wrap addComponent so a throw from the ECS side surfaces
+              // in the editor's console panel instead of failing silently
+              // — that silent failure was the symptom of the original
+              // 'click does nothing' bug.
               try {
                 ecs.addComponent(entityId, item.id);
-                // eslint-disable-next-line no-console
-                console.log('[add-component] ecs.addComponent returned, components now:',
-                  ecs.getComponents(entityId));
               } catch (err) {
-                // eslint-disable-next-line no-console
-                console.error('[add-component] addComponent threw', err);
+                logError(`Add ${item.id}: ${err instanceof Error ? err.message : String(err)}`,
+                  'add-component');
                 return;
               }
               undoRedo.push({

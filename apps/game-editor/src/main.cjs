@@ -506,10 +506,6 @@ function createEditorWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
-  // TEMP: open devtools so quick-pick / addComponent debug logs are
-  // visible. Remove once editor bug (add-component) is diagnosed.
-  mainWindow.webContents.openDevTools({ mode: 'detach' });
-
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
