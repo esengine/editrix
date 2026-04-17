@@ -137,7 +137,15 @@ export function showQuickPick(options: QuickPickOptions): void {
         // doesn't change until the user types; using `i` in the closure
         // is stable for the life of this row instance.
         const rowIndex = i;
+        row.addEventListener('pointerdown', (e) => {
+          // DIAGNOSTIC: fires before click. If this logs but click
+          // below doesn't, something is cancelling the gesture.
+          // eslint-disable-next-line no-console
+          console.log('[quick-pick] pointerdown', item.id, 'target=', e.target);
+        });
         row.addEventListener('click', (e) => {
+          // eslint-disable-next-line no-console
+          console.log('[quick-pick] click', item.id);
           e.stopPropagation();
           closeActivePopup();
           onSelect(item);
@@ -234,7 +242,10 @@ export function showQuickPick(options: QuickPickOptions): void {
 
   // ── Close on click-outside ──
   const onMouseDown = (e: MouseEvent): void => {
-    if (!popup.contains(e.target as Node)) {
+    const inside = popup.contains(e.target as Node);
+    // eslint-disable-next-line no-console
+    console.log('[quick-pick] doc mousedown target=', e.target, 'inside=', inside);
+    if (!inside) {
       closeActivePopup();
     }
   };

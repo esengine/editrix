@@ -700,7 +700,18 @@ const EditorPanelsPlugin: IPlugin = {
             anchor,
             placeholder: 'Search components...',
             onSelect: (item) => {
-              ecs.addComponent(entityId, item.id);
+              // eslint-disable-next-line no-console
+              console.log('[add-component] onSelect', item.id, 'entity=', entityId);
+              try {
+                ecs.addComponent(entityId, item.id);
+                // eslint-disable-next-line no-console
+                console.log('[add-component] ecs.addComponent returned, components now:',
+                  ecs.getComponents(entityId));
+              } catch (err) {
+                // eslint-disable-next-line no-console
+                console.error('[add-component] addComponent threw', err);
+                return;
+              }
               undoRedo.push({
                 label: `Add ${item.id}`,
                 undo: () => { ecs.removeComponent(entityId, item.id); },
