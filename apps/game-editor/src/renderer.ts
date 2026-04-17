@@ -198,13 +198,15 @@ const componentIconMap: Record<string, string> = {
   LayoutGroup: 'layout',
 };
 
-// Components pinned to the top of the inspector, in this exact order.
-// Everything else sorts alphabetically below the pinned list.
-// Rationale: Transform/UIRect are the layout anchors; the visual trio
-// (Sprite/Image/Text/UIRenderer) reads next; Camera/Canvas sit under
-// that because they configure the rendering context. The rest
-// (gameplay scripts, physics bodies, audio sources, user components)
-// go alphabetical so "Add Component" doesn't scroll the panel around.
+// Default priority for components the user didn't add themselves — i.e.
+// what a freshly-deserialized entity comes with. Transform/UIRect are
+// layout anchors; visual trio (Sprite/Image/Text/UIRenderer) next;
+// Camera/Canvas after. Everything else falls through to alphabetical.
+// Once the user starts adding components by hand, the inspector tracks
+// insertion order per entity (see `computeInspectorOrder` in the
+// EditorPanelsPlugin) so a new component always lands at the end of
+// the card list, not in its alphabetical position (which would move
+// the inspector's scroll out from under the user).
 const COMPONENT_ORDER_PRIORITY: Record<string, number> = {
   Transform:   0,
   UIRect:      1,
@@ -217,11 +219,8 @@ const COMPONENT_ORDER_PRIORITY: Record<string, number> = {
   Canvas:      21,
 };
 
-function ecsToPropertyGroups(
-  ecsScene: IECSSceneService,
-  entityId: number,
-): { groups: PropertyGroup[]; values: Record<string, unknown> } {
-  const components = [...ecsScene.getComponents(entityId)].sort((a, b) => {
+function sortByDefaultPriority(components: readonly string[]): string[] {
+  return [...components].sort((a, b) => {
     const pa = COMPONENT_ORDER_PRIORITY[a];
     const pb = COMPONENT_ORDER_PRIORITY[b];
     if (pa !== undefined && pb !== undefined) return pa - pb;
@@ -229,6 +228,29 @@ function ecsToPropertyGroups(
     if (pb !== undefined) return 1;
     return a.localeCompare(b);
   });
+}
+
+function ecsToPropertyGroups(
+  ecsScene: IECSSceneService,
+  entityId: number,
+  // Optional explicit ordering — used by the inspector to preserve
+  // the user's insertion order. Components in `order` that aren't
+  // actually on the entity are skipped; components on the entity
+  // that aren't in `order` fall through the default priority sort
+  // and are appended after.
+  order?: readonly string[],
+): { groups: PropertyGroup[]; values: Record<string, unknown> } {
+  const live = [...ecsScene.getComponents(entityId)];
+  let components: string[];
+  if (order && order.length > 0) {
+    const liveSet = new Set(live);
+    const ordered = order.filter((name) => liveSet.has(name));
+    const orderedSet = new Set(ordered);
+    const extras = sortByDefaultPriority(live.filter((name) => !orderedSet.has(name)));
+    components = [...ordered, ...extras];
+  } else {
+    components = sortByDefaultPriority(live);
+  }
   const groups: PropertyGroup[] = [];
   const values: Record<string, unknown> = {};
 
@@ -553,6 +575,7 @@ const EditorPanelsPlugin: IPlugin = {
           const previousSelection = [...selection.getSelection()];
           for (const id of toDelete) {
             ecs.destroyEntity(Number(id));
+            inspectorOrderByEntity.delete(Number(id));
           }
           selection.clearSelection();
           undoRedo.push({
@@ -622,6 +645,29 @@ const EditorPanelsPlugin: IPlugin = {
     // ── Inspector ──
     let inspectorGrid: PropertyGridWidget | undefined;
 
+    // Per-entity record of the order the inspector has been showing
+    // components in. Built-ins (what the entity was deserialized with)
+    // get sorted by COMPONENT_ORDER_PRIORITY on first inspection and
+    // the result is captured here; each subsequent addComponent
+    // appends to the tail, so new cards always land at the end of
+    // the panel instead of jumping to an alphabetical slot.
+    // Survives for the lifetime of this editor session; not persisted.
+    // Cleared when an entity is despawned.
+    const inspectorOrderByEntity = new Map<number, string[]>();
+
+    const appendToInspectorOrder = (entityId: number, compName: string): void => {
+      const existing = inspectorOrderByEntity.get(entityId);
+      if (!existing) return; // entity not yet inspected, will seed on first refresh
+      if (!existing.includes(compName)) existing.push(compName);
+    };
+
+    const dropFromInspectorOrder = (entityId: number, compName: string): void => {
+      const existing = inspectorOrderByEntity.get(entityId);
+      if (!existing) return;
+      const idx = existing.indexOf(compName);
+      if (idx >= 0) existing.splice(idx, 1);
+    };
+
     const refreshInspector = (): void => {
       if (!inspectorGrid) return;
       const selectedIds = selection.getSelection();
@@ -643,7 +689,16 @@ const EditorPanelsPlugin: IPlugin = {
           inspectorGrid.setData([], {});
           return;
         }
-        const { groups, values } = ecsToPropertyGroups(ecsScene, entityId);
+        // First time we see this entity, seed the tracked order from
+        // the default priority sort; thereafter it's driven by user
+        // actions (addComponent appends). Either way we hand the
+        // resolved order to ecsToPropertyGroups which preserves it.
+        let tracked = inspectorOrderByEntity.get(entityId);
+        if (!tracked) {
+          tracked = sortByDefaultPriority(ecsScene.getComponents(entityId));
+          inspectorOrderByEntity.set(entityId, tracked);
+        }
+        const { groups, values } = ecsToPropertyGroups(ecsScene, entityId, tracked);
         inspectorGrid.setData(groups, values);
         return;
       }
@@ -745,10 +800,18 @@ const EditorPanelsPlugin: IPlugin = {
                   'add-component');
                 return;
               }
+              // Pin the new card to the end of the inspector for this
+              // entity (the priority-based default sort would have put
+              // it alphabetically; user wants "new always last" so they
+              // can eyeball what just got added).
+              appendToInspectorOrder(entityId, item.id);
               undoRedo.push({
                 label: `Add ${item.id}`,
                 undo: () => { ecs.removeComponent(entityId, item.id); },
-                redo: () => { ecs.addComponent(entityId, item.id); },
+                redo: () => {
+                  ecs.addComponent(entityId, item.id);
+                  appendToInspectorOrder(entityId, item.id);
+                },
               });
             },
           });
@@ -775,6 +838,7 @@ const EditorPanelsPlugin: IPlugin = {
                 onSelect: () => {
                   const data = ecs.getComponentData(entityId, componentId);
                   ecs.removeComponent(entityId, componentId);
+                  dropFromInspectorOrder(entityId, componentId);
                   undoRedo.push({
                     label: `Remove ${componentId}`,
                     undo: () => {
@@ -782,8 +846,17 @@ const EditorPanelsPlugin: IPlugin = {
                       for (const [field, value] of Object.entries(data)) {
                         ecs.setProperty(entityId, componentId, field, value);
                       }
+                      // Undoing a remove appends the component back to
+                      // the tail of the inspector list rather than
+                      // restoring the original slot. We don't track
+                      // pre-remove position; users who care can drag
+                      // once drag-to-reorder lands.
+                      appendToInspectorOrder(entityId, componentId);
                     },
-                    redo: () => { ecs.removeComponent(entityId, componentId); },
+                    redo: () => {
+                      ecs.removeComponent(entityId, componentId);
+                      dropFromInspectorOrder(entityId, componentId);
+                    },
                   });
                 },
               },
