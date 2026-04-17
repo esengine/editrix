@@ -258,10 +258,11 @@ function ecsToPropertyGroups(
     const schema = ecsScene.getComponentSchema(compName);
     if (schema.length === 0) continue;
 
+    const icon = componentIconMap[compName];
     groups.push({
       id: compName,
       label: compName,
-      icon: componentIconMap[compName],
+      ...(icon !== undefined ? { icon } : {}),
       properties: schema.map((f) => ({
         key: `${compName}.${f.key}`,
         label: f.label,
@@ -784,7 +785,7 @@ const EditorPanelsPlugin: IPlugin = {
               label: name,
               icon: componentIconMap[name] ?? 'component',
               disabled: existing.has(name),
-              description: existing.has(name) ? 'Already added' : undefined,
+              ...(existing.has(name) ? { description: 'Already added' } : {}),
             })),
             anchor,
             placeholder: 'Search components...',
