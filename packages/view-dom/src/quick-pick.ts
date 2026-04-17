@@ -70,8 +70,23 @@ export function showQuickPick(options: QuickPickOptions): void {
   let filtered = [...items];
   let selectedIndex = findFirstEnabled(filtered, 0, 1);
 
+  // Row DOM nodes indexed by the position in `filtered`. Kept so we can
+  // update only the --selected class instead of rebuilding the list on
+  // every hover — a full rebuild destroys the element the user was
+  // mousing down on and the click gesture never completes.
+  let rowEls: (HTMLElement | null)[] = [];
+
+  const updateSelectedClass = (): void => {
+    for (let i = 0; i < rowEls.length; i++) {
+      const el = rowEls[i];
+      if (!el) continue;
+      el.classList.toggle('editrix-quick-pick-item--selected', i === selectedIndex);
+    }
+  };
+
   const renderList = (): void => {
     list.innerHTML = '';
+    rowEls = [];
 
     if (filtered.length === 0) {
       const empty = createElement('div', 'editrix-quick-pick-empty');
@@ -82,7 +97,10 @@ export function showQuickPick(options: QuickPickOptions): void {
 
     for (let i = 0; i < filtered.length; i++) {
       const item = filtered[i];
-      if (!item) continue;
+      if (!item) {
+        rowEls.push(null);
+        continue;
+      }
       const row = createElement('div', 'editrix-quick-pick-item');
 
       if (item.disabled) row.classList.add('editrix-quick-pick-item--disabled');
@@ -115,18 +133,25 @@ export function showQuickPick(options: QuickPickOptions): void {
       }
 
       if (!item.disabled) {
+        // Capture the index the row belongs to now. The filtered array
+        // doesn't change until the user types; using `i` in the closure
+        // is stable for the life of this row instance.
+        const rowIndex = i;
         row.addEventListener('click', (e) => {
           e.stopPropagation();
           closeActivePopup();
           onSelect(item);
         });
         row.addEventListener('mouseenter', () => {
-          selectedIndex = i;
-          renderList();
+          // Only repaint the selected class — do NOT rebuild rows,
+          // or an in-progress click loses its target element.
+          selectedIndex = rowIndex;
+          updateSelectedClass();
         });
       }
 
       list.appendChild(row);
+      rowEls.push(row);
     }
   };
 
@@ -149,13 +174,13 @@ export function showQuickPick(options: QuickPickOptions): void {
       case 'ArrowDown': {
         e.preventDefault();
         const next = findFirstEnabled(filtered, selectedIndex + 1, 1);
-        if (next !== -1) { selectedIndex = next; renderList(); }
+        if (next !== -1) { selectedIndex = next; updateSelectedClass(); }
         break;
       }
       case 'ArrowUp': {
         e.preventDefault();
         const prev = findFirstEnabled(filtered, selectedIndex - 1, -1);
-        if (prev !== -1) { selectedIndex = prev; renderList(); }
+        if (prev !== -1) { selectedIndex = prev; updateSelectedClass(); }
         break;
       }
       case 'Enter': {
