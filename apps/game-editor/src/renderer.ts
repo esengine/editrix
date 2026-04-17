@@ -198,14 +198,37 @@ const componentIconMap: Record<string, string> = {
   LayoutGroup: 'layout',
 };
 
+// Components pinned to the top of the inspector, in this exact order.
+// Everything else sorts alphabetically below the pinned list.
+// Rationale: Transform/UIRect are the layout anchors; the visual trio
+// (Sprite/Image/Text/UIRenderer) reads next; Camera/Canvas sit under
+// that because they configure the rendering context. The rest
+// (gameplay scripts, physics bodies, audio sources, user components)
+// go alphabetical so "Add Component" doesn't scroll the panel around.
+const COMPONENT_ORDER_PRIORITY: Record<string, number> = {
+  Transform:   0,
+  UIRect:      1,
+  Sprite:      10,
+  Image:       11,
+  Text:        12,
+  BitmapText:  13,
+  UIRenderer:  14,
+  Camera:      20,
+  Canvas:      21,
+};
+
 function ecsToPropertyGroups(
   ecsScene: IECSSceneService,
   entityId: number,
 ): { groups: PropertyGroup[]; values: Record<string, unknown> } {
-  const componentOrder: Record<string, number> = { Transform: 0 };
-  const components = [...ecsScene.getComponents(entityId)].sort((a, b) =>
-    (componentOrder[a] ?? 99) - (componentOrder[b] ?? 99),
-  );
+  const components = [...ecsScene.getComponents(entityId)].sort((a, b) => {
+    const pa = COMPONENT_ORDER_PRIORITY[a];
+    const pb = COMPONENT_ORDER_PRIORITY[b];
+    if (pa !== undefined && pb !== undefined) return pa - pb;
+    if (pa !== undefined) return -1;
+    if (pb !== undefined) return 1;
+    return a.localeCompare(b);
+  });
   const groups: PropertyGroup[] = [];
   const values: Record<string, unknown> = {};
 
