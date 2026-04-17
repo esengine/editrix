@@ -255,8 +255,18 @@ export class LayoutRenderer implements IDisposable {
     });
     tabBar.appendChild(grip);
 
-    // Drop zone: reorder within this group or receive from another
+    // Drop zone: reorder within this group or receive from another.
+    // IMPORTANT: guard every handler on the panel's own MIME type
+    // (`text/x-editrix-panel`). Without this, ANY drag entering the
+    // panel body would light up the dock-drop overlay — including
+    // in-panel drags like inspector component-card reordering. The
+    // dragged type is the only signal available before drop (values
+    // are hidden for security).
+    const isPanelDrag = (e: DragEvent): boolean =>
+      e.dataTransfer?.types.includes('text/x-editrix-panel') ?? false;
+
     tabBar.addEventListener('dragover', (e) => {
+      if (!isPanelDrag(e)) return;
       e.preventDefault();
       tabBar.classList.add('editrix-tab-bar--dragover');
     });
@@ -264,6 +274,7 @@ export class LayoutRenderer implements IDisposable {
       tabBar.classList.remove('editrix-tab-bar--dragover');
     });
     tabBar.addEventListener('drop', (e) => {
+      if (!isPanelDrag(e)) return;
       e.preventDefault();
       tabBar.classList.remove('editrix-tab-bar--dragover');
       document.querySelector('.editrix-root')?.classList.remove('editrix-root--dragging');
@@ -352,6 +363,7 @@ export class LayoutRenderer implements IDisposable {
       zones.push({ el: zone, side });
 
       zone.addEventListener('dragover', (e) => {
+        if (!isPanelDrag(e)) return;
         e.preventDefault();
         e.stopPropagation();
         zone.classList.add('editrix-drop-zone--active');
@@ -362,6 +374,7 @@ export class LayoutRenderer implements IDisposable {
       });
 
       zone.addEventListener('drop', (e) => {
+        if (!isPanelDrag(e)) return;
         e.preventDefault();
         e.stopPropagation();
         overlay.classList.remove('editrix-drop-overlay--visible');
@@ -375,9 +388,12 @@ export class LayoutRenderer implements IDisposable {
     }
     content.appendChild(overlay);
 
-    // Show overlay on dragenter, hide on dragleave/drop
+    // Show overlay on dragenter, hide on dragleave/drop — but only
+    // for actual panel drags. In-panel drags (inspector cards, list
+    // items, etc.) must pass through without claiming the overlay.
     let dragCounter = 0;
     content.addEventListener('dragenter', (e) => {
+      if (!isPanelDrag(e)) return;
       e.preventDefault();
       dragCounter++;
       overlay.classList.add('editrix-drop-overlay--visible');
@@ -390,7 +406,10 @@ export class LayoutRenderer implements IDisposable {
         for (const z of zones) z.el.classList.remove('editrix-drop-zone--active');
       }
     });
-    content.addEventListener('dragover', (e) => { e.preventDefault(); });
+    content.addEventListener('dragover', (e) => {
+      if (!isPanelDrag(e)) return;
+      e.preventDefault();
+    });
 
     content.addEventListener('mousedown', () => {
       const activePanelId = node.panels[node.activeIndex];
