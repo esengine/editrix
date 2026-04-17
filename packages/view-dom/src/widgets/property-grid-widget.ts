@@ -27,9 +27,18 @@ export class PropertyGridWidget extends BaseWidget {
   private readonly _collapsed = new Set<string>();
   private _contentEl: HTMLElement | undefined;
   private _addBtnEl: HTMLElement | undefined;
+  /**
+   * Which component card is currently being dragged, or null if no
+   * drag is in progress. Set in `dragstart`, cleared in `dragend`.
+   * Needed because `DataTransfer.getData()` only returns values
+   * during `drop`, not during `dragover` — we need the identity on
+   * every dragover to know whether to show the drop indicator.
+   */
+  private _draggingComponentId_: string | null = null;
 
   private readonly _onDidRequestAddComponent = new Emitter<void>();
   private readonly _onDidRequestComponentMenu = new Emitter<{ componentId: string; anchor: HTMLElement }>();
+  private readonly _onDidReorderComponent = new Emitter<ComponentReorderEvent>();
 
   /** Fired when the "Add Component" button is clicked. */
   readonly onDidRequestAddComponent: Event<void> = this._onDidRequestAddComponent.event;
@@ -37,6 +46,15 @@ export class PropertyGridWidget extends BaseWidget {
   /** Fired when a component card's menu button (⋯) is clicked. */
   readonly onDidRequestComponentMenu: Event<{ componentId: string; anchor: HTMLElement }> =
     this._onDidRequestComponentMenu.event;
+
+  /**
+   * Fired when the user drags a component card and drops it on another.
+   * Consumer is expected to splice its own component-order model (the
+   * widget does not mutate `_groups` itself — data ownership stays
+   * with the caller so `setData()` remains the single source of
+   * truth).
+   */
+  readonly onDidReorderComponent: Event<ComponentReorderEvent> = this._onDidReorderComponent.event;
 
   constructor(id: string, options?: PropertyGridOptions) {
     super(id, 'property-grid');
@@ -154,6 +172,57 @@ export class PropertyGridWidget extends BaseWidget {
         this._collapsed.add(group.id);
       }
       this._renderGrid();
+    });
+
+    // Drag to reorder. Native HTML5 drag so the browser handles the
+    // ghost + cursor; collapse click still fires because a click under
+    // the drag-start threshold doesn't trigger dragstart.
+    header.draggable = true;
+    header.dataset['componentId'] = group.id;
+    header.addEventListener('dragstart', (e) => {
+      if (!e.dataTransfer) return;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('application/x-editrix-component', group.id);
+      this._draggingComponentId_ = group.id;
+      header.classList.add('editrix-inspector-card-header--dragging');
+    });
+    header.addEventListener('dragend', () => {
+      this._draggingComponentId_ = null;
+      header.classList.remove('editrix-inspector-card-header--dragging');
+      // Clear any drop indicator that lingered past dragleave.
+      this._contentEl?.querySelectorAll('.editrix-inspector-card-header--drop-above, .editrix-inspector-card-header--drop-below')
+        .forEach((el) => el.classList.remove(
+          'editrix-inspector-card-header--drop-above',
+          'editrix-inspector-card-header--drop-below',
+        ));
+    });
+    header.addEventListener('dragover', (e) => {
+      const sourceId = this._draggingComponentId_;
+      if (!sourceId || sourceId === group.id) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      const rect = header.getBoundingClientRect();
+      const above = e.clientY < rect.top + rect.height / 2;
+      header.classList.toggle('editrix-inspector-card-header--drop-above', above);
+      header.classList.toggle('editrix-inspector-card-header--drop-below', !above);
+    });
+    header.addEventListener('dragleave', () => {
+      header.classList.remove(
+        'editrix-inspector-card-header--drop-above',
+        'editrix-inspector-card-header--drop-below',
+      );
+    });
+    header.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const sourceId = e.dataTransfer?.getData('application/x-editrix-component') ?? '';
+      header.classList.remove(
+        'editrix-inspector-card-header--drop-above',
+        'editrix-inspector-card-header--drop-below',
+      );
+      if (!sourceId || sourceId === group.id) return;
+      const rect = header.getBoundingClientRect();
+      const position: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+      this._onDidReorderComponent.fire({ componentId: sourceId, targetId: group.id, position });
     });
 
     card.appendChild(header);
@@ -800,6 +869,7 @@ export class PropertyGridWidget extends BaseWidget {
   override dispose(): void {
     this._onDidRequestAddComponent.dispose();
     this._onDidRequestComponentMenu.dispose();
+    this._onDidReorderComponent.dispose();
     this._colorPickerEl?.remove();
     super.dispose();
   }
@@ -892,10 +962,24 @@ export class PropertyGridWidget extends BaseWidget {
         padding: 0 10px; height: 30px;
         background: rgba(255,255,255,0.07);
         cursor: pointer; user-select: none;
+        position: relative;
       }
       .editrix-inspector-card-header:hover {
         background: rgba(255,255,255,0.09);
       }
+      /* Drag-to-reorder visual states. */
+      .editrix-inspector-card-header--dragging {
+        opacity: 0.5;
+      }
+      .editrix-inspector-card-header--drop-above::before,
+      .editrix-inspector-card-header--drop-below::after {
+        content: '';
+        position: absolute; left: 0; right: 0; height: 2px;
+        background: var(--editrix-accent);
+        pointer-events: none;
+      }
+      .editrix-inspector-card-header--drop-above::before { top: -1px; }
+      .editrix-inspector-card-header--drop-below::after  { bottom: -1px; }
       .editrix-inspector-chevron {
         width: 16px; height: 16px;
         display: flex; align-items: center; justify-content: center;
@@ -1158,4 +1242,19 @@ export class PropertyGridWidget extends BaseWidget {
 /** Options for creating a {@link PropertyGridWidget}. */
 export interface PropertyGridOptions {
   readonly onChange?: PropertyChangeHandler;
+}
+
+/**
+ * Emitted by {@link PropertyGridWidget.onDidReorderComponent} when the user
+ * drops a dragged component card on another.
+ *
+ * - `componentId`  — the card that was picked up
+ * - `targetId`     — the card dropped onto (never equal to componentId)
+ * - `position`     — whether the dragged card should land before or after
+ *                    the target in the final order
+ */
+export interface ComponentReorderEvent {
+  readonly componentId: string;
+  readonly targetId: string;
+  readonly position: 'before' | 'after';
 }

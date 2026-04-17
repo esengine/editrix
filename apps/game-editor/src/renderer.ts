@@ -864,6 +864,49 @@ const EditorPanelsPlugin: IPlugin = {
           });
         });
 
+        // ── Drag-to-reorder component cards ──
+        inspectorGrid.onDidReorderComponent(({ componentId, targetId, position }) => {
+          const selectedId = selection.getSelection()[0];
+          if (!selectedId || !ecsScene) return;
+          const entityId = Number(selectedId);
+          const order = inspectorOrderByEntity.get(entityId);
+          if (!order) return;
+
+          const srcIdx = order.indexOf(componentId);
+          const tgtIdx = order.indexOf(targetId);
+          if (srcIdx < 0 || tgtIdx < 0 || srcIdx === tgtIdx) return;
+
+          const [moved] = order.splice(srcIdx, 1);
+          if (!moved) return;
+          // After splicing the source out, the target index may have
+          // shifted down by one. Recompute before inserting.
+          const newTgtIdx = order.indexOf(targetId);
+          const insertAt = position === 'before' ? newTgtIdx : newTgtIdx + 1;
+          order.splice(insertAt, 0, moved);
+
+          const before = [...order];
+          const prevIndex = srcIdx;
+          const reorderTo = (desired: readonly string[]): void => {
+            inspectorOrderByEntity.set(entityId, [...desired]);
+            refreshInspector();
+          };
+          undoRedo.push({
+            label: `Reorder ${componentId}`,
+            undo: () => {
+              const cur = inspectorOrderByEntity.get(entityId);
+              if (!cur) return;
+              const i = cur.indexOf(componentId);
+              if (i < 0) return;
+              const [m] = cur.splice(i, 1);
+              if (!m) return;
+              cur.splice(prevIndex, 0, m);
+              refreshInspector();
+            },
+            redo: () => { reorderTo(before); },
+          });
+          refreshInspector();
+        });
+
         refreshInspector();
         return inspectorGrid;
       }),
