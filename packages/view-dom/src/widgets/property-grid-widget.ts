@@ -967,19 +967,43 @@ export class PropertyGridWidget extends BaseWidget {
       .editrix-inspector-card-header:hover {
         background: rgba(255,255,255,0.09);
       }
-      /* Drag-to-reorder visual states. */
+      /* Drag-to-reorder visual states.
+         The drop indicator mirrors the layout dock overlay's feel:
+         a translucent accent-coloured zone fills the half of the
+         header where the dragged card will land, capped by a solid
+         accent bar so the exact insertion line is unambiguous. */
       .editrix-inspector-card-header--dragging {
-        opacity: 0.5;
+        opacity: 0.4;
       }
-      .editrix-inspector-card-header--drop-above::before,
+      .editrix-inspector-card-header--drop-above,
+      .editrix-inspector-card-header--drop-below {
+        /* Cancel the normal hover background so the indicator reads. */
+        background: rgba(255, 255, 255, 0.07);
+      }
+      .editrix-inspector-card-header--drop-above::before {
+        content: '';
+        position: absolute; left: 0; right: 0; top: 0; height: 50%;
+        background: linear-gradient(
+          to bottom,
+          color-mix(in srgb, var(--editrix-accent) 40%, transparent),
+          color-mix(in srgb, var(--editrix-accent) 10%, transparent)
+        );
+        border-top: 3px solid var(--editrix-accent);
+        pointer-events: none;
+        box-shadow: 0 0 12px color-mix(in srgb, var(--editrix-accent) 50%, transparent);
+      }
       .editrix-inspector-card-header--drop-below::after {
         content: '';
-        position: absolute; left: 0; right: 0; height: 2px;
-        background: var(--editrix-accent);
+        position: absolute; left: 0; right: 0; bottom: 0; height: 50%;
+        background: linear-gradient(
+          to top,
+          color-mix(in srgb, var(--editrix-accent) 40%, transparent),
+          color-mix(in srgb, var(--editrix-accent) 10%, transparent)
+        );
+        border-bottom: 3px solid var(--editrix-accent);
         pointer-events: none;
+        box-shadow: 0 0 12px color-mix(in srgb, var(--editrix-accent) 50%, transparent);
       }
-      .editrix-inspector-card-header--drop-above::before { top: -1px; }
-      .editrix-inspector-card-header--drop-below::after  { bottom: -1px; }
       .editrix-inspector-chevron {
         width: 16px; height: 16px;
         display: flex; align-items: center; justify-content: center;

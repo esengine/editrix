@@ -151,8 +151,14 @@ export class DomViewAdapter implements IViewAdapter {
     const rootDropRight = this._createRootDropStrip('right');
     workArea.appendChild(rootDropRight);
 
-    // Listen for drag start/end to show root zones
-    const onDragStart = (): void => { this._container?.classList.add('editrix-root--dragging'); };
+    // Listen for drag start/end to show root drop zones — but only
+    // for panel drags. Any other drag source (inspector component
+    // reorder, future list-reorder widgets, etc.) must NOT trigger
+    // the root-level dock hints.
+    const onDragStart = (e: DragEvent): void => {
+      if (!e.dataTransfer?.types.includes('text/x-editrix-panel')) return;
+      this._container?.classList.add('editrix-root--dragging');
+    };
     const onDragEnd = (): void => { this._container?.classList.remove('editrix-root--dragging'); };
     document.addEventListener('dragstart', onDragStart);
     document.addEventListener('dragend', onDragEnd);
@@ -300,7 +306,11 @@ export class DomViewAdapter implements IViewAdapter {
   private _createRootDropStrip(side: 'left' | 'right' | 'top' | 'bottom'): HTMLElement {
     const strip = createElement('div', `editrix-root-drop editrix-root-drop--${side}`);
 
+    const isPanelDrag = (e: DragEvent): boolean =>
+      e.dataTransfer?.types.includes('text/x-editrix-panel') ?? false;
+
     strip.addEventListener('dragover', (e) => {
+      if (!isPanelDrag(e)) return;
       e.preventDefault();
       e.stopPropagation();
       strip.classList.add('editrix-root-drop--active');
@@ -311,6 +321,7 @@ export class DomViewAdapter implements IViewAdapter {
     });
 
     strip.addEventListener('drop', (e) => {
+      if (!isPanelDrag(e)) return;
       e.preventDefault();
       e.stopPropagation();
       strip.classList.remove('editrix-root-drop--active');
