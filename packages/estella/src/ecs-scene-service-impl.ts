@@ -21,6 +21,8 @@ interface EntityMeta {
     name: string;
     parentId: number | null;
     childIds: number[];
+    /** Namespaced bag for editor/tooling state (e.g. inspectorComponentOrder). */
+    extras: Record<string, unknown>;
 }
 
 /**
@@ -116,6 +118,22 @@ export class ECSSceneService implements IECSSceneService {
         return this._availableComponents;
     }
 
+    // ── Per-entity Metadata ─────────────────────────────────
+
+    getEntityMetadata(entityId: number, key: string): unknown {
+        return this._entities.get(entityId)?.extras[key];
+    }
+
+    setEntityMetadata(entityId: number, key: string, value: unknown): void {
+        const meta = this._entities.get(entityId);
+        if (!meta) return;
+        if (value === undefined) {
+            delete meta.extras[key];
+        } else {
+            meta.extras[key] = value;
+        }
+    }
+
     // ── Entity Lifecycle ────────────────────────────────────
 
     createEntity(name: string, parentId?: number): number {
@@ -128,6 +146,7 @@ export class ECSSceneService implements IECSSceneService {
             name,
             parentId: parentId ?? null,
             childIds: [],
+            extras: {},
         };
         this._entities.set(entityId, meta);
 
@@ -339,11 +358,13 @@ export class ECSSceneService implements IECSSceneService {
                 components[compName] = this.getComponentData(entityId, compName);
             }
 
+            const hasExtras = Object.keys(meta.extras).length > 0;
             entities.push({
                 id: entityId,
                 name: meta.name,
                 components,
                 children: [...meta.childIds],
+                ...(hasExtras ? { metadata: { ...meta.extras } } : {}),
             });
 
             for (const childId of meta.childIds) {
@@ -375,6 +396,7 @@ export class ECSSceneService implements IECSSceneService {
                 name: entityData.name,
                 parentId: null,
                 childIds: [],
+                extras: entityData.metadata ? { ...entityData.metadata } : {},
             });
         }
 

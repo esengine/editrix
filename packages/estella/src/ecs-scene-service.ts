@@ -23,6 +23,12 @@ export interface SerializedEntity {
     readonly name: string;
     readonly components: Record<string, Record<string, unknown>>;
     readonly children: number[];
+    /**
+     * Per-entity editor/tooling metadata that survives scene round-trip.
+     * Not interpreted by the ECS — callers namespace their own keys
+     * (e.g. 'inspectorComponentOrder').
+     */
+    readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface SceneData {
@@ -81,6 +87,10 @@ export interface IECSSceneService extends IDisposable {
     // Schema
     getComponentSchema(componentName: string): readonly ComponentFieldSchema[];
     getAvailableComponents(): readonly string[];
+
+    // Per-entity metadata (editor/tooling state, round-tripped via SerializedEntity.metadata)
+    getEntityMetadata(entityId: number, key: string): unknown;
+    setEntityMetadata(entityId: number, key: string, value: unknown): void;
 
     // Events
     readonly onEntityCreated: Event<EntityEvent>;

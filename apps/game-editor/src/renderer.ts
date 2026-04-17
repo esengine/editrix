@@ -576,7 +576,6 @@ const EditorPanelsPlugin: IPlugin = {
           const previousSelection = [...selection.getSelection()];
           for (const id of toDelete) {
             ecs.destroyEntity(Number(id));
-            inspectorOrderByEntity.delete(Number(id));
           }
           selection.clearSelection();
           undoRedo.push({
@@ -649,24 +648,40 @@ const EditorPanelsPlugin: IPlugin = {
     // Per-entity record of the order the inspector has been showing
     // components in. Built-ins (what the entity was deserialized with)
     // get sorted by COMPONENT_ORDER_PRIORITY on first inspection and
-    // the result is captured here; each subsequent addComponent
-    // appends to the tail, so new cards always land at the end of
-    // the panel instead of jumping to an alphabetical slot.
-    // Survives for the lifetime of this editor session; not persisted.
-    // Cleared when an entity is despawned.
-    const inspectorOrderByEntity = new Map<number, string[]>();
+    // the result is stored on the ECS scene as entity metadata under
+    // INSPECTOR_ORDER_KEY, so it round-trips through scene save/load.
+    // Each subsequent addComponent appends to the tail, so new cards
+    // always land at the end of the panel instead of jumping to an
+    // alphabetical slot.
+    const INSPECTOR_ORDER_KEY = 'inspectorComponentOrder';
+
+    const getInspectorOrder = (entityId: number): string[] | undefined => {
+      if (!ecsScene) return undefined;
+      const raw = ecsScene.getEntityMetadata(entityId, INSPECTOR_ORDER_KEY);
+      return Array.isArray(raw) ? (raw as string[]).slice() : undefined;
+    };
+
+    const setInspectorOrder = (entityId: number, names: readonly string[]): void => {
+      ecsScene?.setEntityMetadata(entityId, INSPECTOR_ORDER_KEY, [...names]);
+    };
 
     const appendToInspectorOrder = (entityId: number, compName: string): void => {
-      const existing = inspectorOrderByEntity.get(entityId);
+      const existing = getInspectorOrder(entityId);
       if (!existing) return; // entity not yet inspected, will seed on first refresh
-      if (!existing.includes(compName)) existing.push(compName);
+      if (!existing.includes(compName)) {
+        existing.push(compName);
+        setInspectorOrder(entityId, existing);
+      }
     };
 
     const dropFromInspectorOrder = (entityId: number, compName: string): void => {
-      const existing = inspectorOrderByEntity.get(entityId);
+      const existing = getInspectorOrder(entityId);
       if (!existing) return;
       const idx = existing.indexOf(compName);
-      if (idx >= 0) existing.splice(idx, 1);
+      if (idx >= 0) {
+        existing.splice(idx, 1);
+        setInspectorOrder(entityId, existing);
+      }
     };
 
     const refreshInspector = (): void => {
@@ -694,10 +709,10 @@ const EditorPanelsPlugin: IPlugin = {
         // the default priority sort; thereafter it's driven by user
         // actions (addComponent appends). Either way we hand the
         // resolved order to ecsToPropertyGroups which preserves it.
-        let tracked = inspectorOrderByEntity.get(entityId);
+        let tracked = getInspectorOrder(entityId);
         if (!tracked) {
           tracked = sortByDefaultPriority(ecsScene.getComponents(entityId));
-          inspectorOrderByEntity.set(entityId, tracked);
+          setInspectorOrder(entityId, tracked);
         }
         const { groups, values } = ecsToPropertyGroups(ecsScene, entityId, tracked);
         inspectorGrid.setData(groups, values);
@@ -870,7 +885,7 @@ const EditorPanelsPlugin: IPlugin = {
           const selectedId = selection.getSelection()[0];
           if (!selectedId || !ecsScene) return;
           const entityId = Number(selectedId);
-          const order = inspectorOrderByEntity.get(entityId);
+          const order = getInspectorOrder(entityId);
           if (!order) return;
 
           const srcIdx = order.indexOf(componentId);
@@ -888,24 +903,25 @@ const EditorPanelsPlugin: IPlugin = {
           const before = [...order];
           const prevIndex = srcIdx;
           const reorderTo = (desired: readonly string[]): void => {
-            inspectorOrderByEntity.set(entityId, [...desired]);
+            setInspectorOrder(entityId, desired);
             refreshInspector();
           };
+          reorderTo(order);
           undoRedo.push({
             label: `Reorder ${componentId}`,
             undo: () => {
-              const cur = inspectorOrderByEntity.get(entityId);
+              const cur = getInspectorOrder(entityId);
               if (!cur) return;
               const i = cur.indexOf(componentId);
               if (i < 0) return;
               const [m] = cur.splice(i, 1);
               if (!m) return;
               cur.splice(prevIndex, 0, m);
+              setInspectorOrder(entityId, cur);
               refreshInspector();
             },
             redo: () => { reorderTo(before); },
           });
-          refreshInspector();
         });
 
         refreshInspector();
