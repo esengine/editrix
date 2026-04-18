@@ -112,4 +112,53 @@ describe('ExtensionPointRegistry', () => {
 
     expect(registry.getContributions(ThemesEP)).toEqual([]);
   });
+
+  describe('deferred subscribe-before-declare', () => {
+    it('should attach pending subscribers when the point is later declared', () => {
+      const registry = new ExtensionPointRegistry();
+      const handler = vi.fn();
+
+      // Subscriber arrives first (e.g. plugin order is non-deterministic).
+      registry.onDidChangeContributions(ThemesEP, handler);
+      expect(handler).not.toHaveBeenCalled();
+
+      // The declarer activates later.
+      registry.declare(ThemesEP);
+      // Snapshot fires immediately so the subscriber sees the current (empty) state.
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenLastCalledWith([]);
+
+      // Subsequent contributions flow through normally.
+      registry.contribute(ThemesEP, { name: 'dark', background: '#000' });
+      expect(handler).toHaveBeenCalledTimes(2);
+      expect(handler).toHaveBeenLastCalledWith([{ name: 'dark', background: '#000' }]);
+    });
+
+    it('should not attach a pending subscriber that was disposed before declare', () => {
+      const registry = new ExtensionPointRegistry();
+      const handler = vi.fn();
+
+      const sub = registry.onDidChangeContributions(ThemesEP, handler);
+      sub.dispose();
+
+      registry.declare(ThemesEP);
+      registry.contribute(ThemesEP, { name: 'dark', background: '#000' });
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('should clear pending subscribers on dispose', () => {
+      const registry = new ExtensionPointRegistry();
+      const handler = vi.fn();
+      registry.onDidChangeContributions(ThemesEP, handler);
+
+      registry.dispose();
+      // After dispose, declaring again should not reach the old handler
+      // (a fresh registry is the only valid use after dispose).
+      const fresh = new ExtensionPointRegistry();
+      fresh.declare(ThemesEP);
+      fresh.contribute(ThemesEP, { name: 'dark', background: '#000' });
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
 });

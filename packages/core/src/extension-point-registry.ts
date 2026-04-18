@@ -48,6 +48,18 @@ interface ExtensionPointEntry {
 }
 
 /**
+ * A subscriber that arrived before the extension point was declared. We hold
+ * onto the handler so that when declare() finally happens we can attach it to
+ * the real emitter and replay an initial snapshot — eliminating activation-order
+ * coupling between contributors and observers.
+ */
+interface PendingSubscriber {
+  readonly handler: (contributions: readonly unknown[]) => void;
+  /** Set to true if the disposable returned to the caller is disposed before declare. */
+  cancelled: boolean;
+}
+
+/**
  * Default implementation of {@link IExtensionPointAccess}.
  *
  * @example
@@ -59,6 +71,7 @@ interface ExtensionPointEntry {
  */
 export class ExtensionPointRegistry implements IExtensionPointAccess, IDisposable {
   private readonly _points = new Map<string, ExtensionPointEntry>();
+  private readonly _pending = new Map<string, PendingSubscriber[]>();
 
   declare<T>(
     id: ExtensionPointId<T>,
@@ -75,6 +88,19 @@ export class ExtensionPointRegistry implements IExtensionPointAccess, IDisposabl
       validator: options?.validator as ((c: unknown) => boolean) | undefined,
     };
     this._points.set(id.id, entry);
+
+    // Drain anyone who subscribed before declare. Each pending subscriber
+    // gets attached to the real emitter and immediately receives a snapshot
+    // (initially empty) so they're aligned with future onDidChange events.
+    const pending = this._pending.get(id.id);
+    if (pending) {
+      this._pending.delete(id.id);
+      for (const sub of pending) {
+        if (sub.cancelled) continue;
+        emitter.event(sub.handler);
+        sub.handler(entry.contributions);
+      }
+    }
 
     return {
       id,
@@ -123,10 +149,29 @@ export class ExtensionPointRegistry implements IExtensionPointAccess, IDisposabl
     handler: (contributions: readonly T[]) => void,
   ): IDisposable {
     const entry = this._points.get(id.id);
-    if (!entry) {
-      throw new Error(`Extension point "${id.id}" has not been declared.`);
+    if (entry) {
+      return entry.emitter.event(handler as (contributions: readonly unknown[]) => void);
     }
-    return entry.emitter.event(handler as (contributions: readonly unknown[]) => void);
+
+    // Deferred binding: the declaring plugin has not activated yet. Hold the
+    // handler so a future declare() can wire it up plus replay the snapshot.
+    const pending: PendingSubscriber = {
+      handler: handler as (contributions: readonly unknown[]) => void,
+      cancelled: false,
+    };
+    let bucket = this._pending.get(id.id);
+    if (!bucket) {
+      bucket = [];
+      this._pending.set(id.id, bucket);
+    }
+    const owned = bucket;
+    owned.push(pending);
+    return toDisposable(() => {
+      pending.cancelled = true;
+      const idx = owned.indexOf(pending);
+      if (idx !== -1) owned.splice(idx, 1);
+      if (owned.length === 0) this._pending.delete(id.id);
+    });
   }
 
   dispose(): void {
@@ -134,5 +179,6 @@ export class ExtensionPointRegistry implements IExtensionPointAccess, IDisposabl
       entry.emitter.dispose();
     }
     this._points.clear();
+    this._pending.clear();
   }
 }

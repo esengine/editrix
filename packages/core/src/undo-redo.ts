@@ -25,9 +25,9 @@ export interface UndoRedoOperation {
   /** Re-apply the operation. */
   redo(): void;
   /**
-   * Optional resource key. Operations on the same resource are grouped
-   * in the stack for context-aware undo (e.g. per-document undo).
-   * If omitted, the operation belongs to the global stack.
+   * Optional resource key. Operations with the same key share an independent
+   * undo/redo stack — useful for per-document undo. Operations without a key
+   * use the global stack.
    */
   readonly resourceKey?: string;
 }
@@ -40,6 +40,20 @@ export interface UndoRedoStateEvent {
   readonly canRedo: boolean;
   readonly undoLabel: string | undefined;
   readonly redoLabel: string | undefined;
+  /** The resource whose stack changed, or undefined for the global stack. */
+  readonly resourceKey?: string;
+}
+
+/**
+ * Payload for the {@link IUndoRedoService.onError} event.
+ */
+export interface UndoRedoOperationError {
+  /** Whether the failure occurred during undo or redo. */
+  readonly phase: 'undo' | 'redo';
+  /** Label of the entry being processed. */
+  readonly label: string;
+  /** The error thrown by the operation. */
+  readonly error: unknown;
 }
 
 /**
@@ -52,6 +66,9 @@ export interface UndoRedoStateEvent {
  * Supports transaction grouping: multiple operations pushed inside
  * `beginGroup` / `endGroup` are undone/redone as a single step.
  *
+ * Operations with a `resourceKey` live on a stack independent of the
+ * global one; pass the same key to `undo`/`redo`/`canUndo` to act on it.
+ *
  * @example
  * ```ts
  * const undoRedo = kernel.services.get(IUndoRedoService);
@@ -59,50 +76,64 @@ export interface UndoRedoStateEvent {
  * // Simple push
  * undoRedo.push({ label: 'Set Color', undo: () => {...}, redo: () => {...} });
  *
+ * // Per-document undo
+ * undoRedo.push({ label: 'Move Node', undo, redo, resourceKey: '/scenes/main.scene.json' });
+ * undoRedo.undo('/scenes/main.scene.json');
+ *
  * // Grouped transaction
  * undoRedo.beginGroup('Batch Edit');
  * undoRedo.push(op1);
  * undoRedo.push(op2);
  * undoRedo.endGroup();
- * // Ctrl+Z undoes op2 and op1 together
- *
- * undoRedo.undo();
- * undoRedo.redo();
  * ```
  */
 export interface IUndoRedoService extends IDisposable {
-  /** Push an operation onto the undo stack. Clears the redo stack. */
+  /** Push an operation onto the appropriate undo stack. Clears that stack's redo. */
   push(operation: UndoRedoOperation): void;
 
-  /** Undo the most recent operation (or group). */
-  undo(): void;
+  /** Undo the most recent operation (or group) on the given resource's stack. */
+  undo(resourceKey?: string): void;
 
-  /** Redo the most recently undone operation (or group). */
-  redo(): void;
+  /** Redo the most recently undone operation (or group) on the given resource's stack. */
+  redo(resourceKey?: string): void;
 
-  /** Whether there are operations to undo. */
-  canUndo(): boolean;
+  /** Whether there are operations to undo on the given resource's stack. */
+  canUndo(resourceKey?: string): boolean;
 
-  /** Whether there are operations to redo. */
-  canRedo(): boolean;
+  /** Whether there are operations to redo on the given resource's stack. */
+  canRedo(resourceKey?: string): boolean;
 
-  /** Label of the next operation to undo, or undefined. */
-  getUndoLabel(): string | undefined;
+  /** Label of the next operation to undo on the given resource's stack. */
+  getUndoLabel(resourceKey?: string): string | undefined;
 
-  /** Label of the next operation to redo, or undefined. */
-  getRedoLabel(): string | undefined;
+  /** Label of the next operation to redo on the given resource's stack. */
+  getRedoLabel(resourceKey?: string): string | undefined;
 
-  /** Start a group. All operations pushed until `endGroup` are one undo step. */
-  beginGroup(label: string): void;
+  /**
+   * Start a group. All operations pushed until `endGroup` are one undo step.
+   * If `resourceKey` is given, the group entry lands on that resource's stack
+   * (overriding individual ops' resourceKey for the duration of the group).
+   */
+  beginGroup(label: string, resourceKey?: string): void;
 
   /** End the current group and push it as a single entry. */
   endGroup(): void;
 
-  /** Clear all undo and redo history. */
+  /** Clear all undo/redo history (all resources). */
   clear(): void;
 
-  /** Event fired when the undo/redo state changes. */
+  /** Clear history for a specific resource. */
+  clearResource(resourceKey: string): void;
+
+  /** Event fired when any stack's state changes. */
   readonly onDidChangeState: Event<UndoRedoStateEvent>;
+
+  /**
+   * Event fired when an op's `undo()` or `redo()` throws. The entry is still
+   * moved between stacks so the user can retry forward — surfacing the error
+   * here keeps a buggy operation from leaving the stack permanently stuck.
+   */
+  readonly onError: Event<UndoRedoOperationError>;
 }
 
 /** Service identifier for DI. */
@@ -114,7 +145,15 @@ export const IUndoRedoService = createServiceId<IUndoRedoService>('IUndoRedoServ
 interface StackEntry {
   readonly label: string;
   readonly operations: readonly UndoRedoOperation[];
+  readonly resourceKey: string | undefined;
 }
+
+interface ResourceStacks {
+  undo: StackEntry[];
+  redo: StackEntry[];
+}
+
+const GLOBAL_KEY = '\u0000__global__';
 
 /**
  * Default implementation of {@link IUndoRedoService}.
@@ -127,20 +166,24 @@ interface StackEntry {
  * ```
  */
 export class UndoRedoService implements IUndoRedoService {
-  private readonly _undoStack: StackEntry[] = [];
-  private readonly _redoStack: StackEntry[] = [];
+  private readonly _stacks = new Map<string, ResourceStacks>();
   private readonly _onDidChangeState = new Emitter<UndoRedoStateEvent>();
+  private readonly _onError = new Emitter<UndoRedoOperationError>();
 
   private _groupBuffer: UndoRedoOperation[] | undefined;
   private _groupLabel: string | undefined;
+  private _groupResourceKey: string | undefined;
   private _maxStackSize = 100;
 
   readonly onDidChangeState: Event<UndoRedoStateEvent> = this._onDidChangeState.event;
+  readonly onError: Event<UndoRedoOperationError> = this._onError.event;
 
-  /** Set maximum undo stack depth. Oldest entries are dropped when exceeded. */
+  /** Set maximum undo stack depth per resource. Oldest entries dropped. */
   setMaxStackSize(size: number): void {
     this._maxStackSize = size;
-    this._trimStack();
+    for (const stacks of this._stacks.values()) {
+      this._trimStack(stacks);
+    }
   }
 
   push(operation: UndoRedoOperation): void {
@@ -149,60 +192,81 @@ export class UndoRedoService implements IUndoRedoService {
       return;
     }
 
-    this._undoStack.push({ label: operation.label, operations: [operation] });
-    this._redoStack.length = 0;
-    this._trimStack();
-    this._fireState();
+    const key = operation.resourceKey;
+    const entry: StackEntry = {
+      label: operation.label,
+      operations: [operation],
+      resourceKey: key,
+    };
+    this._pushEntry(entry);
   }
 
-  undo(): void {
-    const entry = this._undoStack.pop();
+  undo(resourceKey?: string): void {
+    const stacks = this._stacks.get(this._stackKey(resourceKey));
+    if (!stacks) return;
+    const entry = stacks.undo.pop();
     if (!entry) return;
 
-    // Undo in reverse order
+    // Always rotate the entry to the redo stack — even if an operation throws,
+    // the user can step forward (redo) to retry instead of being stuck. The
+    // failure surfaces via onError.
     for (let i = entry.operations.length - 1; i >= 0; i--) {
-      entry.operations[i]?.undo();
+      const op = entry.operations[i];
+      if (!op) continue;
+      try {
+        op.undo();
+      } catch (error) {
+        this._onError.fire({ phase: 'undo', label: entry.label, error });
+      }
     }
 
-    this._redoStack.push(entry);
-    this._fireState();
+    stacks.redo.push(entry);
+    this._fireState(resourceKey);
   }
 
-  redo(): void {
-    const entry = this._redoStack.pop();
+  redo(resourceKey?: string): void {
+    const stacks = this._stacks.get(this._stackKey(resourceKey));
+    if (!stacks) return;
+    const entry = stacks.redo.pop();
     if (!entry) return;
 
-    // Redo in forward order
     for (const op of entry.operations) {
-      op.redo();
+      try {
+        op.redo();
+      } catch (error) {
+        this._onError.fire({ phase: 'redo', label: entry.label, error });
+      }
     }
 
-    this._undoStack.push(entry);
-    this._fireState();
+    stacks.undo.push(entry);
+    this._fireState(resourceKey);
   }
 
-  canUndo(): boolean {
-    return this._undoStack.length > 0;
+  canUndo(resourceKey?: string): boolean {
+    return (this._stacks.get(this._stackKey(resourceKey))?.undo.length ?? 0) > 0;
   }
 
-  canRedo(): boolean {
-    return this._redoStack.length > 0;
+  canRedo(resourceKey?: string): boolean {
+    return (this._stacks.get(this._stackKey(resourceKey))?.redo.length ?? 0) > 0;
   }
 
-  getUndoLabel(): string | undefined {
-    return this._undoStack[this._undoStack.length - 1]?.label;
+  getUndoLabel(resourceKey?: string): string | undefined {
+    const stacks = this._stacks.get(this._stackKey(resourceKey));
+    return stacks?.undo[stacks.undo.length - 1]?.label;
   }
 
-  getRedoLabel(): string | undefined {
-    return this._redoStack[this._redoStack.length - 1]?.label;
+  getRedoLabel(resourceKey?: string): string | undefined {
+    const stacks = this._stacks.get(this._stackKey(resourceKey));
+    return stacks?.redo[stacks.redo.length - 1]?.label;
   }
 
-  beginGroup(label: string): void {
+  beginGroup(label: string, resourceKey?: string): void {
     if (this._groupBuffer) {
       throw new Error('Cannot nest beginGroup calls. Call endGroup first.');
     }
     this._groupBuffer = [];
     this._groupLabel = label;
+    this._groupResourceKey = resourceKey;
   }
 
   endGroup(): void {
@@ -212,42 +276,82 @@ export class UndoRedoService implements IUndoRedoService {
 
     const operations = this._groupBuffer;
     const label = this._groupLabel ?? 'Group';
+    const resourceKey = this._groupResourceKey;
     this._groupBuffer = undefined;
     this._groupLabel = undefined;
+    this._groupResourceKey = undefined;
 
     if (operations.length === 0) return;
 
-    this._undoStack.push({ label, operations });
-    this._redoStack.length = 0;
-    this._trimStack();
-    this._fireState();
+    this._pushEntry({ label, operations, resourceKey });
   }
 
   clear(): void {
-    this._undoStack.length = 0;
-    this._redoStack.length = 0;
+    const keys = [...this._stacks.keys()];
+    this._stacks.clear();
     this._groupBuffer = undefined;
     this._groupLabel = undefined;
-    this._fireState();
-  }
-
-  dispose(): void {
-    this.clear();
-    this._onDidChangeState.dispose();
-  }
-
-  private _trimStack(): void {
-    while (this._undoStack.length > this._maxStackSize) {
-      this._undoStack.shift();
+    this._groupResourceKey = undefined;
+    // Fire one state event per resource that previously had history so any
+    // per-document UI updates correctly.
+    for (const key of keys) {
+      this._fireState(key === GLOBAL_KEY ? undefined : key);
+    }
+    if (keys.length === 0) {
+      this._fireState(undefined);
     }
   }
 
-  private _fireState(): void {
-    this._onDidChangeState.fire({
-      canUndo: this.canUndo(),
-      canRedo: this.canRedo(),
-      undoLabel: this.getUndoLabel(),
-      redoLabel: this.getRedoLabel(),
-    });
+  clearResource(resourceKey: string): void {
+    const key = this._stackKey(resourceKey);
+    if (!this._stacks.delete(key)) return;
+    this._fireState(resourceKey);
+  }
+
+  dispose(): void {
+    this._stacks.clear();
+    this._groupBuffer = undefined;
+    this._onDidChangeState.dispose();
+    this._onError.dispose();
+  }
+
+  private _pushEntry(entry: StackEntry): void {
+    const stacks = this._getOrCreateStacks(entry.resourceKey);
+    stacks.undo.push(entry);
+    // A new edit invalidates only this resource's redo history.
+    stacks.redo.length = 0;
+    this._trimStack(stacks);
+    this._fireState(entry.resourceKey);
+  }
+
+  private _stackKey(resourceKey: string | undefined): string {
+    return resourceKey ?? GLOBAL_KEY;
+  }
+
+  private _getOrCreateStacks(resourceKey: string | undefined): ResourceStacks {
+    const key = this._stackKey(resourceKey);
+    let stacks = this._stacks.get(key);
+    if (!stacks) {
+      stacks = { undo: [], redo: [] };
+      this._stacks.set(key, stacks);
+    }
+    return stacks;
+  }
+
+  private _trimStack(stacks: ResourceStacks): void {
+    while (stacks.undo.length > this._maxStackSize) {
+      stacks.undo.shift();
+    }
+  }
+
+  private _fireState(resourceKey: string | undefined): void {
+    const event: UndoRedoStateEvent = {
+      canUndo: this.canUndo(resourceKey),
+      canRedo: this.canRedo(resourceKey),
+      undoLabel: this.getUndoLabel(resourceKey),
+      redoLabel: this.getRedoLabel(resourceKey),
+      ...(resourceKey !== undefined ? { resourceKey } : {}),
+    };
+    this._onDidChangeState.fire(event);
   }
 }

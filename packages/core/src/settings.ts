@@ -52,6 +52,22 @@ export interface SettingChangeEvent {
 }
 
 /**
+ * Payload for the {@link ISettingsService.onError} event.
+ *
+ * Used for non-fatal schema issues — currently only out-of-range numeric values,
+ * which are clamped silently into the descriptor's [min, max] before storage.
+ */
+export interface SettingsValidationError {
+  readonly key: string;
+  /** The value the caller passed before any normalization. */
+  readonly attemptedValue: unknown;
+  /** The value actually stored after clamping. */
+  readonly storedValue: unknown;
+  /** Human-readable reason describing what was adjusted. */
+  readonly reason: string;
+}
+
+/**
  * Manages setting schema registration and value storage.
  *
  * Plugins register groups of settings with their schemas. Users and code
@@ -110,10 +126,20 @@ export interface ISettingsService extends IDisposable {
   /** Subscribe to all setting changes. */
   readonly onDidChangeAny: Event<SettingChangeEvent>;
 
+  /**
+   * Fired when a value was accepted only after a schema fix-up (e.g. clamped
+   * to a range). Hard violations (wrong type, enum miss) throw instead.
+   */
+  readonly onError: Event<SettingsValidationError>;
+
   /** Export all user-modified values as a plain object (for persistence). */
   exportUserValues(): Record<string, unknown>;
 
-  /** Import user values (e.g. from a saved file). Fires change events. */
+  /**
+   * Import user values (e.g. from a saved file). Fires change events.
+   * Invalid entries are skipped and reported via {@link onError} so a corrupted
+   * file can't take down startup; valid entries still apply.
+   */
   importUserValues(values: Record<string, unknown>): void;
 }
 
@@ -136,8 +162,10 @@ export class SettingsService implements ISettingsService {
   private readonly _userValues = new Map<string, unknown>();
   private readonly _keyListeners = new Map<string, Set<(e: SettingChangeEvent) => void>>();
   private readonly _onDidChangeAny = new Emitter<SettingChangeEvent>();
+  private readonly _onError = new Emitter<SettingsValidationError>();
 
   readonly onDidChangeAny: Event<SettingChangeEvent> = this._onDidChangeAny.event;
+  readonly onError: Event<SettingsValidationError> = this._onError.event;
 
   registerGroup(group: SettingGroup): IDisposable {
     this._groups.push(group);
@@ -171,9 +199,10 @@ export class SettingsService implements ISettingsService {
   }
 
   set(key: string, value: unknown): void {
+    const stored = this._normalizeOrThrow(key, value);
     const oldValue = this.get(key);
-    this._userValues.set(key, value);
-    const event: SettingChangeEvent = { key, oldValue, newValue: value };
+    this._userValues.set(key, stored);
+    const event: SettingChangeEvent = { key, oldValue, newValue: stored };
     this._fireChange(event);
   }
 
@@ -219,8 +248,19 @@ export class SettingsService implements ISettingsService {
   }
 
   importUserValues(values: Record<string, unknown>): void {
+    // A bad entry (corrupted file, schema drift) should not block the rest —
+    // skip it, surface via onError, keep applying the others.
     for (const [key, value] of Object.entries(values)) {
-      this.set(key, value);
+      try {
+        this.set(key, value);
+      } catch (error) {
+        this._onError.fire({
+          key,
+          attemptedValue: value,
+          storedValue: this.get(key),
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }
 
@@ -230,6 +270,7 @@ export class SettingsService implements ISettingsService {
     this._userValues.clear();
     this._keyListeners.clear();
     this._onDidChangeAny.dispose();
+    this._onError.dispose();
   }
 
   private _fireChange(event: SettingChangeEvent): void {
@@ -238,6 +279,62 @@ export class SettingsService implements ISettingsService {
     if (listeners) {
       for (const handler of listeners) {
         handler(event);
+      }
+    }
+  }
+
+  /**
+   * Run schema checks against a candidate value. Returns the value to actually
+   * store (which may differ from the input — e.g. a clamped range). Throws on
+   * hard violations so callers and importUserValues can decide how to react.
+   */
+  private _normalizeOrThrow(key: string, value: unknown): unknown {
+    const desc = this._descriptors.get(key);
+    if (!desc) return value; // unknown key — no schema to enforce against
+
+    switch (desc.type) {
+      case 'string':
+      case 'color':
+        if (typeof value !== 'string') {
+          throw new Error(`Setting "${key}" expects a string, got ${typeof value}.`);
+        }
+        return value;
+      case 'boolean':
+        if (typeof value !== 'boolean') {
+          throw new Error(`Setting "${key}" expects a boolean, got ${typeof value}.`);
+        }
+        return value;
+      case 'number':
+        if (typeof value !== 'number' || Number.isNaN(value)) {
+          throw new Error(`Setting "${key}" expects a number, got ${typeof value}.`);
+        }
+        return value;
+      case 'enum':
+        if (typeof value !== 'string') {
+          throw new Error(`Setting "${key}" expects an enum string, got ${typeof value}.`);
+        }
+        if (desc.enumValues && !desc.enumValues.includes(value)) {
+          throw new Error(
+            `Setting "${key}" value "${value}" is not in the allowed set [${desc.enumValues.join(', ')}].`,
+          );
+        }
+        return value;
+      case 'range': {
+        if (typeof value !== 'number' || Number.isNaN(value)) {
+          throw new Error(`Setting "${key}" expects a numeric range value, got ${typeof value}.`);
+        }
+        let clamped = value;
+        if (desc.min !== undefined && clamped < desc.min) clamped = desc.min;
+        if (desc.max !== undefined && clamped > desc.max) clamped = desc.max;
+        if (clamped !== value) {
+          this._onError.fire({
+            key,
+            attemptedValue: value,
+            storedValue: clamped,
+            reason: `Value ${value} clamped into [${desc.min ?? '-∞'}, ${desc.max ?? '+∞'}].`,
+          });
+        }
+        return clamped;
       }
     }
   }

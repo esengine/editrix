@@ -133,4 +133,60 @@ describe('SettingsService', () => {
     d.dispose();
     expect(s.getDescriptor('test.x')).toBeUndefined();
   });
+
+  describe('schema enforcement', () => {
+    it('should throw on type mismatch for primitive settings', () => {
+      const s = setup();
+      expect(() => s.set('editor.fontSize', '14')).toThrow('expects a number');
+      expect(() => s.set('editor.wordWrap', 1)).toThrow('expects a boolean');
+    });
+
+    it('should throw when an enum value is not in the allowed set', () => {
+      const s = setup();
+      expect(() => s.set('editor.theme', 'midnight')).toThrow('not in the allowed set');
+    });
+
+    it('should clamp a range value silently and surface the fix-up via onError', () => {
+      const s = new SettingsService();
+      s.registerGroup({
+        id: 'audio',
+        label: 'Audio',
+        settings: [
+          { key: 'audio.volume', label: 'Volume', type: 'range', defaultValue: 50, min: 0, max: 100 },
+        ],
+      });
+      const errors: unknown[] = [];
+      s.onError((e) => errors.push(e));
+
+      s.set('audio.volume', 250);
+
+      expect(s.get('audio.volume')).toBe(100);
+      expect(errors).toHaveLength(1);
+    });
+
+    it('should not enforce schema on unknown keys (no descriptor = no contract)', () => {
+      const s = new SettingsService();
+      // Lock in current behavior — set() on unknown keys is a free pass for
+      // user-extension scenarios that haven't registered yet.
+      s.set('plugin.foo.unknown', { arbitrary: 'shape' });
+      expect(s.get('plugin.foo.unknown')).toEqual({ arbitrary: 'shape' });
+    });
+
+    it('should skip invalid entries during importUserValues and fire onError per skip', () => {
+      const s = setup();
+      const errors: { key: string }[] = [];
+      s.onError((e) => errors.push(e as { key: string }));
+
+      s.importUserValues({
+        'editor.fontSize': 'oops', // bad type — skipped
+        'editor.wordWrap': false, // valid — applied
+        'editor.theme': 'midnight', // bad enum — skipped
+      });
+
+      expect(s.get('editor.fontSize')).toBe(14); // default unchanged
+      expect(s.get('editor.wordWrap')).toBe(false); // applied
+      expect(s.get('editor.theme')).toBe('dark'); // default unchanged
+      expect(errors.map((e) => e.key).sort()).toEqual(['editor.fontSize', 'editor.theme']);
+    });
+  });
 });

@@ -185,4 +185,148 @@ describe('UndoRedoService', () => {
     expect(service.canUndo()).toBe(false);
     expect(service.canRedo()).toBe(false);
   });
+
+  describe('per-resource stacks', () => {
+    function withKey(label: string, resourceKey: string, undoFn = vi.fn(), redoFn = vi.fn()) {
+      return { label, undo: undoFn, redo: redoFn, resourceKey };
+    }
+
+    it('should keep separate undo histories per resource', () => {
+      const service = new UndoRedoService();
+      const docA = '/a.scene.json';
+      const docB = '/b.scene.json';
+
+      service.push(withKey('A1', docA));
+      service.push(withKey('A2', docA));
+      service.push(withKey('B1', docB));
+
+      expect(service.canUndo(docA)).toBe(true);
+      expect(service.canUndo(docB)).toBe(true);
+      expect(service.getUndoLabel(docA)).toBe('A2');
+      expect(service.getUndoLabel(docB)).toBe('B1');
+      // Global stack untouched
+      expect(service.canUndo()).toBe(false);
+    });
+
+    it('should not let one resource undo affect another', () => {
+      const service = new UndoRedoService();
+      const aUndo = vi.fn();
+      const bUndo = vi.fn();
+      service.push(withKey('A', '/a', aUndo));
+      service.push(withKey('B', '/b', bUndo));
+
+      service.undo('/a');
+
+      expect(aUndo).toHaveBeenCalledOnce();
+      expect(bUndo).not.toHaveBeenCalled();
+      expect(service.canUndo('/b')).toBe(true);
+    });
+
+    it('should clear redo only for the resource being pushed to', () => {
+      const service = new UndoRedoService();
+      service.push(withKey('A1', '/a'));
+      service.push(withKey('B1', '/b'));
+      service.undo('/a');
+      service.undo('/b');
+      expect(service.canRedo('/a')).toBe(true);
+      expect(service.canRedo('/b')).toBe(true);
+
+      // New push to /a clears /a's redo but leaves /b's intact.
+      service.push(withKey('A2', '/a'));
+      expect(service.canRedo('/a')).toBe(false);
+      expect(service.canRedo('/b')).toBe(true);
+    });
+
+    it('should clear a single resource via clearResource', () => {
+      const service = new UndoRedoService();
+      service.push(withKey('A1', '/a'));
+      service.push(withKey('B1', '/b'));
+
+      service.clearResource('/a');
+
+      expect(service.canUndo('/a')).toBe(false);
+      expect(service.canUndo('/b')).toBe(true);
+    });
+
+    it('should associate group with the explicit resourceKey', () => {
+      const service = new UndoRedoService();
+      service.beginGroup('Batch', '/doc');
+      service.push(makeOp('1'));
+      service.push(makeOp('2'));
+      service.endGroup();
+
+      expect(service.canUndo('/doc')).toBe(true);
+      expect(service.canUndo()).toBe(false);
+    });
+
+    it('should include resourceKey in onDidChangeState for non-global pushes', () => {
+      const service = new UndoRedoService();
+      const handler = vi.fn();
+      service.onDidChangeState(handler);
+
+      service.push(withKey('A', '/doc'));
+
+      expect(handler).toHaveBeenCalledWith({
+        canUndo: true,
+        canRedo: false,
+        undoLabel: 'A',
+        redoLabel: undefined,
+        resourceKey: '/doc',
+      });
+    });
+  });
+
+  describe('operation error isolation', () => {
+    it('should fire onError when op.undo throws and still rotate the entry to redo', () => {
+      const service = new UndoRedoService();
+      const errors: unknown[] = [];
+      service.onError((e) => errors.push(e));
+      service.push(makeOp('Bad', () => {
+        throw new Error('undo blew up');
+      }));
+
+      service.undo();
+
+      // The buggy op did not strand the stack — user can redo to step forward.
+      expect(service.canRedo()).toBe(true);
+      expect(service.canUndo()).toBe(false);
+      expect(errors).toHaveLength(1);
+      expect((errors[0] as { phase: string }).phase).toBe('undo');
+    });
+
+    it('should fire onError when op.redo throws and still rotate the entry to undo', () => {
+      const service = new UndoRedoService();
+      const errors: unknown[] = [];
+      service.onError((e) => errors.push(e));
+      service.push(makeOp('Bad', vi.fn(), () => {
+        throw new Error('redo blew up');
+      }));
+      service.undo();
+
+      service.redo();
+
+      expect(service.canUndo()).toBe(true);
+      expect(errors).toHaveLength(1);
+      expect((errors[0] as { phase: string }).phase).toBe('redo');
+    });
+
+    it('should keep running remaining ops in a group when one throws during undo', () => {
+      const service = new UndoRedoService();
+      const order: string[] = [];
+      service.onError(() => order.push('error'));
+
+      service.beginGroup('G');
+      service.push(makeOp('1', () => order.push('u1')));
+      service.push(makeOp('2', () => {
+        throw new Error('boom');
+      }));
+      service.push(makeOp('3', () => order.push('u3')));
+      service.endGroup();
+
+      service.undo();
+
+      // Reverse order: 3, 2 (errors), 1.
+      expect(order).toEqual(['u3', 'error', 'u1']);
+    });
+  });
 });
