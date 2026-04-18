@@ -16,6 +16,10 @@ export { MenuBar } from './menu-bar.js';
 export type { EditorToolbarItem } from './editor-toolbar.js';
 export { EditorToolbar } from './editor-toolbar.js';
 
+// Document tab bar
+export type { DocumentTabItem } from './document-tab-bar.js';
+export { DocumentTabBar } from './document-tab-bar.js';
+
 // Layout renderer
 export type { PanelCloseHandler, TabAddHandler, TabClickHandler, TabDropHandler, TitleResolver, WidgetResolver } from './layout-renderer.js';
 export { LayoutRenderer } from './layout-renderer.js';

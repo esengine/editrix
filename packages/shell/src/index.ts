@@ -10,6 +10,6 @@ export { ICommandRegistry } from '@editrix/commands';
 export { ILayoutService } from '@editrix/layout';
 export type { PanelDescriptor } from '@editrix/layout';
 export type { IWidget } from '@editrix/view';
-export { IViewService } from '@editrix/view';
+export { IViewAdapter, IViewService } from '@editrix/view';
 export { IPropertyService, ISelectionService } from '@editrix/properties';
 export type { PropertySchema } from '@editrix/properties';

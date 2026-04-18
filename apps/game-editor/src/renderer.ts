@@ -21,56 +21,18 @@ import { showInputDialog } from './dialogs.js';
 import { LocalPluginScanner } from './local-plugin-scanner.js';
 import {
   DocumentSyncPlugin,
+  DocumentTabsPlugin,
   ECSScenePlugin,
   FilesystemPlugin,
-  GameViewPlugin,
   HierarchyPlugin,
   InspectorPlugin,
   PlayModePlugin,
   ProjectPanelsPlugin,
   ProjectPlugin,
   RenderContextPlugin,
-  SceneViewPlugin,
+  ViewportPlugin,
 } from './plugins/index.js';
 import { IPlayModeService, IProjectService } from './services.js';
-
-// ─── Layout Helpers ─────────────────────────────────────
-
-interface LayoutTreeNode { type: string; panels?: readonly string[]; activeIndex?: number; children?: readonly { node: unknown }[] }
-
-/** Find the active panel ID in the tab-group that contains scene-view. */
-function findActiveCenterPanel(node: LayoutTreeNode): string | null {
-  if (node.type === 'tab-group') {
-    const panels = node.panels ?? [];
-    if (panels.includes('scene-view')) {
-      return panels[node.activeIndex ?? 0] ?? null;
-    }
-    return null;
-  }
-  if (node.type === 'split') {
-    for (const child of (node.children ?? [])) {
-      const found = findActiveCenterPanel(child.node as LayoutTreeNode);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-/** Get all panel IDs in the tab-group that contains scene-view. */
-function getCenterPanelIds(node: LayoutTreeNode): ReadonlySet<string> {
-  if (node.type === 'tab-group') {
-    const panels = node.panels ?? [];
-    if (panels.includes('scene-view')) return new Set(panels);
-    return new Set();
-  }
-  if (node.type === 'split') {
-    for (const child of (node.children ?? [])) {
-      const found = getCenterPanelIds(child.node as LayoutTreeNode);
-      if (found.size > 0) return found;
-    }
-  }
-  return new Set();
-}
 
 // ─── Electron API ───────────────────────────────────────
 
@@ -143,9 +105,9 @@ async function main(): Promise<void> {
       PlayModePlugin,
       // Document + panel layer
       DocumentSyncPlugin,
+      DocumentTabsPlugin,
       ProjectPanelsPlugin,
-      SceneViewPlugin,
-      GameViewPlugin,
+      ViewportPlugin,
       HierarchyPlugin,
       InspectorPlugin,
       // Framework / settings panels
@@ -255,160 +217,15 @@ async function main(): Promise<void> {
   editor.view.menuBar.addMenu({ id: 'help', label: 'Help', items: [] });
 
   // Open the panels each app plugin registered.
-  editor.layout.openPanel('scene-view');
+  editor.layout.openPanel('viewport');
   editor.layout.openPanel('hierarchy');
   editor.layout.openPanel('inspector');
   editor.layout.openPanel('project-files');
   editor.layout.openPanel('content-browser');
 
-  // ── Document tabs — driven by DocumentService + layout panels ──
-  const tabDisposables = new Map<string, { dispose(): void }>();
-
-  // Persistent Scene View tab (always present, not closable)
-  tabDisposables.set('scene-view', editor.view.menuBar.addTab({
-    id: 'scene-view',
-    label: 'Scene View',
-    icon: 'grid',
-    color: '#56b6c2',
-    closable: false,
-  }));
-  tabDisposables.set('game-view', editor.view.menuBar.addTab({
-    id: 'game-view',
-    label: 'Game View',
-    icon: 'play',
-    color: '#98c379',
-    closable: false,
-  }));
-  editor.view.menuBar.setActiveTab('scene-view');
-
-  documentService.onDidChangeDocuments(() => {
-    const openDocs = documentService.getOpenDocuments();
-    const openPaths = new Set(openDocs.map((d) => d.filePath));
-
-    // Remove tabs for closed documents
-    for (const [path, disposable] of tabDisposables) {
-      if (!openPaths.has(path)) {
-        disposable.dispose();
-        tabDisposables.delete(path);
-      }
-    }
-
-    // Add tabs for new documents
-    for (const doc of openDocs) {
-      if (!tabDisposables.has(doc.filePath)) {
-        const d = editor.view.menuBar.addTab({
-          id: doc.filePath,
-          label: doc.name,
-          icon: 'layers',
-          color: '#61afef',
-          modified: doc.dirty,
-        });
-        tabDisposables.set(doc.filePath, d);
-      }
-    }
-  });
-
-  documentService.onDidChangeActive((filePath) => {
-    if (filePath) {
-      editor.view.menuBar.setActiveTab(filePath);
-    }
-  });
-
-  documentService.onDidChangeDirty(({ filePath, dirty }) => {
-    // Remove and re-add the tab to update modified state
-    const existing = tabDisposables.get(filePath);
-    if (existing) {
-      existing.dispose();
-      const doc = documentService.getOpenDocuments().find((d) => d.filePath === filePath);
-      if (doc) {
-        const d = editor.view.menuBar.addTab({
-          id: doc.filePath,
-          label: doc.name,
-          icon: 'layers',
-          color: '#61afef',
-          modified: dirty,
-        });
-        tabDisposables.set(filePath, d);
-        editor.view.menuBar.setActiveTab(filePath);
-      }
-    }
-  });
-
-  // Track which menubar tabs are layout panels (vs document files)
-  const layoutPanelTabs = new Set<string>();
-
-  /** Check if a panel is "fixed" (not closable or not draggable) — these don't get menubar tabs. */
-  function isFixedPanel(panelId: string): boolean {
-    const desc = editor.layout.getDescriptor(panelId);
-    return desc?.closable === false || desc?.draggable === false;
-  }
-
-  // ── Section C: Tab Interactions (user clicks) ──
-
-  editor.view.menuBar.onDidSelectTab((tabId) => {
-    if (tabId === 'scene-view' || tabId === 'game-view' || layoutPanelTabs.has(tabId)) {
-      // Layout panel tab — switch the visible panel in layout
-      editor.layout.activatePanel(tabId);
-    } else {
-      // Document tab — activate in DocumentService, show scene-view
-      documentService.setActive(tabId);
-      editor.layout.activatePanel('scene-view');
-    }
-  });
-
-  editor.view.menuBar.onDidCloseTab((tabId) => {
-    if (layoutPanelTabs.has(tabId)) {
-      // Layout panel — close it
-      editor.layout.closePanel(tabId);
-      layoutPanelTabs.delete(tabId);
-      tabDisposables.get(tabId)?.dispose();
-      tabDisposables.delete(tabId);
-    } else {
-      // Document — close via DocumentService
-      documentService.close(tabId);
-    }
-  });
-
-  // ── Sync dynamic layout panels as menubar document tabs ──
-  // Only panels in the center tab-group (with scene-view) get menubar tabs.
-  // Panels moved elsewhere have their own tab bar — no menubar tab needed.
-  editor.layout.onDidChangeLayout(() => {
-    const layoutTree = editor.layout.getLayout();
-    const centerIds = getCenterPanelIds(layoutTree as LayoutTreeNode);
-
-    // Add menubar tabs for closable/draggable panels that are in the center group
-    for (const panelId of centerIds) {
-      if (!isFixedPanel(panelId) && !layoutPanelTabs.has(panelId)) {
-        const desc = editor.layout.getDescriptor(panelId);
-        if (!desc) continue;
-        const isPluginDetail = panelId.startsWith('plugin-detail:');
-        const d = editor.view.menuBar.addTab({
-          id: panelId,
-          label: desc.title,
-          icon: isPluginDetail ? 'extensions' : 'box',
-          color: isPluginDetail ? '#c678dd' : '#98c379',
-          draggable: true,
-        });
-        tabDisposables.set(panelId, d);
-        layoutPanelTabs.add(panelId);
-      }
-    }
-
-    // Sync active tab
-    const activeCenter = findActiveCenterPanel(layoutTree as LayoutTreeNode);
-    if (activeCenter && tabDisposables.has(activeCenter)) {
-      editor.view.menuBar.setActiveTab(activeCenter);
-    }
-
-    // Remove menubar tabs for panels that left the center group or were closed
-    for (const id of layoutPanelTabs) {
-      if (!centerIds.has(id)) {
-        tabDisposables.get(id)?.dispose();
-        tabDisposables.delete(id);
-        layoutPanelTabs.delete(id);
-      }
-    }
-  });
+  // Document tabs are now rendered by DocumentTabsPlugin in the document
+  // tab bar above the layout area. Layout panel tabs are managed by the
+  // layout-renderer itself. No bookkeeping at this level any more.
 
   // ── Ctrl+S keyboard shortcut ──
   document.addEventListener('keydown', (e) => {
@@ -565,20 +382,11 @@ async function main(): Promise<void> {
           direction: 'vertical',
           children: [
             {
-              node: {
-                type: 'split',
-                direction: 'horizontal',
-                children: [
-                  {
-                    node: { type: 'tab-group', panels: ['scene-view'], activeIndex: 0 },
-                    weight: 0.6,
-                  },
-                  {
-                    node: { type: 'tab-group', panels: ['game-view'], activeIndex: 0 },
-                    weight: 0.4,
-                  },
-                ],
-              },
+              // Single viewport panel — Scene/Game switch lives inside the
+              // panel itself as a segmented control, so this tab-group has
+              // exactly one fixed panel and the layout-renderer skips its
+              // tab header entirely.
+              node: { type: 'tab-group', panels: ['viewport'], activeIndex: 0 },
               weight: 0.65,
             },
             {

@@ -6,10 +6,12 @@ import { removePanel } from '@editrix/layout';
 import type { InputEvent, IViewAdapter, IViewService } from '@editrix/view';
 import { ActivityBar } from './activity-bar.js';
 import { CommandPalette } from './command-palette.js';
+import { DocumentTabBar } from './document-tab-bar.js';
 import { createElement } from './dom-utils.js';
 import { EditorToolbar } from './editor-toolbar.js';
 import { LayoutRenderer } from './layout-renderer.js';
 import { MenuBar } from './menu-bar.js';
+import { showQuickPick } from './quick-pick.js';
 import { Sidebar } from './sidebar.js';
 import { StatusBar } from './status-bar.js';
 import type { EditorTheme } from './theme.js';
@@ -58,6 +60,7 @@ export class DomViewAdapter implements IViewAdapter {
   private readonly _commandPalette: CommandPalette;
   private readonly _menuBar = new MenuBar();
   private readonly _editorToolbar = new EditorToolbar();
+  private readonly _documentTabBar = new DocumentTabBar();
   private readonly _statusBar = new StatusBar();
   private readonly _activityBar = new ActivityBar();
   private readonly _sidebar = new Sidebar();
@@ -116,6 +119,10 @@ export class DomViewAdapter implements IViewAdapter {
     const toolbarEl = createElement('div');
     this._container.appendChild(toolbarEl);
     this._editorToolbar.mount(toolbarEl);
+
+    const documentTabsEl = createElement('div');
+    this._container.appendChild(documentTabsEl);
+    this._documentTabBar.mount(documentTabsEl);
 
     const rootDropTop = this._createRootDropStrip('top');
     this._container.appendChild(rootDropTop);
@@ -185,9 +192,13 @@ export class DomViewAdapter implements IViewAdapter {
           this._layoutService.movePanelToSplit(panelId, targetPath, position);
         }
       },
-      undefined,
+      // onTabAdd: show a quick-pick of all panels not currently open in any
+      // group, scoped to the group the user clicked + on. App plugins
+      // register their panels via ILayoutService; we just present the list.
+      (_groupPath, anchor) => { this._showAddPanelPicker(anchor); },
       (panelId) => this._layoutService.getDescriptor(panelId)?.title ?? panelId,
       (panelId) => this._layoutService.getDescriptor(panelId)?.draggable !== false,
+      (panelId) => this._layoutService.getDescriptor(panelId)?.closable !== false,
     );
     this._subscriptions.add(this._layoutRenderer);
 
@@ -230,6 +241,15 @@ export class DomViewAdapter implements IViewAdapter {
     return this._editorToolbar;
   }
 
+  /**
+   * Document tab bar above the work area. Hidden by default; shows when the
+   * app calls setItems() with at least one entry. Apps wire this to whatever
+   * "open file" abstraction they use (typically IDocumentService).
+   */
+  get documentTabBar(): DocumentTabBar {
+    return this._documentTabBar;
+  }
+
   /** The activity bar for registering sidebar views. */
   get activityBar(): ActivityBar {
     return this._activityBar;
@@ -255,6 +275,7 @@ export class DomViewAdapter implements IViewAdapter {
     this._onInput.dispose();
     this._menuBar.dispose();
     this._editorToolbar.dispose();
+    this._documentTabBar.dispose();
     this._statusBar.dispose();
     this._activityBar.dispose();
     this._sidebar.dispose();
@@ -262,6 +283,28 @@ export class DomViewAdapter implements IViewAdapter {
 
   private _renderLayout(layout: LayoutNode): void {
     this._layoutRenderer?.render(layout);
+  }
+
+  /**
+   * Show a quick-pick of all panels currently registered but not open.
+   * Wired to the "+" button on every tab-group header so users have an
+   * obvious way to bring back a closed panel.
+   */
+  private _showAddPanelPicker(anchor: HTMLElement): void {
+    const all = this._layoutService.getAllDescriptors();
+    const openIds = new Set(this._layoutService.getOpenPanelIds());
+    const closed = all.filter((d) => !openIds.has(d.id));
+    if (closed.length === 0) return;
+    showQuickPick({
+      items: closed.map((d) => ({
+        id: d.id,
+        label: d.title,
+        ...(d.icon !== undefined ? { icon: d.icon } : {}),
+      })),
+      anchor,
+      placeholder: 'Open panel...',
+      onSelect: (item) => { this._layoutService.openPanel(item.id); },
+    });
   }
 
   private _setupKeyboardHandler(): { dispose(): void } {

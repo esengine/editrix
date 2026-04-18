@@ -23,7 +23,7 @@ export type PanelCloseHandler = (panelId: string) => void;
 /**
  * Callback when the "+" button in a tab bar is clicked.
  */
-export type TabAddHandler = (path: readonly number[]) => void;
+export type TabAddHandler = (path: readonly number[], anchor: HTMLElement) => void;
 
 /**
  * Callback to resolve a display title for a panel ID.
@@ -34,6 +34,11 @@ export type TitleResolver = (panelId: string) => string;
  * Callback to check if a panel can be dragged.
  */
 export type DraggableResolver = (panelId: string) => boolean;
+
+/**
+ * Callback to check if a panel can be closed.
+ */
+export type ClosableResolver = (panelId: string) => boolean;
 
 /**
  * Callback when a tab is dropped onto a target.
@@ -67,6 +72,7 @@ export class LayoutRenderer implements IDisposable {
   private readonly _onTabAdd: TabAddHandler | undefined;
   private readonly _titleResolver: TitleResolver | undefined;
   private readonly _draggableResolver: DraggableResolver | undefined;
+  private readonly _closableResolver: ClosableResolver | undefined;
   private readonly _subscriptions = new DisposableStore();
   private readonly _mountedWidgets = new Map<string, HTMLElement>();
   private readonly _onDidChangeFocus = new Emitter<string | undefined>();
@@ -92,6 +98,7 @@ export class LayoutRenderer implements IDisposable {
     onTabAdd?: TabAddHandler,
     titleResolver?: TitleResolver,
     draggableResolver?: DraggableResolver,
+    closableResolver?: ClosableResolver,
   ) {
     this._container = container;
     this._widgetResolver = widgetResolver;
@@ -101,6 +108,7 @@ export class LayoutRenderer implements IDisposable {
     this._onTabAdd = onTabAdd;
     this._titleResolver = titleResolver;
     this._draggableResolver = draggableResolver;
+    this._closableResolver = closableResolver;
   }
 
   /**
@@ -232,6 +240,24 @@ export class LayoutRenderer implements IDisposable {
       return el;
     }
 
+    // When a tab-group hosts a single fully-fixed panel (not closable AND not
+    // draggable), the tab header would only show one inert tab — skip it so
+    // the panel content fills the whole group. This is what makes the
+    // Viewport panel render without a tab strip.
+    const onlyPanelId = node.panels.length === 1 ? node.panels[0] : undefined;
+    if (
+      onlyPanelId !== undefined
+      && this._closableResolver?.(onlyPanelId) === false
+      && this._draggableResolver?.(onlyPanelId) === false
+    ) {
+      el.classList.add('editrix-tab-group--headless');
+      const content = createElement('div', 'editrix-panel-content');
+      content.style.position = 'relative';
+      this._mountWidget(onlyPanelId, content);
+      el.appendChild(content);
+      return el;
+    }
+
     // Compute path for this tab-group (used for drop targeting)
     const groupPath = this._currentPath.slice();
 
@@ -332,7 +358,7 @@ export class LayoutRenderer implements IDisposable {
     addBtn.textContent = '+';
     addBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this._onTabAdd?.(groupPath);
+      this._onTabAdd?.(groupPath, addBtn);
     });
     tabBar.appendChild(addBtn);
 

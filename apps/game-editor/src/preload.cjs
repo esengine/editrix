@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getHomePath: () => ipcRenderer.sendSync('get-home-path'),
   getProjectPath: () => ipcRenderer.sendSync('get-project-path'),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
+  selectFile: (options) => ipcRenderer.invoke('select-file', options),
 
   // Project management
   listProjects: () => ipcRenderer.invoke('list-projects'),

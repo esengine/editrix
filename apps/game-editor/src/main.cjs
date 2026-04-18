@@ -519,6 +519,18 @@ ipcMain.handle('select-folder', async (e) => {
   return result.filePaths[0];
 });
 
+ipcMain.handle('select-file', async (e, options) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const result = await dialog.showOpenDialog(win, {
+    properties: ['openFile'],
+    title: options?.title || 'Open File',
+    defaultPath: options?.defaultPath,
+    filters: options?.filters || [],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
 // ── IPC: Project Management ─────────────────────────────
 
 ipcMain.handle('list-projects', () => {

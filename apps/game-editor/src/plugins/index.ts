@@ -8,19 +8,19 @@
  *   project, filesystem  (no deps; foundational app context)
  *   render-context
  *   ecs-scene → document-sync → project-panels
- *             ↘ scene-view
- *             ↘ game-view
+ *                             ↘ document-tabs
+ *             ↘ viewport (combined Scene + Game)
  *             ↘ hierarchy
  *             ↘ inspector
  */
 export { DocumentSyncPlugin } from './document-sync-plugin.js';
+export { DocumentTabsPlugin } from './document-tabs-plugin.js';
 export { ECSScenePlugin } from './ecs-scene-plugin.js';
 export { FilesystemPlugin } from './filesystem-plugin.js';
-export { GameViewPlugin } from './game-view-plugin.js';
 export { HierarchyPlugin } from './hierarchy-plugin.js';
 export { InspectorPlugin } from './inspector-plugin.js';
 export { PlayModePlugin } from './play-mode-plugin.js';
 export { ProjectPanelsPlugin } from './project-panels-plugin.js';
 export { ProjectPlugin } from './project-plugin.js';
 export { RenderContextPlugin } from './render-context-plugin.js';
-export { SceneViewPlugin } from './scene-view-plugin.js';
+export { ViewportPlugin } from './viewport-plugin.js';
