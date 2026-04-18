@@ -105,6 +105,63 @@ interface ConfirmOptions {
   readonly destructive?: boolean;
 }
 
+export type ThreeChoice = 'save' | 'discard' | 'cancel';
+
+export function showThreeChoiceDialog(
+  message: string,
+  options: { saveLabel?: string; discardLabel?: string; cancelLabel?: string } = {},
+): Promise<ThreeChoice> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = OVERLAY_STYLE;
+
+    const dialog = document.createElement('div');
+    dialog.style.cssText = DIALOG_STYLE;
+
+    const text = document.createElement('div');
+    text.textContent = message;
+    text.style.cssText = 'font-size:13px;line-height:1.5;margin-bottom:16px;white-space:pre-line;';
+    dialog.appendChild(text);
+
+    const buttons = document.createElement('div');
+    buttons.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;';
+
+    const discardBtn = document.createElement('button');
+    discardBtn.textContent = options.discardLabel ?? "Don't Save";
+    discardBtn.style.cssText = BTN_DESTRUCTIVE;
+    discardBtn.addEventListener('click', () => { cleanup(); resolve('discard'); });
+    buttons.appendChild(discardBtn);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = options.cancelLabel ?? 'Cancel';
+    cancelBtn.style.cssText = BTN_CANCEL;
+    cancelBtn.addEventListener('click', () => { cleanup(); resolve('cancel'); });
+    buttons.appendChild(cancelBtn);
+
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = options.saveLabel ?? 'Save';
+    saveBtn.style.cssText = BTN_OK;
+    saveBtn.addEventListener('click', () => { cleanup(); resolve('save'); });
+    buttons.appendChild(saveBtn);
+
+    dialog.appendChild(buttons);
+    overlay.appendChild(dialog);
+
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') { cleanup(); resolve('cancel'); }
+    };
+    document.addEventListener('keydown', onKey);
+
+    function cleanup(): void {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+
+    document.body.appendChild(overlay);
+    saveBtn.focus();
+  });
+}
+
 /**
  * Confirm a yes/no decision. Resolves true on confirm, false on cancel.
  */

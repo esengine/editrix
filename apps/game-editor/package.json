@@ -9,7 +9,7 @@
     "build": "esbuild src/renderer.ts --bundle --outfile=dist/renderer.js --format=esm --platform=browser --target=es2022 --sourcemap --packages=bundle && esbuild src/launcher.ts --bundle --outfile=dist/launcher.js --format=esm --platform=browser --target=es2022 --sourcemap",
     "build:wasm": "node scripts/build-wasm.js",
     "build:wasm:all": "node scripts/build-wasm.js --all",
-    "copy:wasm": "node -e \"const{cpSync,mkdirSync}=require('fs'),p=require('path');const s=p.resolve(__dirname,'../../vendor/estella/build/build-web/sdk'),d=p.resolve(__dirname,'wasm');mkdirSync(d,{recursive:true});for(const f of['esengine-core.js','esengine-core.wasm']){const src=p.join(s,f),dst=p.join(d,f.replace('esengine-core','esengine'));try{cpSync(src,dst);console.log('Copied',f)}catch{console.warn('Skip',f)}}\"",
+    "copy:wasm": "node scripts/copy-wasm.js",
     "start": "npm run build && electron src/main.cjs"
   },
   "dependencies": {

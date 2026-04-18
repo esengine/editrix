@@ -15,11 +15,14 @@ const fs = require('fs');
 let launcherWindow = null;
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
+// Set by the close-ack handler to let the next close() pass the gate.
+let editorCloseAllowed = false;
 
 // ── Paths ───────────────────────────────────────────────
 
 const EDITRIX_HOME = path.join(os.homedir(), '.editrix');
 const LAUNCHER_CONFIG_PATH = path.join(EDITRIX_HOME, 'launcher.json');
+const WINDOW_STATE_PATH = path.join(EDITRIX_HOME, 'window.json');
 
 // ── Launcher Config (project list persistence) ──────────
 
@@ -45,10 +48,99 @@ function saveLauncherConfig(config) {
   fs.writeFileSync(LAUNCHER_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
 }
 
+// ── Editor window geometry persistence ─────────────────
+
+function loadWindowState() {
+  try {
+    if (fs.existsSync(WINDOW_STATE_PATH)) {
+      return JSON.parse(fs.readFileSync(WINDOW_STATE_PATH, 'utf-8'));
+    }
+  } catch (_) { /* fall through */ }
+  return null;
+}
+
+function saveWindowState(state) {
+  ensureDir(EDITRIX_HOME);
+  try {
+    fs.writeFileSync(WINDOW_STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
+  } catch (_) { /* non-fatal */ }
+}
+
+function resolveEditorWindowOptions(saved) {
+  const defaults = { width: 1280, height: 800 };
+  if (!saved || typeof saved !== 'object') return { options: defaults, shouldMaximize: false };
+
+  const { x, y, width, height, isMaximized } = saved;
+  if (
+    typeof width !== 'number' || width < 400 ||
+    typeof height !== 'number' || height < 300
+  ) {
+    return { options: defaults, shouldMaximize: !!isMaximized };
+  }
+
+  const options = { width, height };
+  if (typeof x === 'number' && typeof y === 'number') {
+    // Drop saved position if the display it lived on is gone (monitor unplug).
+    const { screen } = require('electron');
+    const display = screen.getDisplayMatching({ x, y, width, height });
+    if (display && display.bounds) {
+      const db = display.bounds;
+      const within = x < db.x + db.width && x + width > db.x && y < db.y + db.height && y + height > db.y;
+      if (within) {
+        options.x = x;
+        options.y = y;
+      }
+    }
+  }
+  return { options, shouldMaximize: !!isMaximized };
+}
+
 // ── Project Creation ────────────────────────────────────
 
 const EDITRIX_VERSION = '0.1.0';
 const EDITRIX_API_VERSION = 1;
+
+// ── Project version classification ──────────────────────
+
+function parseSemver(v) {
+  const parts = String(v).split('.').map((s) => {
+    const n = parseInt(s, 10);
+    return Number.isFinite(n) ? n : 0;
+  });
+  return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+}
+
+function compareVersions(a, b) {
+  const [am, an, ap] = parseSemver(a);
+  const [bm, bn, bp] = parseSemver(b);
+  if (am !== bm) return am < bm ? -1 : 1;
+  if (an !== bn) return an < bn ? -1 : 1;
+  if (ap !== bp) return ap < bp ? -1 : 1;
+  return 0;
+}
+
+/** Returns { version, status: 'ok' | 'project-older' | 'project-newer' | 'unknown' }. */
+function classifyProjectVersion(projectPath) {
+  const manifestPath = path.join(projectPath, 'editrix.json');
+  let raw;
+  try {
+    raw = fs.readFileSync(manifestPath, 'utf-8');
+  } catch (_) {
+    return { version: null, status: 'unknown' };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (_) {
+    return { version: null, status: 'unknown' };
+  }
+  const v = typeof parsed.editrix === 'string' ? parsed.editrix : null;
+  if (!v) return { version: null, status: 'unknown' };
+
+  const cmp = compareVersions(v, EDITRIX_VERSION);
+  const status = cmp === 0 ? 'ok' : cmp < 0 ? 'project-older' : 'project-newer';
+  return { version: v, status };
+}
 
 /**
  * Generate type declarations for plugin developers.
@@ -448,11 +540,14 @@ function createLauncherWindow() {
 }
 
 function createEditorWindow() {
+  const { options: savedOptions, shouldMaximize } = resolveEditorWindowOptions(loadWindowState());
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 800,
     minHeight: 600,
+    ...savedOptions,
     title: 'Editrix',
     backgroundColor: '#1b1b1f',
     frame: false,
@@ -463,10 +558,33 @@ function createEditorWindow() {
     },
   });
 
+  // Apply maximize post-construction so pre-maximize bounds stay on the
+  // object — un-maximizing later returns to the user's authored size.
+  if (shouldMaximize) mainWindow.maximize();
+
+  let persistTimer;
+  const schedulePersist = () => {
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(persistEditorWindowState, 500);
+  };
+  mainWindow.on('resize', schedulePersist);
+  mainWindow.on('move', schedulePersist);
+  mainWindow.on('maximize', schedulePersist);
+  mainWindow.on('unmaximize', schedulePersist);
+
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
+
+  // Intercept every close path (× button, Cmd/Ctrl+Q, JS close()). Renderer
+  // replies via 'app:close-ack' after the dirty-doc prompt resolves.
+  mainWindow.on('close', (e) => {
+    if (editorCloseAllowed) return;
+    e.preventDefault();
+    mainWindow?.webContents.send('app:request-close');
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    editorCloseAllowed = false;
   });
 }
 
@@ -488,6 +606,29 @@ ipcMain.on('window-maximize', (e) => {
 ipcMain.on('window-close', (e) => {
   BrowserWindow.fromWebContents(e.sender)?.close();
 });
+
+ipcMain.on('app:close-ack', (e, shouldClose) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (win !== mainWindow) return;
+  if (shouldClose) {
+    // Read bounds BEFORE close() — native handle is gone afterwards.
+    persistEditorWindowState();
+    editorCloseAllowed = true;
+    mainWindow?.close();
+  }
+});
+
+function persistEditorWindowState() {
+  if (!mainWindow) return;
+  try {
+    const isMaximized = mainWindow.isMaximized();
+    // getNormalBounds preserves the pre-maximize rect when maximized.
+    const bounds = isMaximized && typeof mainWindow.getNormalBounds === 'function'
+      ? mainWindow.getNormalBounds()
+      : mainWindow.getBounds();
+    saveWindowState({ ...bounds, isMaximized });
+  } catch (_) { /* teardown race */ }
+}
 
 // ── IPC: System ─────────────────────────────────────────
 
@@ -520,14 +661,33 @@ ipcMain.handle('select-file', async (e, options) => {
 // ── IPC: Project Management ─────────────────────────────
 
 ipcMain.handle('list-projects', () => {
-  // Existence check on every read so missing-on-disk projects can be visually
-  // flagged in the launcher (Unity Hub / Godot / JetBrains all do this).
-  // The check is cheap (statSync per entry) so doing it inline is fine until
-  // we have hundreds of projects.
-  return loadLauncherConfig().projects.map((p) => ({
-    ...p,
-    exists: fs.existsSync(p.path),
-  }));
+  // Every refresh we re-read disk state for two orthogonal checks:
+  //   - `exists`: folder still there? (row-level missing indicator)
+  //   - `versionStatus`: editrix.json version vs. running build?
+  //     (version-column badge — only meaningful when exists is true)
+  // The cached `editrixVersion` in launcher.json is only a fallback for
+  // display when the folder exists but the manifest is unreadable.
+  return loadLauncherConfig().projects.map((p) => {
+    const exists = fs.existsSync(p.path);
+    if (!exists) {
+      return {
+        ...p,
+        exists: false,
+        // Version column is suppressed for missing rows; keep cached value
+        // for completeness but don't compute a status (nothing to check).
+        versionStatus: 'folder-missing',
+      };
+    }
+    const { version, status } = classifyProjectVersion(p.path);
+    return {
+      ...p,
+      exists: true,
+      // Live-read wins over cache so upgrading a project's editrix.json
+      // reflects in the launcher without re-registering the project.
+      editrixVersion: version ?? p.editrixVersion ?? null,
+      versionStatus: status,
+    };
+  });
 });
 
 ipcMain.handle('remove-project', (_e, projectPath) => {
@@ -762,6 +922,39 @@ export default plugin;
 });
 
 ipcMain.on('open-project', (_e, projectPath) => {
+  if (projectPath) {
+    const manifestPath = path.join(projectPath, 'editrix.json');
+    if (!fs.existsSync(manifestPath)) {
+      const win = launcherWindow || BrowserWindow.getFocusedWindow();
+      dialog.showMessageBoxSync(win || undefined, {
+        type: 'error',
+        title: 'Not an Editrix project',
+        message: 'The selected folder is not an Editrix project.',
+        detail: `${projectPath}\n\nPick a folder that contains editrix.json, or use "New Project" to create one.`,
+        buttons: ['OK'],
+      });
+      return;
+    }
+  }
+
+  if (projectPath) {
+    const { version, status } = classifyProjectVersion(projectPath);
+    if (status === 'project-newer') {
+      const win = launcherWindow || BrowserWindow.getFocusedWindow();
+      dialog.showMessageBoxSync(win || undefined, {
+        type: 'error',
+        title: 'Cannot open project',
+        message: `This project requires a newer version of Editrix.`,
+        detail: `Project version: ${version}\nInstalled version: ${EDITRIX_VERSION}\n\nUpgrade Editrix to open this project.`,
+        buttons: ['OK'],
+      });
+      return;
+    }
+    if (status === 'project-older') {
+      console.warn(`[editrix] Opening older project (${version} < ${EDITRIX_VERSION}); scene format will be upgraded on next save.`);
+    }
+  }
+
   currentProjectPath = projectPath || null;
 
   // Auto-update plugin type declarations on every project open

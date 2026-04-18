@@ -6,6 +6,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximize: () => ipcRenderer.send('window-maximize'),
   close: () => ipcRenderer.send('window-close'),
 
+  // Single-listener slot so hot reload doesn't accumulate handlers.
+  onRequestClose: (handler) => {
+    ipcRenderer.removeAllListeners('app:request-close');
+    ipcRenderer.on('app:request-close', () => { handler(); });
+  },
+  closeAck: (shouldClose) => ipcRenderer.send('app:close-ack', shouldClose),
+
   // System
   getHomePath: () => ipcRenderer.sendSync('get-home-path'),
   getProjectPath: () => ipcRenderer.sendSync('get-project-path'),
