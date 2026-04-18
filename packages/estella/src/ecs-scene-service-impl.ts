@@ -210,32 +210,121 @@ export class ECSSceneService implements IECSSceneService {
     }
 
     reparent(entityId: number, newParentId: number | null): void {
+        this.moveEntity(entityId, newParentId);
+    }
+
+    moveEntity(entityId: number, newParentId: number | null, newIndex?: number): void {
         const meta = this._entities.get(entityId);
         if (!meta) return;
+        if (newParentId === entityId) return;
+        if (newParentId !== null && this._isDescendant(newParentId, entityId)) return;
 
-        // Remove from old parent
-        if (meta.parentId !== null) {
-            const oldParent = this._entities.get(meta.parentId);
-            if (oldParent) {
-                oldParent.childIds = oldParent.childIds.filter((id) => id !== entityId);
-            }
+        const oldParentId = meta.parentId;
+        const sourceSiblings = oldParentId === null
+            ? this._rootIds
+            : (this._entities.get(oldParentId)?.childIds ?? []);
+        const targetSiblings = newParentId === null
+            ? this._rootIds
+            : (this._entities.get(newParentId)?.childIds ?? []);
+
+        const sourceIndex = sourceSiblings.indexOf(entityId);
+        if (sourceIndex !== -1) sourceSiblings.splice(sourceIndex, 1);
+
+        // newIndex is in the pre-removal coordinate system; adjust before
+        // clamping so "drop at end" is distinguishable from "drop near end".
+        let insertAt: number;
+        if (newIndex === undefined) {
+            insertAt = targetSiblings.length;
         } else {
-            this._rootIds = this._rootIds.filter((id) => id !== entityId);
+            insertAt = newIndex;
+            if (sourceSiblings === targetSiblings && sourceIndex !== -1 && sourceIndex < insertAt) {
+                insertAt -= 1;
+            }
+            insertAt = Math.max(0, Math.min(targetSiblings.length, insertAt));
         }
+        targetSiblings.splice(insertAt, 0, entityId);
 
-        // Add to new parent
         meta.parentId = newParentId;
         if (newParentId !== null) {
-            const newParent = this._entities.get(newParentId);
-            if (newParent) {
-                newParent.childIds.push(entityId);
-            }
             this._registry.setParent(entityId, newParentId);
-        } else {
-            this._rootIds.push(entityId);
         }
 
         this._onHierarchyChanged.fire();
+    }
+
+    moveEntities(entityIds: readonly number[], newParentId: number | null, newIndex?: number): void {
+        if (entityIds.length === 0) return;
+
+        // Whole-batch cycle check — partial success would leave the user
+        // with some moved and some not.
+        for (const id of entityIds) {
+            if (!this._entities.has(id)) return;
+            if (newParentId === id) return;
+            if (newParentId !== null && this._isDescendant(newParentId, id)) return;
+        }
+
+        const targetSiblings = newParentId === null
+            ? this._rootIds
+            : (this._entities.get(newParentId)?.childIds ?? []);
+
+        // Count sources that currently sit in the target list before newIndex;
+        // detaching them will shift the anchor down.
+        let anchorShift = 0;
+        if (newIndex !== undefined) {
+            for (const id of entityIds) {
+                const sourceMeta = this._entities.get(id);
+                if (!sourceMeta) continue;
+                const sourceParent = sourceMeta.parentId;
+                const sourceSiblings = sourceParent === null
+                    ? this._rootIds
+                    : (this._entities.get(sourceParent)?.childIds ?? []);
+                if (sourceSiblings === targetSiblings) {
+                    const idx = sourceSiblings.indexOf(id);
+                    if (idx !== -1 && idx < newIndex) anchorShift++;
+                }
+            }
+        }
+
+        for (const id of entityIds) {
+            const meta = this._entities.get(id);
+            if (!meta) continue;
+            const siblings = meta.parentId === null
+                ? this._rootIds
+                : (this._entities.get(meta.parentId)?.childIds ?? []);
+            const idx = siblings.indexOf(id);
+            if (idx !== -1) siblings.splice(idx, 1);
+        }
+
+        let insertAt: number;
+        if (newIndex === undefined) {
+            insertAt = targetSiblings.length;
+        } else {
+            insertAt = Math.max(0, Math.min(targetSiblings.length, newIndex - anchorShift));
+        }
+
+        for (let i = 0; i < entityIds.length; i++) {
+            const id = entityIds[i];
+            if (id === undefined) continue;
+            const meta = this._entities.get(id);
+            if (!meta) continue;
+            targetSiblings.splice(insertAt + i, 0, id);
+            meta.parentId = newParentId;
+            if (newParentId !== null) {
+                this._registry.setParent(id, newParentId);
+            }
+        }
+
+        this._onHierarchyChanged.fire();
+    }
+
+    private _isDescendant(candidateId: number, rootId: number): boolean {
+        const meta = this._entities.get(rootId);
+        if (!meta) return false;
+        for (const childId of meta.childIds) {
+            if (childId === candidateId) return true;
+            if (this._isDescendant(candidateId, childId)) return true;
+        }
+        return false;
     }
 
     // ── Metadata ────────────────────────────────────────────
@@ -450,6 +539,10 @@ export class ECSSceneService implements IECSSceneService {
 
     requestRender(): void {
         this._renderCallback?.();
+    }
+
+    getCppHandle(): { readonly module: unknown; readonly registry: unknown } {
+        return { module: this._module, registry: this._registry };
     }
 
     // ── Dispose ─────────────────────────────────────────────

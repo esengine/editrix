@@ -54,20 +54,20 @@ export interface CppRegistry {
 
 export type EstellaModuleName = 'physics' | 'spine' | 'particles' | 'tilemap';
 
+export interface EstellaSDK {
+    createWebApp: (module: ESEngineModule, options?: unknown) => unknown;
+    App: { new(): unknown };
+    corePlugin: unknown;
+    [key: string]: unknown;
+}
+
 export interface IEstellaService extends IDisposable {
-    /** Load the core WASM module from a base path */
     loadCore(wasmBasePath: string): Promise<void>;
-
-    /** Load an optional side module by name */
     loadModule(name: EstellaModuleName): Promise<void>;
-
-    /** The loaded WASM module (undefined until loadCore completes) */
+    loadSDK(): Promise<EstellaSDK>;
     readonly module: ESEngineModule | undefined;
-
-    /** Whether the core module is loaded and ready */
+    readonly sdk: EstellaSDK | undefined;
     readonly isReady: boolean;
-
-    /** Fires when the core module finishes loading */
     readonly onReady: Event<ESEngineModule>;
 }
 
@@ -75,10 +75,13 @@ export const IEstellaService = createServiceId<IEstellaService>('IEstellaService
 
 export class EstellaService implements IEstellaService {
     private _module: ESEngineModule | undefined;
+    private _sdk: EstellaSDK | undefined;
+    private _sdkLoading: Promise<EstellaSDK> | undefined;
     private readonly _ready = new Emitter<ESEngineModule>();
     private _wasmBasePath = '';
 
     get module(): ESEngineModule | undefined { return this._module; }
+    get sdk(): EstellaSDK | undefined { return this._sdk; }
     get isReady(): boolean { return this._module !== undefined; }
     get onReady(): Event<ESEngineModule> { return this._ready.event; }
 
@@ -100,6 +103,31 @@ export class EstellaService implements IEstellaService {
         }) as ESEngineModule;
 
         this._ready.fire(this._module);
+    }
+
+    loadSDK(): Promise<EstellaSDK> {
+        if (this._sdk) return Promise.resolve(this._sdk);
+        if (this._sdkLoading) return this._sdkLoading;
+        if (!this._wasmBasePath) {
+            return Promise.reject(new Error('loadSDK() requires loadCore() to have completed first.'));
+        }
+        const url = this._wasmBasePath + 'esengine.bundled.js';
+        this._sdkLoading = (async (): Promise<EstellaSDK> => {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Failed to fetch ${url}: ${String(response.status)}`);
+            const source = await response.text();
+            // Blob URL because file:// dynamic imports are blocked in the sandbox.
+            const blob = new Blob([source], { type: 'text/javascript' });
+            const blobUrl = URL.createObjectURL(blob);
+            try {
+                const mod = await import(/* @vite-ignore */ blobUrl) as Record<string, unknown>;
+                this._sdk = mod as unknown as EstellaSDK;
+                return this._sdk;
+            } finally {
+                URL.revokeObjectURL(blobUrl);
+            }
+        })();
+        return this._sdkLoading;
     }
 
     async loadModule(name: EstellaModuleName): Promise<void> {

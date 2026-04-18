@@ -68,6 +68,10 @@ export interface IECSSceneService extends IDisposable {
     getChildren(entityId: number): readonly number[];
     getRootEntities(): readonly number[];
     reparent(entityId: number, newParentId: number | null): void;
+    /** Move to a new (parent, index). Cycle-guarded. `newIndex` undefined = append. */
+    moveEntity(entityId: number, newParentId: number | null, newIndex?: number): void;
+    /** Atomic batch move — sources land as a contiguous block at newIndex. */
+    moveEntities(entityIds: readonly number[], newParentId: number | null, newIndex?: number): void;
 
     // Metadata
     getName(entityId: number): string;
@@ -106,6 +110,9 @@ export interface IECSSceneService extends IDisposable {
 
     // Rendering
     requestRender(): void;
+
+    /** Handles for runtime App.connectCpp(registry, module). */
+    getCppHandle(): { readonly module: unknown; readonly registry: unknown };
 }
 
 export const IECSSceneService = createServiceId<IECSSceneService>('IECSSceneService');

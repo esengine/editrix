@@ -195,7 +195,7 @@ export class DomViewAdapter implements IViewAdapter {
       // onTabAdd: show a quick-pick of all panels not currently open in any
       // group, scoped to the group the user clicked + on. App plugins
       // register their panels via ILayoutService; we just present the list.
-      (_groupPath, anchor) => { this._showAddPanelPicker(anchor); },
+      (_groupPath, anchor) => { this.showPanelPicker(anchor); },
       (panelId) => this._layoutService.getDescriptor(panelId)?.title ?? panelId,
       (panelId) => this._layoutService.getDescriptor(panelId)?.draggable !== false,
       (panelId) => this._layoutService.getDescriptor(panelId)?.closable !== false,
@@ -285,23 +285,21 @@ export class DomViewAdapter implements IViewAdapter {
     this._layoutRenderer?.render(layout);
   }
 
-  /**
-   * Show a quick-pick of all panels currently registered but not open.
-   * Wired to the "+" button on every tab-group header so users have an
-   * obvious way to bring back a closed panel.
-   */
-  private _showAddPanelPicker(anchor: HTMLElement): void {
+  /** Quick-pick of registered but unopened panels. Used by tab-bar "+" and View menu. */
+  showPanelPicker(anchor?: HTMLElement): void {
     const all = this._layoutService.getAllDescriptors();
     const openIds = new Set(this._layoutService.getOpenPanelIds());
     const closed = all.filter((d) => !openIds.has(d.id));
     if (closed.length === 0) return;
+    const resolvedAnchor = anchor ?? this._container?.querySelector('.editrix-menubar') as HTMLElement | null;
+    if (!resolvedAnchor) return;
     showQuickPick({
       items: closed.map((d) => ({
         id: d.id,
         label: d.title,
         ...(d.icon !== undefined ? { icon: d.icon } : {}),
       })),
-      anchor,
+      anchor: resolvedAnchor,
       placeholder: 'Open panel...',
       onSelect: (item) => { this._layoutService.openPanel(item.id); },
     });

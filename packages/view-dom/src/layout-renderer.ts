@@ -240,25 +240,6 @@ export class LayoutRenderer implements IDisposable {
       return el;
     }
 
-    // When a tab-group hosts a single fully-fixed panel (not closable AND not
-    // draggable), the tab header would only show one inert tab — skip it so
-    // the panel content fills the whole group. This is what makes the
-    // Viewport panel render without a tab strip.
-    const onlyPanelId = node.panels.length === 1 ? node.panels[0] : undefined;
-    if (
-      onlyPanelId !== undefined
-      && this._closableResolver?.(onlyPanelId) === false
-      && this._draggableResolver?.(onlyPanelId) === false
-    ) {
-      el.classList.add('editrix-tab-group--headless');
-      const content = createElement('div', 'editrix-panel-content');
-      content.style.position = 'relative';
-      this._mountWidget(onlyPanelId, content);
-      el.appendChild(content);
-      return el;
-    }
-
-    // Compute path for this tab-group (used for drop targeting)
     const groupPath = this._currentPath.slice();
 
     // Tab bar
@@ -338,13 +319,16 @@ export class LayoutRenderer implements IDisposable {
         this._onTabClick(panelId);
       });
 
-      const closeBtn = createElement('span', 'editrix-tab-close');
-      closeBtn.textContent = '\u00d7';
-      closeBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._onClose(panelId);
-      });
-      tab.appendChild(closeBtn);
+      const panelClosable = this._closableResolver?.(panelId) ?? true;
+      if (panelClosable) {
+        const closeBtn = createElement('span', 'editrix-tab-close');
+        closeBtn.textContent = '\u00d7';
+        closeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._onClose(panelId);
+        });
+        tab.appendChild(closeBtn);
+      }
 
       tabBar.appendChild(tab);
     }

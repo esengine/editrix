@@ -36,6 +36,10 @@ export interface TreeWidgetOptions {
   readonly showAddButton?: boolean;
   /** Label for the add button. Default: "Add Entity". */
   readonly addButtonLabel?: string;
+  /** Enable drag-and-drop reordering / reparenting. Default: false. */
+  readonly enableDrag?: boolean;
+  /** Pre-drop gate — return false to suppress the indicator and reject. */
+  readonly canDrop?: (sourceIds: readonly string[], targetId: string, position: 'before' | 'after' | 'inside') => boolean;
 }
 
 /**
@@ -63,6 +67,9 @@ export class TreeWidget extends BaseWidget {
   private _filterText = '';
   private readonly _hidden = new Set<string>();
   private _listEl: HTMLElement | undefined;
+  // dataTransfer values are unreadable during dragover (security); cached here.
+  private _dragSourceIds: readonly string[] | undefined;
+  private _dropIndicatorRow: HTMLElement | undefined;
 
   private readonly _onDidChangeSelection = new Emitter<readonly string[]>();
   private readonly _onDidChangeExpansion = new Emitter<{ id: string; expanded: boolean }>();
@@ -72,6 +79,7 @@ export class TreeWidget extends BaseWidget {
   private readonly _onDidRequestRename = new Emitter<string>();
   private readonly _onDidRequestDuplicate = new Emitter<readonly string[]>();
   private readonly _onDidRequestContextMenu = new Emitter<{ ids: readonly string[]; x: number; y: number }>();
+  private readonly _onDidRequestDrop = new Emitter<{ sourceIds: readonly string[]; targetId: string; position: 'before' | 'after' | 'inside' }>();
 
   /** Fired when the selection changes. */
   readonly onDidChangeSelection: Event<readonly string[]> = this._onDidChangeSelection.event;
@@ -96,6 +104,9 @@ export class TreeWidget extends BaseWidget {
 
   /** Fired on right-click, providing selected IDs and mouse position. */
   readonly onDidRequestContextMenu: Event<{ ids: readonly string[]; x: number; y: number }> = this._onDidRequestContextMenu.event;
+
+  /** Fired on drop. `position` is 'before' | 'after' (sibling) or 'inside' (child). */
+  readonly onDidRequestDrop: Event<{ sourceIds: readonly string[]; targetId: string; position: 'before' | 'after' | 'inside' }> = this._onDidRequestDrop.event;
 
   constructor(id: string, options: TreeWidgetOptions = {}) {
     super(id, 'tree');
@@ -226,10 +237,66 @@ export class TreeWidget extends BaseWidget {
     this._listEl = this.appendElement(root, 'div', 'editrix-tree-list');
     this._listEl.tabIndex = 0;
 
-    // Keyboard navigation
     this._listEl.addEventListener('keydown', (e) => { this._handleKeyDown(e); });
 
+    // List-level drag fallback: drops landing in the blank space below the
+    // last row resolve to "after the last row" — the one position the
+    // per-row 25/50/25 zones can't reach.
+    if (this._options.enableDrag !== false) {
+      this._listEl.addEventListener('dragover', (e) => this._handleListDragover(e));
+      this._listEl.addEventListener('dragleave', (e) => {
+        if (this._listEl?.contains(e.relatedTarget as Node | null)) return;
+        this._clearDropIndicator();
+      });
+      this._listEl.addEventListener('drop', (e) => this._handleListDrop(e));
+    }
+
     this._render();
+  }
+
+  private _handleListDragover(e: DragEvent): void {
+    const sources = this._dragSourceIds;
+    if (!sources || sources.length === 0) return;
+    if ((e.target as HTMLElement | null)?.closest?.('.editrix-tree-row')) return;
+
+    const lastRow = this._listEl?.lastElementChild as HTMLElement | null;
+    if (!lastRow || !lastRow.classList.contains('editrix-tree-row')) return;
+    const lastId = lastRow.dataset['nodeId'];
+    if (!lastId || sources.includes(lastId)) return;
+    if (this._options.canDrop && !this._options.canDrop(sources, lastId, 'after')) return;
+
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    this._setDropIndicator(lastRow, 'after');
+  }
+
+  private _handleListDrop(e: DragEvent): void {
+    if ((e.target as HTMLElement | null)?.closest?.('.editrix-tree-row')) return;
+    const raw = e.dataTransfer?.getData('text/x-editrix-tree-node');
+    this._clearDropIndicator();
+    if (!raw) return;
+    let sources: string[];
+    try { sources = JSON.parse(raw) as string[]; } catch { return; }
+    if (!Array.isArray(sources) || sources.length === 0) return;
+    const lastRow = this._listEl?.lastElementChild as HTMLElement | null;
+    if (!lastRow || !lastRow.classList.contains('editrix-tree-row')) return;
+    const lastId = lastRow.dataset['nodeId'];
+    if (!lastId || sources.includes(lastId)) return;
+    if (this._options.canDrop && !this._options.canDrop(sources, lastId, 'after')) return;
+    e.preventDefault();
+    this._onDidRequestDrop.fire({ sourceIds: sources, targetId: lastId, position: 'after' });
+  }
+
+  private _collectSelectedInDocumentOrder(): string[] {
+    const out: string[] = [];
+    const walk = (nodes: readonly TreeNode[]): void => {
+      for (const node of nodes) {
+        if (this._selected.has(node.id)) out.push(node.id);
+        if (node.children && this._expanded.has(node.id)) walk(node.children);
+      }
+    };
+    walk(this._roots);
+    return out;
   }
 
   override dispose(): void {
@@ -390,6 +457,81 @@ export class TreeWidget extends BaseWidget {
         }
       });
 
+      if (this._options.enableDrag !== false) {
+        row.draggable = true;
+        row.addEventListener('dragstart', (e) => {
+          const sources = this._selected.has(node.id)
+            ? this._collectSelectedInDocumentOrder()
+            : [node.id];
+          if (!this._selected.has(node.id)) {
+            this._selected = new Set([node.id]);
+            this._focusedId = node.id;
+            // Skipping _render() here — re-rendering mid-dragstart aborts
+            // the native drag session.
+            this._onDidChangeSelection.fire([node.id]);
+          }
+
+          e.dataTransfer?.setData('text/x-editrix-tree-node', JSON.stringify(sources));
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+          this._dragSourceIds = sources;
+
+          const sourceSet = new Set(sources);
+          this._listEl?.querySelectorAll('.editrix-tree-row').forEach((el) => {
+            const id = (el as HTMLElement).dataset['nodeId'];
+            if (id && sourceSet.has(id)) el.classList.add('editrix-tree-row--dragging');
+          });
+        });
+        row.addEventListener('dragend', () => {
+          this._listEl?.querySelectorAll('.editrix-tree-row--dragging').forEach((el) => {
+            el.classList.remove('editrix-tree-row--dragging');
+          });
+          this._dragSourceIds = undefined;
+          this._clearDropIndicator();
+        });
+        row.addEventListener('dragover', (e) => {
+          const sources = e.dataTransfer?.types.includes('text/x-editrix-tree-node')
+            ? this._dragSourceIds
+            : undefined;
+          if (!sources || sources.length === 0) return;
+          if (sources.includes(node.id)) return;
+
+          const rect = row.getBoundingClientRect();
+          const relY = (e.clientY - rect.top) / rect.height;
+          const position: 'before' | 'after' | 'inside' =
+            relY < 0.25 ? 'before' : relY > 0.75 ? 'after' : 'inside';
+
+          if (this._options.canDrop && !this._options.canDrop(sources, node.id, position)) {
+            return;
+          }
+
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+          this._setDropIndicator(row, position);
+        });
+        row.addEventListener('dragleave', (e) => {
+          if (row.contains(e.relatedTarget as Node | null)) return;
+          this._clearDropIndicator();
+        });
+        row.addEventListener('drop', (e) => {
+          e.preventDefault();
+          const raw = e.dataTransfer?.getData('text/x-editrix-tree-node');
+          this._clearDropIndicator();
+          if (!raw) return;
+          let sources: string[];
+          try {
+            sources = JSON.parse(raw) as string[];
+          } catch { return; }
+          if (!Array.isArray(sources) || sources.length === 0) return;
+          if (sources.includes(node.id)) return;
+          const rect = row.getBoundingClientRect();
+          const relY = (e.clientY - rect.top) / rect.height;
+          const position: 'before' | 'after' | 'inside' =
+            relY < 0.25 ? 'before' : relY > 0.75 ? 'after' : 'inside';
+          if (this._options.canDrop && !this._options.canDrop(sources, node.id, position)) return;
+          this._onDidRequestDrop.fire({ sourceIds: sources, targetId: node.id, position });
+        });
+      }
+
       this._listEl?.appendChild(row);
 
       // Render children if expanded
@@ -529,6 +671,34 @@ export class TreeWidget extends BaseWidget {
     return result;
   }
 
+  private _setDropIndicator(row: HTMLElement, position: 'before' | 'after' | 'inside'): void {
+    if (this._dropIndicatorRow && this._dropIndicatorRow !== row) {
+      this._dropIndicatorRow.classList.remove(
+        'editrix-tree-row--drop-before',
+        'editrix-tree-row--drop-after',
+        'editrix-tree-row--drop-inside',
+      );
+    }
+    row.classList.remove(
+      'editrix-tree-row--drop-before',
+      'editrix-tree-row--drop-after',
+      'editrix-tree-row--drop-inside',
+    );
+    row.classList.add(`editrix-tree-row--drop-${position}`);
+    this._dropIndicatorRow = row;
+  }
+
+  private _clearDropIndicator(): void {
+    if (this._dropIndicatorRow) {
+      this._dropIndicatorRow.classList.remove(
+        'editrix-tree-row--drop-before',
+        'editrix-tree-row--drop-after',
+        'editrix-tree-row--drop-inside',
+      );
+      this._dropIndicatorRow = undefined;
+    }
+  }
+
   private _injectStyles(): void {
     if (document.getElementById('editrix-tree-styles')) return;
     const style = document.createElement('style');
@@ -577,6 +747,31 @@ export class TreeWidget extends BaseWidget {
       }
       .editrix-tree-row--parent-selected {
         background: rgba(255, 255, 255, 0.03);
+      }
+
+      /* Drag-and-drop indicators (before/after = 2px line, inside = fill). */
+      .editrix-tree-row--dragging {
+        opacity: 0.4;
+      }
+      .editrix-tree-row--drop-before,
+      .editrix-tree-row--drop-after {
+        position: relative;
+      }
+      .editrix-tree-row--drop-before::before,
+      .editrix-tree-row--drop-after::after {
+        content: '';
+        position: absolute;
+        left: 6px;
+        right: 6px;
+        height: 2px;
+        background: var(--editrix-accent);
+        pointer-events: none;
+      }
+      .editrix-tree-row--drop-before::before { top: -1px; }
+      .editrix-tree-row--drop-after::after   { bottom: -1px; }
+      .editrix-tree-row--drop-inside {
+        background: rgba(74, 143, 255, 0.18) !important;
+        border-color: var(--editrix-accent) !important;
       }
 
       /* ── Indent guides ── */
