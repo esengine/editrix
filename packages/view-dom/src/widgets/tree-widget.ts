@@ -69,6 +69,8 @@ export class TreeWidget extends BaseWidget {
   private readonly _onDidChangeVisibility = new Emitter<{ id: string; visible: boolean }>();
   private readonly _onDidRequestAdd = new Emitter<void>();
   private readonly _onDidRequestDelete = new Emitter<readonly string[]>();
+  private readonly _onDidRequestRename = new Emitter<string>();
+  private readonly _onDidRequestDuplicate = new Emitter<readonly string[]>();
   private readonly _onDidRequestContextMenu = new Emitter<{ ids: readonly string[]; x: number; y: number }>();
 
   /** Fired when the selection changes. */
@@ -85,6 +87,12 @@ export class TreeWidget extends BaseWidget {
 
   /** Fired when Delete or Backspace is pressed with nodes selected. */
   readonly onDidRequestDelete: Event<readonly string[]> = this._onDidRequestDelete.event;
+
+  /** Fired when F2 is pressed on a focused node. The id is the node to rename. */
+  readonly onDidRequestRename: Event<string> = this._onDidRequestRename.event;
+
+  /** Fired when Ctrl/Cmd+D is pressed with nodes selected. */
+  readonly onDidRequestDuplicate: Event<readonly string[]> = this._onDidRequestDuplicate.event;
 
   /** Fired on right-click, providing selected IDs and mouse position. */
   readonly onDidRequestContextMenu: Event<{ ids: readonly string[]; x: number; y: number }> = this._onDidRequestContextMenu.event;
@@ -229,6 +237,8 @@ export class TreeWidget extends BaseWidget {
     this._onDidChangeExpansion.dispose();
     this._onDidChangeVisibility.dispose();
     this._onDidRequestAdd.dispose();
+    this._onDidRequestRename.dispose();
+    this._onDidRequestDuplicate.dispose();
     this._onDidRequestDelete.dispose();
     this._onDidRequestContextMenu.dispose();
     super.dispose();
@@ -458,6 +468,21 @@ export class TreeWidget extends BaseWidget {
         e.preventDefault();
         if (this._selected.size > 0) {
           this._onDidRequestDelete.fire([...this._selected]);
+        }
+        break;
+      }
+      case 'F2': {
+        if (this._focusedId) {
+          e.preventDefault();
+          this._onDidRequestRename.fire(this._focusedId);
+        }
+        break;
+      }
+      case 'd':
+      case 'D': {
+        if ((e.ctrlKey || e.metaKey) && this._selected.size > 0) {
+          e.preventDefault();
+          this._onDidRequestDuplicate.fire([...this._selected]);
         }
         break;
       }

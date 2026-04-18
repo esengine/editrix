@@ -224,18 +224,22 @@ function render(): void {
   spacer.style.flex = '1';
   sidebar.appendChild(spacer);
 
-  // Settings
-  const settingsItem = el('div', 'el-nav-item');
+  // Settings — placeholder; nav state isn't wired to a panel yet so we mark
+  // the item visually inert rather than giving it a false hover affordance.
+  const settingsItem = el('div', 'el-nav-item el-nav-item--disabled');
+  settingsItem.title = 'Settings — coming soon';
   settingsItem.appendChild(iconEl('settings', 16));
   const settingsLabel = el('span');
   settingsLabel.textContent = 'Settings';
   settingsItem.appendChild(settingsLabel);
   sidebar.appendChild(settingsItem);
 
-  // Social icons
-  const social = el('div', 'el-social');
+  // Social icons — decorative until URLs are wired. Hidden from focus order
+  // and styled so users don't expect them to be clickable.
+  const social = el('div', 'el-social el-social--disabled');
   for (const name of SOCIAL_ITEMS) {
     const btn = el('span', 'el-social-btn');
+    btn.title = 'Coming soon';
     btn.appendChild(iconEl(name, 14));
     social.appendChild(btn);
   }
@@ -282,7 +286,12 @@ function renderProjects(main: HTMLElement): void {
   const openBtn = el('button', 'el-btn el-btn--secondary');
   openBtn.textContent = 'Open Project  ';
   openBtn.appendChild(iconEl('folder-open', 14));
-  openBtn.addEventListener('click', () => { api?.openProject(''); });
+  openBtn.addEventListener('click', () => {
+    void (async (): Promise<void> => {
+      const folder = await api?.selectFolder();
+      if (folder) api?.openProject(folder);
+    })();
+  });
   toolbar.appendChild(openBtn);
 
   const newBtn = el('button', 'el-btn el-btn--primary');
@@ -706,6 +715,14 @@ function injectStyles(): void {
   background: rgba(255,255,255,0.06);
   color: #fff;
 }
+.el-nav-item--disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.el-nav-item--disabled:hover {
+  background: transparent;
+  color: #999;
+}
 
 /* ── Social ── */
 .el-social {
@@ -719,6 +736,11 @@ function injectStyles(): void {
   color: #555;
 }
 .el-social-btn:hover { color: #aaa; }
+.el-social--disabled .el-social-btn {
+  cursor: default;
+  opacity: 0.5;
+}
+.el-social--disabled .el-social-btn:hover { color: #555; }
 
 /* ── Main ── */
 .el-main {

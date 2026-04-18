@@ -17,6 +17,7 @@ import {
 } from '@editrix/shell';
 import type { EditorInstance, IPlugin } from '@editrix/shell';
 import { createIconElement } from '@editrix/view-dom';
+import { showInputDialog } from './dialogs.js';
 import { LocalPluginScanner } from './local-plugin-scanner.js';
 import {
   DocumentSyncPlugin,
@@ -31,75 +32,6 @@ import {
   SceneViewPlugin,
 } from './plugins/index.js';
 import { IProjectService } from './services.js';
-
-// ─── Simple Input Dialog ────────────────────────────────
-
-function showInputDialog(title: string, placeholder: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    const overlay = document.createElement('div');
-    overlay.style.cssText = `
-      position:fixed;inset:0;background:rgba(0,0,0,0.5);
-      display:flex;align-items:center;justify-content:center;z-index:99999;
-    `;
-
-    const dialog = document.createElement('div');
-    dialog.style.cssText = `
-      background:#2c2c32;border:1px solid #444;border-radius:8px;
-      padding:20px;min-width:360px;color:#ccc;font-family:inherit;
-    `;
-
-    const label = document.createElement('div');
-    label.textContent = title;
-    label.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:12px;';
-    dialog.appendChild(label);
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = placeholder;
-    input.style.cssText = `
-      width:100%;box-sizing:border-box;background:#414141;border:none;
-      color:#ccc;padding:8px 12px;border-radius:6px;font-size:13px;
-      font-family:inherit;outline:none;margin-bottom:16px;
-    `;
-    dialog.appendChild(input);
-
-    const buttons = document.createElement('div');
-    buttons.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;';
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.style.cssText = `
-      background:#333;border:1px solid #555;color:#ccc;padding:6px 16px;
-      border-radius:6px;cursor:pointer;font-family:inherit;font-size:13px;
-    `;
-    cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(null); });
-    buttons.appendChild(cancelBtn);
-
-    const okBtn = document.createElement('button');
-    okBtn.textContent = 'Create';
-    okBtn.style.cssText = `
-      background:#4a8fff;border:none;color:#fff;padding:6px 16px;
-      border-radius:6px;cursor:pointer;font-family:inherit;font-size:13px;
-    `;
-    okBtn.addEventListener('click', () => { overlay.remove(); resolve(input.value || null); });
-    buttons.appendChild(okBtn);
-
-    dialog.appendChild(buttons);
-    overlay.appendChild(dialog);
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) { overlay.remove(); resolve(null); }
-    });
-
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { overlay.remove(); resolve(input.value || null); }
-      if (e.key === 'Escape') { overlay.remove(); resolve(null); }
-    });
-
-    document.body.appendChild(overlay);
-    input.focus();
-  });
-}
 
 // ─── Layout Helpers ─────────────────────────────────────
 
@@ -278,7 +210,10 @@ async function main(): Promise<void> {
     id: 'project', label: 'Project', items: [
       {
         id: 'project.createPlugin', label: 'Create Plugin...', onClick: () => {
-          void showInputDialog('Create Plugin', 'Plugin name (e.g. My Tool)').then((name) => {
+          void showInputDialog('Create Plugin', {
+            placeholder: 'Plugin name (e.g. My Tool)',
+            okLabel: 'Create',
+          }).then((name) => {
             if (!name) return;
             const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
             if (!slug) return;

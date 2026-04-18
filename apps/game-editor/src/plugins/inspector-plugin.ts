@@ -309,7 +309,35 @@ export const InspectorPlugin: IPlugin = {
             x: rect.right,
             y: rect.bottom,
             items: [
-              { label: 'Reset to Default', icon: 'refresh', disabled: true },
+              {
+                label: 'Reset to Default', icon: 'refresh',
+                onSelect: () => {
+                  const schema = ecs.getComponentSchema(componentId);
+                  if (schema.length === 0) return;
+                  // Snapshot current values so we can undo back to them.
+                  const previous: Record<string, unknown> = {};
+                  for (const field of schema) {
+                    previous[field.key] = ecs.getProperty(entityId, componentId, field.key);
+                  }
+                  // Apply schema defaults.
+                  for (const field of schema) {
+                    ecs.setProperty(entityId, componentId, field.key, field.defaultValue);
+                  }
+                  undoRedo.push({
+                    label: `Reset ${componentId}`,
+                    undo: () => {
+                      for (const [key, value] of Object.entries(previous)) {
+                        ecs.setProperty(entityId, componentId, key, value);
+                      }
+                    },
+                    redo: () => {
+                      for (const field of schema) {
+                        ecs.setProperty(entityId, componentId, field.key, field.defaultValue);
+                      }
+                    },
+                  });
+                },
+              },
               { separator: true, label: '' },
               {
                 label: 'Remove Component', icon: 'x', destructive: true,

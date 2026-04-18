@@ -151,12 +151,11 @@ export class SceneViewWidget extends BaseWidget {
     this._snapInput.value = '5.00';
     this._snapInput.style.width = '48px';
 
-    // Spacer + more
+    // Trailing spacer keeps the snap controls left-aligned. The "more options"
+    // overflow menu is intentionally not rendered until there's a real submenu
+    // to attach — a no-op affordance is worse than no affordance.
     const spacer = this.appendElement(toolbar, 'div');
     spacer.style.flex = '1';
-    const moreBtn = this.appendElement(toolbar, 'div', 'editrix-sv-tool-btn');
-    moreBtn.title = 'More options';
-    moreBtn.appendChild(createIconElement('more-vertical', 16));
 
     // Gizmo
     const gizmo = this.appendElement(viewport, 'div', 'editrix-sv-gizmo');

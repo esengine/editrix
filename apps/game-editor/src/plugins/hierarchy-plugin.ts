@@ -3,6 +3,7 @@ import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { ILayoutService, ISelectionService, IUndoRedoService, IViewService } from '@editrix/shell';
 import type { TreeNode } from '@editrix/view-dom';
 import { showContextMenu, TreeWidget } from '@editrix/view-dom';
+import { showInputDialog } from '../dialogs.js';
 import { IECSScenePresence } from '../services.js';
 
 interface EntitySnapshot {
@@ -172,6 +173,64 @@ export const HierarchyPlugin: IPlugin = {
 
         hierarchyTree.onDidRequestDelete((ids) => { deleteEntities(ids); });
 
+        const renameEntity = (rawId: string): void => {
+          const ecs = presence.current;
+          if (!ecs) return;
+          const entityId = Number(rawId);
+          if (isNaN(entityId)) return;
+          const previous = ecs.getName(entityId) || `Entity ${String(entityId)}`;
+          void showInputDialog('Rename Entity', {
+            initialValue: previous,
+            okLabel: 'Rename',
+          }).then((name) => {
+            if (!name || name === previous) return;
+            ecs.setName(entityId, name);
+            undoRedo.push({
+              label: 'Rename Entity',
+              undo: () => { ecs.setName(entityId, previous); },
+              redo: () => { ecs.setName(entityId, name); },
+            });
+          });
+        };
+
+        const duplicateEntities = (ids: readonly string[]): void => {
+          const ecs = presence.current;
+          if (!ecs || ids.length === 0) return;
+          // Filter to only roots in the selection (children come along via the
+          // recursive snapshot, so duplicating an explicitly-selected child is
+          // redundant when its parent is also selected).
+          const idSet = new Set(ids);
+          const toDuplicate = ids.filter((rawId) => {
+            const parentId = ecs.getParent(Number(rawId));
+            return parentId === null || !idSet.has(String(parentId));
+          });
+          const snapshots = toDuplicate.map((rawId) => captureEntitySnapshot(ecs, Number(rawId)));
+          const newIds: number[] = [];
+          for (const snapshot of snapshots) {
+            const newId = restoreEntitySnapshot(ecs, snapshot, snapshot.parentId ?? undefined);
+            newIds.push(newId);
+          }
+          selection.select(newIds.map(String));
+          undoRedo.push({
+            label: ids.length === 1 ? 'Duplicate Entity' : `Duplicate ${String(ids.length)} Entities`,
+            undo: () => {
+              for (const id of newIds) ecs.destroyEntity(id);
+              selection.select(ids);
+            },
+            redo: () => {
+              const replayIds: number[] = [];
+              for (const snapshot of snapshots) {
+                const newId = restoreEntitySnapshot(ecs, snapshot, snapshot.parentId ?? undefined);
+                replayIds.push(newId);
+              }
+              selection.select(replayIds.map(String));
+            },
+          });
+        };
+
+        hierarchyTree.onDidRequestRename((id) => { renameEntity(id); });
+        hierarchyTree.onDidRequestDuplicate((ids) => { duplicateEntities(ids); });
+
         hierarchyTree.onDidRequestContextMenu(({ ids, x, y }) => {
           const ecs = presence.current;
           if (!ecs) return;
@@ -191,8 +250,16 @@ export const HierarchyPlugin: IPlugin = {
                 },
               },
               { separator: true, label: '' },
-              { label: 'Rename', shortcut: 'F2', disabled: true },
-              { label: 'Duplicate', shortcut: 'Ctrl+D', disabled: true },
+              {
+                label: 'Rename', shortcut: 'F2',
+                disabled: ids.length !== 1,
+                onSelect: () => { if (singleId) renameEntity(singleId); },
+              },
+              {
+                label: ids.length === 1 ? 'Duplicate' : `Duplicate (${String(ids.length)})`,
+                shortcut: 'Ctrl+D',
+                onSelect: () => { duplicateEntities(ids); },
+              },
               { separator: true, label: '' },
               {
                 label: ids.length === 1 ? 'Delete' : `Delete (${String(ids.length)})`,
