@@ -1,5 +1,5 @@
 import type { Event, IDisposable } from '@editrix/common';
-import { createServiceId, Emitter, toDisposable } from '@editrix/common';
+import { createServiceId, Emitter, isMac, toDisposable } from '@editrix/common';
 import type { IContextKeyService } from './context-key-service.js';
 
 /**
@@ -153,14 +153,60 @@ function normalizeChord(chord: string): string {
   const modifiers: string[] = [];
   let mainKey = '';
 
+  const modAlias = isMac() ? 'meta' : 'ctrl';
   for (const part of parts) {
-    if (part === 'ctrl' || part === 'alt' || part === 'shift' || part === 'meta') {
-      modifiers.push(part);
+    const expanded = part === 'mod' ? modAlias : part;
+    if (expanded === 'ctrl' || expanded === 'alt' || expanded === 'shift' || expanded === 'meta') {
+      modifiers.push(expanded);
     } else {
-      mainKey = part;
+      mainKey = expanded;
     }
   }
 
   modifiers.sort();
   return [...modifiers, mainKey].join('+');
+}
+
+export interface KeyEventLike {
+  readonly ctrlKey: boolean;
+  readonly altKey: boolean;
+  readonly shiftKey: boolean;
+  readonly metaKey: boolean;
+  readonly key: string;
+}
+
+export function keyboardEventToKey(e: KeyEventLike): string {
+  const parts: string[] = [];
+  if (e.ctrlKey) parts.push('Ctrl');
+  if (e.altKey) parts.push('Alt');
+  if (e.shiftKey) parts.push('Shift');
+  if (e.metaKey) parts.push('Meta');
+  const k = e.key;
+  if (k !== 'Control' && k !== 'Alt' && k !== 'Shift' && k !== 'Meta') {
+    parts.push(k.length === 1 ? k.toUpperCase() : k);
+  }
+  return normalizeChord(parts.join('+'));
+}
+
+/** Render a chord string for human display per platform (⌘S on Mac, Ctrl+S elsewhere). */
+export function formatKeyForDisplay(chord: string): string {
+  const mac = isMac();
+  const segments = chord.split(' ').map((c) => formatChord(c, mac));
+  return segments.join(' ');
+}
+
+function formatChord(chord: string, mac: boolean): string {
+  const parts = chord.split('+').map((p) => p.trim());
+  const rendered: string[] = [];
+  for (const part of parts) {
+    const lower = part.toLowerCase();
+    if (lower === 'mod') rendered.push(mac ? '⌘' : 'Ctrl');
+    else if (lower === 'ctrl') rendered.push(mac ? '⌃' : 'Ctrl');
+    else if (lower === 'meta' || lower === 'cmd') rendered.push(mac ? '⌘' : 'Meta');
+    else if (lower === 'alt' || lower === 'option') rendered.push(mac ? '⌥' : 'Alt');
+    else if (lower === 'shift') rendered.push(mac ? '⇧' : 'Shift');
+    else rendered.push(part.length === 1 ? part.toUpperCase() : part);
+  }
+  // Mac convention: glyphs concatenated without `+`; otherwise `+`.
+  return mac ? rendered.join('') : rendered.join('+');
 }

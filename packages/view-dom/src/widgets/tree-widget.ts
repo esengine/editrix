@@ -70,6 +70,8 @@ export class TreeWidget extends BaseWidget {
   // dataTransfer values are unreadable during dragover (security); cached here.
   private _dragSourceIds: readonly string[] | undefined;
   private _dropIndicatorRow: HTMLElement | undefined;
+  // Shift-click range anchor — the last non-shift click.
+  private _selectionAnchor: string | undefined;
 
   private readonly _onDidChangeSelection = new Emitter<readonly string[]>();
   private readonly _onDidChangeExpansion = new Emitter<{ id: string; expanded: boolean }>();
@@ -545,17 +547,26 @@ export class TreeWidget extends BaseWidget {
   private _handleRowClick(nodeId: string, e: MouseEvent): void {
     this._focusedId = nodeId;
 
-    if (this._options.multiSelect && (e.ctrlKey || e.metaKey)) {
-      // Toggle selection
+    if (this._options.multiSelect && e.shiftKey && this._selectionAnchor !== undefined) {
+      const flat = this._getFlatVisibleIds();
+      const a = flat.indexOf(this._selectionAnchor);
+      const b = flat.indexOf(nodeId);
+      if (a !== -1 && b !== -1) {
+        const [from, to] = a < b ? [a, b] : [b, a];
+        this._selected = new Set(flat.slice(from, to + 1));
+      } else {
+        this._selected = new Set([nodeId]);
+      }
+    } else if (this._options.multiSelect && (e.ctrlKey || e.metaKey)) {
       if (this._selected.has(nodeId)) {
         this._selected.delete(nodeId);
       } else {
         this._selected.add(nodeId);
       }
+      this._selectionAnchor = nodeId;
     } else {
-      // Single select
-      this._selected.clear();
-      this._selected.add(nodeId);
+      this._selected = new Set([nodeId]);
+      this._selectionAnchor = nodeId;
     }
 
     this._render();

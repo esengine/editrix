@@ -1,4 +1,5 @@
-import type { ICommandRegistry } from '@editrix/commands';
+import type { ICommandRegistry, IKeybindingService } from '@editrix/commands';
+import { keyboardEventToKey } from '@editrix/commands';
 import type { Event } from '@editrix/common';
 import { DisposableStore, Emitter } from '@editrix/common';
 import type { ILayoutService, LayoutNode } from '@editrix/layout';
@@ -76,14 +77,20 @@ export class DomViewAdapter implements IViewAdapter {
     return this._isMounted;
   }
 
+  private readonly _commandRegistry: ICommandRegistry;
+  private readonly _keybindingService: IKeybindingService;
+
   constructor(
     layoutService: ILayoutService,
     viewService: IViewService,
     commandRegistry: ICommandRegistry,
+    keybindingService: IKeybindingService,
     options?: DomViewAdapterOptions,
   ) {
     this._layoutService = layoutService;
     this._viewService = viewService;
+    this._commandRegistry = commandRegistry;
+    this._keybindingService = keybindingService;
     this._theme = options?.theme ?? DARK_THEME;
     this._commandPalette = new CommandPalette(commandRegistry);
 
@@ -307,16 +314,15 @@ export class DomViewAdapter implements IViewAdapter {
 
   private _setupKeyboardHandler(): { dispose(): void } {
     const handler = (e: KeyboardEvent): void => {
-      if (e.ctrlKey && e.shiftKey && e.key === 'P') {
-        e.preventDefault();
-        if (this._commandPalette.isOpen) {
-          this._commandPalette.close();
-        } else {
-          this._commandPalette.open();
+      const target = e.target as HTMLElement | null;
+      if (!isEditableTarget(target)) {
+        const resolved = this._keybindingService.resolve(keyboardEventToKey(e));
+        if (resolved) {
+          e.preventDefault();
+          void this._commandRegistry.execute(resolved.commandId, ...(resolved.args ?? []));
+          return;
         }
-        return;
       }
-
       this._onInput.fire({
         type: 'keydown',
         key: this._buildKeyString(e),
@@ -390,4 +396,11 @@ export class DomViewAdapter implements IViewAdapter {
 
     this._layoutService.setLayout({ type: 'split', direction, children });
   }
+}
+
+function isEditableTarget(el: HTMLElement | null): boolean {
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  return el.isContentEditable;
 }

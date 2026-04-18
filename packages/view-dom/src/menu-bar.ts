@@ -1,5 +1,6 @@
 import type { Event, IDisposable } from '@editrix/common';
 import { Emitter, toDisposable } from '@editrix/common';
+import { formatKeyForDisplay } from '@editrix/commands';
 import { createElement } from './dom-utils.js';
 import { createIconElement, getIcon } from './icons.js';
 
@@ -158,7 +159,7 @@ export class MenuBar implements IDisposable {
 
           if (item.shortcut) {
             const shortcut = createElement('span', 'editrix-menubar-shortcut');
-            shortcut.textContent = item.shortcut;
+            shortcut.textContent = formatKeyForDisplay(item.shortcut);
             row.appendChild(shortcut);
           }
 

@@ -148,6 +148,13 @@ export interface PlayModeChangeEvent {
  * Step (single-frame advance from paused) is provided for debugging — the
  * scene renders once with a synthetic delta, then returns to paused.
  */
+export interface PlayFrameStats {
+  /** Frames since the current play session started; resets on stop(). */
+  readonly frame: number;
+  /** Exponential moving average of dt, in milliseconds. */
+  readonly avgDtMs: number;
+}
+
 export interface IPlayModeService {
   /** Current mode. */
   readonly mode: PlayMode;
@@ -155,6 +162,8 @@ export interface IPlayModeService {
   readonly isInPlay: boolean;
   /** Fired when mode transitions. */
   readonly onDidChangeMode: Event<PlayModeChangeEvent>;
+  /** Live tick instrumentation — zero while in edit mode. */
+  readonly frameStats: PlayFrameStats;
 
   /** Enter play: snapshot the scene if not already in play, start the loop. */
   play(): void;

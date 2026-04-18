@@ -5,8 +5,10 @@ import { PluginManagerPanelPlugin } from '@editrix/plugin-manager';
 import { SettingsPlugin } from '@editrix/plugin-settings';
 import {
   createEditor,
+  formatKeyForDisplay,
   ICommandRegistry,
   IDocumentService,
+  IKeybindingService,
   ILayoutService,
   IPluginManager,
   IPropertyService,
@@ -152,29 +154,24 @@ async function main(): Promise<void> {
         void editor.commands.execute('scene.open');
       } },
       { id: 'sep0', label: '', separator: true },
-      { id: 'file.save', label: 'Save', shortcut: 'Ctrl+S', onClick: () => {
-        const active = documentService.activeDocument;
-        if (active) {
-          void documentService.save(active).then(() => {
-            consoleService.log('info', `Saved: ${active.split('/').pop()}`);
-          });
-        }
+      { id: 'file.save', label: 'Save', shortcut: 'Mod+S', onClick: () => {
+        void editor.commands.execute('file.save');
       } },
       { id: 'sep1', label: '', separator: true },
-      { id: 'file.exit', label: 'Exit', shortcut: 'Ctrl+Q', onClick: () => { window.close(); } },
+      { id: 'file.exit', label: 'Exit', shortcut: 'Mod+Q', onClick: () => { window.close(); } },
     ],
   });
   editor.view.menuBar.addMenu({
     id: 'edit-menu', label: 'Edit', items: [
-      { id: 'edit.undo', label: 'Undo', shortcut: 'Ctrl+Z', onClick: () => { editor.undoRedo.undo(); } },
-      { id: 'edit.redo', label: 'Redo', shortcut: 'Ctrl+Shift+Z', onClick: () => { editor.undoRedo.redo(); } },
+      { id: 'edit.undo', label: 'Undo', shortcut: 'Mod+Z', onClick: () => { editor.undoRedo.undo(); } },
+      { id: 'edit.redo', label: 'Redo', shortcut: 'Mod+Shift+Z', onClick: () => { editor.undoRedo.redo(); } },
       { id: 'sep2', label: '', separator: true },
-      { id: 'edit.prefs', label: 'Settings...', shortcut: 'Ctrl+,', onClick: () => { void editor.commands.execute('settings.show'); } },
+      { id: 'edit.prefs', label: 'Settings...', shortcut: 'Mod+,', onClick: () => { void editor.commands.execute('settings.show'); } },
     ],
   });
   editor.view.menuBar.addMenu({
     id: 'debug', label: 'Debug', items: [
-      { id: 'debug.cmd', label: 'Command Palette', shortcut: 'Ctrl+Shift+P', onClick: () => { editor.view.commandPalette.open(); } },
+      { id: 'debug.cmd', label: 'Command Palette', shortcut: 'Mod+Shift+P', onClick: () => { editor.view.commandPalette.open(); } },
     ],
   });
   editor.view.menuBar.addMenu({
@@ -254,18 +251,37 @@ async function main(): Promise<void> {
 
   openDefaultPanels();
 
-  // ── Ctrl+S keyboard shortcut ──
-  document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.key === 's') {
-      e.preventDefault();
+  const keybindings = editor.kernel.services.get(IKeybindingService);
+  editor.commands.register({
+    id: 'file.save', title: 'Save', category: 'File',
+    execute() {
       const active = documentService.activeDocument;
-      if (active) {
-        void documentService.save(active).then(() => {
-          consoleService.log('info', `Saved: ${active.split('/').pop()}`);
-        });
-      }
-    }
+      if (!active) return;
+      void documentService.save(active).then(() => {
+        consoleService.log('info', `Saved: ${active.split('/').pop()}`);
+      });
+    },
   });
+  editor.commands.register({
+    id: 'view.commandPalette', title: 'Command Palette', category: 'View',
+    execute() {
+      if (editor.view.commandPalette.isOpen) editor.view.commandPalette.close();
+      else editor.view.commandPalette.open();
+    },
+  });
+  editor.commands.register({
+    id: 'edit.undo', title: 'Undo', category: 'Edit',
+    execute() { editor.undoRedo.undo(); },
+  });
+  editor.commands.register({
+    id: 'edit.redo', title: 'Redo', category: 'Edit',
+    execute() { editor.undoRedo.redo(); },
+  });
+  keybindings.register({ key: 'Mod+S', commandId: 'file.save' });
+  keybindings.register({ key: 'Mod+Z', commandId: 'edit.undo' });
+  keybindings.register({ key: 'Mod+Shift+Z', commandId: 'edit.redo' });
+  keybindings.register({ key: 'Mod+,', commandId: 'settings.show' });
+  keybindings.register({ key: 'Mod+Shift+P', commandId: 'view.commandPalette' });
 
   getApi()?.onRequestClose(() => {
     void (async (): Promise<void> => {
@@ -396,7 +412,10 @@ async function main(): Promise<void> {
   const playModeService = editor.kernel.services.get(IPlayModeService);
   const renderModeLabel = (mode: typeof playModeService.mode): string => {
     switch (mode) {
-      case 'playing': return '▶ PLAY';
+      case 'playing': {
+        const { frame, avgDtMs } = playModeService.frameStats;
+        return frame > 0 ? `▶ PLAY  ${String(frame)}f · ${avgDtMs.toFixed(1)}ms` : '▶ PLAY';
+      }
       case 'paused':  return '❚❚ PAUSED';
       case 'edit':    return 'EDIT';
     }
@@ -406,14 +425,31 @@ async function main(): Promise<void> {
     text: renderModeLabel(playModeService.mode),
     alignment: 'right',
   });
+  // While playing, refresh the indicator ~5Hz — enough for the counter to
+  // read as "live", not so fast it thrashes the status bar DOM.
+  let playStatsInterval: number | undefined;
+  const startStatsPoll = (): void => {
+    if (playStatsInterval !== undefined) return;
+    playStatsInterval = window.setInterval(() => {
+      editor.view.statusBar.updateItem('play-mode', renderModeLabel(playModeService.mode));
+    }, 200);
+  };
+  const stopStatsPoll = (): void => {
+    if (playStatsInterval !== undefined) {
+      clearInterval(playStatsInterval);
+      playStatsInterval = undefined;
+    }
+  };
   playModeService.onDidChangeMode(({ current }) => {
     editor.view.statusBar.updateItem('play-mode', renderModeLabel(current));
     document.body.dataset['playMode'] = current;
+    if (current === 'playing') startStatsPoll();
+    else stopStatsPoll();
   });
   document.body.dataset['playMode'] = playModeService.mode;
 
   editor.view.statusBar.addItem({
-    id: 'cmd-hint', text: 'Ctrl+Shift+P', alignment: 'right',
+    id: 'cmd-hint', text: formatKeyForDisplay('Mod+Shift+P'), alignment: 'right',
     onClick: () => { editor.view.commandPalette.open(); },
   });
 

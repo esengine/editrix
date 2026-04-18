@@ -9,3 +9,5 @@ export { createServiceId } from './service-identifier.js';
 
 export type { ExtensionPointId } from './extension-point-id.js';
 export { createExtensionPointId } from './extension-point-id.js';
+
+export { isMac } from './platform.js';

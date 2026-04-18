@@ -8,7 +8,7 @@ export { CommandRegistry, ICommandRegistry } from './command-registry.js';
 
 // Keybinding service (IKeybindingService is both an interface and a ServiceIdentifier value)
 export type { Keybinding, ResolvedKeybinding } from './keybinding-service.js';
-export { IKeybindingService, KeybindingService } from './keybinding-service.js';
+export { IKeybindingService, KeybindingService, keyboardEventToKey, formatKeyForDisplay } from './keybinding-service.js';
 
 // Plugin
 export { CommandsPlugin, CommandsPluginId, IContextKeyServiceId } from './commands-plugin.js';

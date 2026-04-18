@@ -1,3 +1,4 @@
+import { formatKeyForDisplay } from '@editrix/commands';
 import { createElement } from './dom-utils.js';
 import { createIconElement, getIcon } from './icons.js';
 
@@ -103,10 +104,9 @@ export function showContextMenu(options: ContextMenuOptions): ContextMenuHandle 
     label.textContent = item.label;
     row.appendChild(label);
 
-    // Shortcut
     if (item.shortcut) {
       const shortcut = createElement('span', 'editrix-context-shortcut');
-      shortcut.textContent = item.shortcut;
+      shortcut.textContent = formatKeyForDisplay(item.shortcut);
       row.appendChild(shortcut);
     }
 

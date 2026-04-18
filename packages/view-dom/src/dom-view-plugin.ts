@@ -1,4 +1,4 @@
-import { CommandsPluginId, ICommandRegistry } from '@editrix/commands';
+import { CommandsPluginId, ICommandRegistry, IKeybindingService } from '@editrix/commands';
 import type { IPlugin, IPluginContext } from '@editrix/core';
 import { ILayoutService, LayoutPluginId } from '@editrix/layout';
 import { IViewAdapter, IViewService, ViewPluginId } from '@editrix/view';
@@ -36,8 +36,9 @@ export function createDomViewPlugin(options?: DomViewAdapterOptions): IPlugin {
       const layoutService = ctx.services.get(ILayoutService);
       const viewService = ctx.services.get(IViewService);
       const commandRegistry = ctx.services.get(ICommandRegistry);
+      const keybindingService = ctx.services.get(IKeybindingService);
 
-      const adapter = new DomViewAdapter(layoutService, viewService, commandRegistry, options);
+      const adapter = new DomViewAdapter(layoutService, viewService, commandRegistry, keybindingService, options);
       ctx.subscriptions.add(adapter);
       ctx.subscriptions.add(ctx.services.register(IViewAdapter, adapter));
     },

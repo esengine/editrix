@@ -144,6 +144,7 @@ export const HierarchyPlugin: IPlugin = {
           showAddButton: true,
           addButtonLabel: 'Add Entity',
           enableDrag: true,
+          multiSelect: true,
           canDrop,
         });
         refreshHierarchy();

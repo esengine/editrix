@@ -39,6 +39,8 @@ export const PlayModePlugin: IPlugin = {
     let rafHandle: number | undefined;
     let app: EstellaApp | undefined;
     let lastTickMs: number | undefined;
+    let frameCount = 0;
+    let avgDtMs = 0;
 
     const transition = (next: PlayMode): void => {
       if (mode === next) return;
@@ -57,6 +59,8 @@ export const PlayModePlugin: IPlugin = {
         }
         const dt = lastTickMs === undefined ? 1 / 60 : Math.min(0.1, (nowMs - lastTickMs) / 1000);
         lastTickMs = nowMs;
+        frameCount++;
+        avgDtMs = avgDtMs === 0 ? dt * 1000 : avgDtMs * 0.9 + dt * 100;
 
         const tickPromise = app ? app.tick(dt) : Promise.resolve();
         tickPromise
@@ -87,6 +91,9 @@ export const PlayModePlugin: IPlugin = {
       },
       get isInPlay(): boolean {
         return mode !== 'edit';
+      },
+      get frameStats(): { frame: number; avgDtMs: number } {
+        return { frame: frameCount, avgDtMs };
       },
       onDidChangeMode: onDidChangeMode.event,
 
@@ -161,6 +168,9 @@ export const PlayModePlugin: IPlugin = {
           ecs.deserialize(snapshot);
         }
         snapshot = undefined;
+        frameCount = 0;
+        avgDtMs = 0;
+        lastTickMs = undefined;
         transition('edit');
         renderContextSvc.context.requestRender();
       },
