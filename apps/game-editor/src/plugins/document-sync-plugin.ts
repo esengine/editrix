@@ -2,7 +2,9 @@ import { IFileSystemService } from '@editrix/core';
 import type { IECSSceneService, SceneData } from '@editrix/estella';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { DocumentService, IDocumentService } from '@editrix/shell';
-import { IECSScenePresence } from '../services.js';
+import { IECSScenePresence, IProjectService } from '../services.js';
+
+const DEFAULT_SCENE_RELATIVE = 'scenes/main.scene.json';
 
 /**
  * Owns the document service and the .scene.json file handler. Bridges the
@@ -10,9 +12,13 @@ import { IECSScenePresence } from '../services.js';
  * runtime: parsed scene data that arrives before the ECS module is ready
  * is buffered and applied as soon as ECSScenePlugin's presence binds.
  *
- * Also owns "what the user sees on a fresh editor": if no scene was queued
- * before binding, seeds a default empty-project scene (Camera + Shape) so
- * the viewport isn't blank.
+ * Also owns "what the user sees on a fresh editor". On bind, exactly one of
+ * the following runs (so the seed never collides with an autoload):
+ *   1. If something already called documentService.open() before bind, the
+ *      buffered SceneData is applied.
+ *   2. Else, if the project has a default scene file at scenes/main.scene.json,
+ *      it's opened automatically.
+ *   3. Else, a default empty-project scene (Camera + Shape) is seeded.
  *
  * Wires every ECS state-mutation event to setDirty on the active document.
  */
@@ -20,11 +26,12 @@ export const DocumentSyncPlugin: IPlugin = {
   descriptor: {
     id: 'app.document-sync',
     version: '1.0.0',
-    dependencies: ['app.ecs-scene', 'app.filesystem'],
+    dependencies: ['app.ecs-scene', 'app.filesystem', 'app.project'],
   },
   activate(ctx: IPluginContext) {
     const presence = ctx.services.get(IECSScenePresence);
     const fileSystem = ctx.services.get(IFileSystemService);
+    const project = ctx.services.get(IProjectService);
 
     const documentService = new DocumentService(
       (path) => fileSystem.readFile(path),
@@ -58,14 +65,45 @@ export const DocumentSyncPlugin: IPlugin = {
     );
 
     ctx.subscriptions.add(presence.onDidBind((ecs) => {
+      void (async (): Promise<void> => {
+        // Run the initial-scene decision first so any entities it creates
+        // don't leak into dirty tracking — those entities are the file's
+        // canonical state, not a user edit.
+        await chooseInitialScene(ecs);
+        wireDirtyMarkers(ctx, documentService, ecs);
+      })();
+    }));
+
+    /**
+     * Decides what to put on screen the first time the ECS scene binds, in
+     * priority order. Each path is mutually exclusive — exactly one runs.
+     */
+    const chooseInitialScene = async (ecs: IECSSceneService): Promise<void> => {
+      // 1. Something already called documentService.open() before WASM loaded.
       if (pendingScene) {
         ecs.deserialize(pendingScene);
         pendingScene = undefined;
-      } else {
-        seedDefaultScene(ecs);
+        return;
       }
-      wireDirtyMarkers(ctx, documentService, ecs);
-    }));
+
+      // 2. Project has a default scene file — open it through the document
+      //    service so the document tab appears and dirty tracking starts.
+      if (project.isOpen) {
+        const scenePath = project.resolve(DEFAULT_SCENE_RELATIVE);
+        try {
+          if (await fileSystem.exists(scenePath)) {
+            await documentService.open(scenePath);
+            return;
+          }
+        } catch {
+          // Fall through to seed — the file existed but failed to load.
+          // The error already logs through the document handler chain.
+        }
+      }
+
+      // 3. Brand-new project: seed a minimal scene so the viewport isn't blank.
+      seedDefaultScene(ecs);
+    };
   },
 };
 

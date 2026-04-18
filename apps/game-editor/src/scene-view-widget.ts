@@ -3,6 +3,7 @@ import type { ISelectionService, IUndoRedoService } from '@editrix/shell';
 import { BaseWidget, createIconElement, registerIcon } from '@editrix/view-dom';
 import { EditorCamera } from './editor-camera.js';
 import type { SharedRenderContext, RenderView } from './render-context.js';
+import { entityRef, parseSelectionRef } from './services.js';
 
 // ─── Register tool icons ────────────────────────────────
 
@@ -330,8 +331,10 @@ export class SceneViewWidget extends BaseWidget {
     ctx.save();
 
     for (const idStr of selectedIds) {
-      const id = Number(idStr);
-      if (isNaN(id) || !ecs.hasComponent(id, 'Transform')) continue;
+      const ref = parseSelectionRef(idStr);
+      if (ref?.kind !== 'entity') continue;
+      const id = ref.id;
+      if (!ecs.hasComponent(id, 'Transform')) continue;
 
       const px = ecs.getProperty(id, 'Transform', 'position.x') as number;
       const py = ecs.getProperty(id, 'Transform', 'position.y') as number;
@@ -435,7 +438,7 @@ export class SceneViewWidget extends BaseWidget {
 
       if (this._activeTool === 'select') {
         const hit = this._pickEntity(wx, wy);
-        if (hit !== undefined) this._selection.select([String(hit)]);
+        if (hit !== undefined) this._selection.select([entityRef(hit)]);
         else this._selection.clearSelection();
         this._renderContext.requestRender();
         return;
@@ -443,13 +446,15 @@ export class SceneViewWidget extends BaseWidget {
 
       // Move/Rotate/Scale: start drag if an entity is selected
       const selectedIds = this._selection.getSelection();
-      let entityId = selectedIds.length > 0 ? Number(selectedIds[0]) : NaN;
+      const firstSelected = selectedIds[0];
+      const firstRef = firstSelected !== undefined ? parseSelectionRef(firstSelected) : undefined;
+      let entityId = firstRef?.kind === 'entity' ? firstRef.id : undefined;
 
-      // If nothing selected or click is not on an entity, try to pick first
-      if (isNaN(entityId)) {
+      // If nothing selected (or selection is non-entity), try to pick first.
+      if (entityId === undefined) {
         const hit = this._pickEntity(wx, wy);
         if (hit !== undefined) {
-          this._selection.select([String(hit)]);
+          this._selection.select([entityRef(hit)]);
           entityId = hit;
         } else return;
       }

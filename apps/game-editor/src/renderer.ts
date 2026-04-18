@@ -520,17 +520,9 @@ async function main(): Promise<void> {
     ],
   });
 
-  // ── Auto-open the default scene if it exists ──
-  if (project.isOpen) {
-    const scenePath = project.resolve('scenes/main.scene.json');
-    try {
-      if (await fileSystem.exists(scenePath)) {
-        await documentService.open(scenePath);
-      }
-    } catch {
-      // No default scene — that's fine
-    }
-  }
+  // Initial scene load is handled by DocumentSyncPlugin on ECS bind — keeping
+  // the autoload there means the seed/load decision is mutually exclusive
+  // (no default Camera+Shape briefly appearing before a real scene replaces it).
 
   // ── Plugin hot-reload: watch plugin dist/ for changes ──
   if (project.isOpen) {

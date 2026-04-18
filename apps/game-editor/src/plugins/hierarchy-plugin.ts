@@ -4,7 +4,7 @@ import { ILayoutService, ISelectionService, IUndoRedoService, IViewService } fro
 import type { TreeNode } from '@editrix/view-dom';
 import { showContextMenu, TreeWidget } from '@editrix/view-dom';
 import { showInputDialog } from '../dialogs.js';
-import { IECSScenePresence } from '../services.js';
+import { entityRef, IECSScenePresence, parseSelectionRef } from '../services.js';
 
 interface EntitySnapshot {
   readonly name: string;
@@ -18,11 +18,17 @@ function ecsToTreeNodes(ecs: IECSSceneService, entityIds: readonly number[]): Tr
   return entityIds.map((id) => {
     const children = ecs.getChildren(id);
     return {
-      id: String(id),
+      id: entityRef(id),
       label: ecs.getName(id) || `Entity ${String(id)}`,
       ...(children.length > 0 ? { children: ecsToTreeNodes(ecs, children) } : {}),
     };
   });
+}
+
+/** Resolve a selection-service id back to its entity number, if it is one. */
+function selectionToEntityId(serialized: string): number | undefined {
+  const ref = parseSelectionRef(serialized);
+  return ref?.kind === 'entity' ? ref.id : undefined;
 }
 
 /** Recursively capture an entity's full state for undo. */
@@ -122,41 +128,48 @@ export const HierarchyPlugin: IPlugin = {
           const ecs = presence.current;
           if (!ecs) return;
           const entityId = ecs.createEntity('New Entity');
-          selection.select([String(entityId)]);
+          selection.select([entityRef(entityId)]);
           undoRedo.push({
             label: 'Create Entity',
             undo: () => { ecs.destroyEntity(entityId); selection.clearSelection(); },
             redo: () => {
               const newId = ecs.createEntity('New Entity');
-              selection.select([String(newId)]);
+              selection.select([entityRef(newId)]);
             },
           });
         });
 
-        const deleteEntities = (ids: readonly string[]): void => {
+        const deleteEntities = (rawIds: readonly string[]): void => {
           const ecs = presence.current;
-          if (!ecs || ids.length === 0) return;
+          if (!ecs || rawIds.length === 0) return;
+          // Resolve entity selections only — non-entity selections (assets,
+          // folders) are silently ignored so a stray Delete keystroke can't
+          // wipe an entity when the user actually has an asset card focused.
+          const entityIds = rawIds
+            .map(selectionToEntityId)
+            .filter((id): id is number => id !== undefined);
+          if (entityIds.length === 0) return;
           // Filter to only root-level entities in the selection (skip children of selected parents).
-          const idSet = new Set(ids);
-          const toDelete = ids.filter((rawId) => {
-            const parentId = ecs.getParent(Number(rawId));
-            return parentId === null || !idSet.has(String(parentId));
+          const entitySet = new Set(entityIds);
+          const toDelete = entityIds.filter((id) => {
+            const parentId = ecs.getParent(id);
+            return parentId === null || !entitySet.has(parentId);
           });
-          const snapshots = toDelete.map((rawId) => captureEntitySnapshot(ecs, Number(rawId)));
+          const snapshots = toDelete.map((id) => captureEntitySnapshot(ecs, id));
           const previousSelection = [...selection.getSelection()];
-          for (const rawId of toDelete) {
-            ecs.destroyEntity(Number(rawId));
+          for (const id of toDelete) {
+            ecs.destroyEntity(id);
           }
           selection.clearSelection();
           undoRedo.push({
-            label: ids.length === 1 ? 'Delete Entity' : `Delete ${String(ids.length)} Entities`,
+            label: toDelete.length === 1 ? 'Delete Entity' : `Delete ${String(toDelete.length)} Entities`,
             undo: () => {
-              const newIds: string[] = [];
+              const newRefs: string[] = [];
               for (const snapshot of snapshots) {
                 const newId = restoreEntitySnapshot(ecs, snapshot, snapshot.parentId ?? undefined);
-                newIds.push(String(newId));
+                newRefs.push(entityRef(newId));
               }
-              selection.select(newIds.length > 0 ? newIds : previousSelection);
+              selection.select(newRefs.length > 0 ? newRefs : previousSelection);
             },
             redo: () => {
               // Re-capturing entities by name match is fragile; just delete the
@@ -176,8 +189,8 @@ export const HierarchyPlugin: IPlugin = {
         const renameEntity = (rawId: string): void => {
           const ecs = presence.current;
           if (!ecs) return;
-          const entityId = Number(rawId);
-          if (isNaN(entityId)) return;
+          const entityId = selectionToEntityId(rawId);
+          if (entityId === undefined) return;
           const previous = ecs.getName(entityId) || `Entity ${String(entityId)}`;
           void showInputDialog('Rename Entity', {
             initialValue: previous,
@@ -193,29 +206,33 @@ export const HierarchyPlugin: IPlugin = {
           });
         };
 
-        const duplicateEntities = (ids: readonly string[]): void => {
+        const duplicateEntities = (rawIds: readonly string[]): void => {
           const ecs = presence.current;
-          if (!ecs || ids.length === 0) return;
+          if (!ecs || rawIds.length === 0) return;
+          const entityIds = rawIds
+            .map(selectionToEntityId)
+            .filter((id): id is number => id !== undefined);
+          if (entityIds.length === 0) return;
           // Filter to only roots in the selection (children come along via the
           // recursive snapshot, so duplicating an explicitly-selected child is
           // redundant when its parent is also selected).
-          const idSet = new Set(ids);
-          const toDuplicate = ids.filter((rawId) => {
-            const parentId = ecs.getParent(Number(rawId));
-            return parentId === null || !idSet.has(String(parentId));
+          const entitySet = new Set(entityIds);
+          const toDuplicate = entityIds.filter((id) => {
+            const parentId = ecs.getParent(id);
+            return parentId === null || !entitySet.has(parentId);
           });
-          const snapshots = toDuplicate.map((rawId) => captureEntitySnapshot(ecs, Number(rawId)));
+          const snapshots = toDuplicate.map((id) => captureEntitySnapshot(ecs, id));
           const newIds: number[] = [];
           for (const snapshot of snapshots) {
             const newId = restoreEntitySnapshot(ecs, snapshot, snapshot.parentId ?? undefined);
             newIds.push(newId);
           }
-          selection.select(newIds.map(String));
+          selection.select(newIds.map(entityRef));
           undoRedo.push({
-            label: ids.length === 1 ? 'Duplicate Entity' : `Duplicate ${String(ids.length)} Entities`,
+            label: toDuplicate.length === 1 ? 'Duplicate Entity' : `Duplicate ${String(toDuplicate.length)} Entities`,
             undo: () => {
               for (const id of newIds) ecs.destroyEntity(id);
-              selection.select(ids);
+              selection.select(rawIds);
             },
             redo: () => {
               const replayIds: number[] = [];
@@ -223,7 +240,7 @@ export const HierarchyPlugin: IPlugin = {
                 const newId = restoreEntitySnapshot(ecs, snapshot, snapshot.parentId ?? undefined);
                 replayIds.push(newId);
               }
-              selection.select(replayIds.map(String));
+              selection.select(replayIds.map(entityRef));
             },
           });
         };
@@ -244,9 +261,11 @@ export const HierarchyPlugin: IPlugin = {
                 disabled: ids.length !== 1,
                 onSelect: () => {
                   if (!singleId) return;
-                  const childId = ecs.createEntity('New Entity', Number(singleId));
+                  const parentId = selectionToEntityId(singleId);
+                  if (parentId === undefined) return;
+                  const childId = ecs.createEntity('New Entity', parentId);
                   tree?.expand(singleId);
-                  selection.select([String(childId)]);
+                  selection.select([entityRef(childId)]);
                 },
               },
               { separator: true, label: '' },

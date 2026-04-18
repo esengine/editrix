@@ -62,3 +62,62 @@ export interface IProjectService {
 }
 
 export const IProjectService = createServiceId<IProjectService>('IProjectService');
+
+// ─── Typed selection refs ──────────────────────────────────────────────────
+
+/**
+ * A typed reference to something selectable in the editor. The framework's
+ * ISelectionService stores selections as opaque strings; this app encodes them
+ * as `kind:value` so plugins can distinguish entities (Inspector targets) from
+ * assets (asset-picker targets) from filesystem folders (project-files
+ * navigation) without resorting to isNaN checks.
+ *
+ * Encoding is lexical: the first ':' splits kind from value. Asset UUIDs may
+ * contain ':' themselves (e.g. "@uuid:..."), so we only split on the first.
+ */
+export type SelectionRef =
+  | { readonly kind: 'entity'; readonly id: number }
+  | { readonly kind: 'asset'; readonly uuid: string }
+  | { readonly kind: 'folder'; readonly path: string };
+
+/** Encode an entity selection. */
+export function entityRef(id: number): string {
+  return `entity:${String(id)}`;
+}
+
+/** Encode an asset selection by UUID. */
+export function assetRef(uuid: string): string {
+  return `asset:${uuid}`;
+}
+
+/** Encode a folder selection by absolute path. */
+export function folderRef(path: string): string {
+  return `folder:${path}`;
+}
+
+/**
+ * Parse a serialized selection back to its typed form. Returns undefined for
+ * unrecognized kinds or malformed values — callers can early-return on unknown
+ * selections instead of crashing.
+ */
+export function parseSelectionRef(serialized: string): SelectionRef | undefined {
+  const colonIdx = serialized.indexOf(':');
+  if (colonIdx <= 0) return undefined;
+  const kind = serialized.slice(0, colonIdx);
+  const value = serialized.slice(colonIdx + 1);
+  switch (kind) {
+    case 'entity': {
+      const id = Number(value);
+      if (!Number.isFinite(id)) return undefined;
+      return { kind: 'entity', id };
+    }
+    case 'asset':
+      if (value === '') return undefined;
+      return { kind: 'asset', uuid: value };
+    case 'folder':
+      if (value === '') return undefined;
+      return { kind: 'folder', path: value };
+    default:
+      return undefined;
+  }
+}

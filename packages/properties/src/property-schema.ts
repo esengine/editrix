@@ -1,5 +1,11 @@
 /**
  * Type of a property value. Determines which UI control the inspector renders.
+ *
+ * - `asset`  — value is an asset reference (typically a UUID string identifying
+ *              an entry in the asset catalog). The inspector should render an
+ *              asset-picker rather than treating the value as a primitive.
+ * - `entity` — value is a reference to another entity (typically a numeric id
+ *              or stable handle). The inspector should render an entity picker.
  */
 export type PropertyType =
   | 'string'
@@ -11,7 +17,9 @@ export type PropertyType =
   | 'enum'
   | 'range'
   | 'object'
-  | 'array';
+  | 'array'
+  | 'asset'
+  | 'entity';
 
 /**
  * Describes a single editable property.

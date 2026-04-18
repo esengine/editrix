@@ -576,6 +576,28 @@ export class PropertyGridWidget extends BaseWidget {
         wrapper.appendChild(fallback);
         break;
       }
+
+      case 'asset':
+      case 'entity': {
+        // Reference types render as a read-only handle until a real picker UI
+        // ships with the asset pipeline. The value is typically a UUID string
+        // (asset) or numeric id (entity); callers can read/copy it but can't
+        // edit through the inspector yet.
+        const ref = createElement('span', 'editrix-inspector-readonly');
+        if (value === undefined || value === null || value === '' || value === 0) {
+          ref.textContent = '— none —';
+          ref.classList.add('editrix-inspector-readonly--empty');
+        } else {
+          // Asset uuids and entity numeric handles both stringify cleanly;
+          // anything else (an unexpected object) falls back to JSON.
+          const display = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+            ? String(value)
+            : JSON.stringify(value);
+          ref.textContent = `${prop.type}:${display}`;
+        }
+        wrapper.appendChild(ref);
+        break;
+      }
     }
 
     return wrapper;

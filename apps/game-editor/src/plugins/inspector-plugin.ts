@@ -4,7 +4,13 @@ import type { PropertyGroup, PropertyType } from '@editrix/properties';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { ILayoutService, ISelectionService, IUndoRedoService, IViewService } from '@editrix/shell';
 import { PropertyGridWidget, showContextMenu, showQuickPick } from '@editrix/view-dom';
-import { IECSScenePresence, ISharedRenderContext } from '../services.js';
+import { IECSScenePresence, ISharedRenderContext, parseSelectionRef } from '../services.js';
+
+/** Resolve a selection-service id back to its entity number, if it is one. */
+function selectionToEntityId(serialized: string): number | undefined {
+  const ref = parseSelectionRef(serialized);
+  return ref?.kind === 'entity' ? ref.id : undefined;
+}
 
 // ─── ECS field-type → Inspector PropertyType ──────────────
 
@@ -13,11 +19,14 @@ function fieldTypeToPropertyType(type: ComponentFieldSchema['type']): PropertyTy
     case 'float': return 'number';
     case 'int': return 'number';
     case 'bool': return 'boolean';
+    // 'color' in ECS is a packed numeric — long term we'd render a color
+    // swatch, but the inspector's color control wants a hex string today.
+    // Treat as number for now so the value at least round-trips.
     case 'color': return 'number';
     case 'enum': return 'enum';
     case 'string': return 'string';
-    case 'asset': return 'number';
-    case 'entity': return 'number';
+    case 'asset': return 'asset';
+    case 'entity': return 'entity';
   }
 }
 
@@ -203,12 +212,10 @@ export const InspectorPlugin: IPlugin = {
       }
       const selectedIds = selection.getSelection();
       const selectedId = selectedIds[0];
-      if (!selectedId) {
-        inspectorGrid.setData([], {});
-        return;
-      }
-      const entityId = Number(selectedId);
-      if (isNaN(entityId)) {
+      const entityId = selectedId !== undefined ? selectionToEntityId(selectedId) : undefined;
+      if (entityId === undefined) {
+        // Either nothing is selected, or the selection is an asset/folder/etc.
+        // The inspector renders entity property grids only — clear when off-target.
         inspectorGrid.setData([], {});
         return;
       }
@@ -240,12 +247,13 @@ export const InspectorPlugin: IPlugin = {
           onChange: (key, value) => {
             const ecs = presence.current;
             const selectedId = selection.getSelection()[0];
-            if (!selectedId || !ecs) return;
+            const entityId = selectedId !== undefined ? selectionToEntityId(selectedId) : undefined;
+            if (entityId === undefined || !ecs) return;
             const dotIdx = key.indexOf('.');
             if (dotIdx <= 0) return;
             const comp = key.substring(0, dotIdx);
             const field = key.substring(dotIdx + 1);
-            ecs.setProperty(Number(selectedId), comp, field, value);
+            ecs.setProperty(entityId, comp, field, value);
           },
         });
 
@@ -253,9 +261,9 @@ export const InspectorPlugin: IPlugin = {
         inspectorGrid.onDidRequestAddComponent(() => {
           const ecs = presence.current;
           const selectedId = selection.getSelection()[0];
-          if (!selectedId || !ecs) return;
+          const entityId = selectedId !== undefined ? selectionToEntityId(selectedId) : undefined;
+          if (entityId === undefined || !ecs) return;
           const grid = inspectorGrid;
-          const entityId = Number(selectedId);
           const existing = new Set(ecs.getComponents(entityId));
           const available = ecs.getAvailableComponents();
 
@@ -300,8 +308,8 @@ export const InspectorPlugin: IPlugin = {
         inspectorGrid.onDidRequestComponentMenu(({ componentId, anchor }) => {
           const ecs = presence.current;
           const selectedId = selection.getSelection()[0];
-          if (!selectedId || !ecs) return;
-          const entityId = Number(selectedId);
+          const entityId = selectedId !== undefined ? selectionToEntityId(selectedId) : undefined;
+          if (entityId === undefined || !ecs) return;
           const isTransform = componentId === 'Transform';
           const rect = anchor.getBoundingClientRect();
 
@@ -374,8 +382,8 @@ export const InspectorPlugin: IPlugin = {
         inspectorGrid.onDidReorderComponent(({ componentId, targetId, position }) => {
           const ecs = presence.current;
           const selectedId = selection.getSelection()[0];
-          if (!selectedId || !ecs) return;
-          const entityId = Number(selectedId);
+          const entityId = selectedId !== undefined ? selectionToEntityId(selectedId) : undefined;
+          if (entityId === undefined || !ecs) return;
           const order = getInspectorOrder(entityId);
           if (!order) return;
 
