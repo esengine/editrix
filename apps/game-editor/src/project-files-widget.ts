@@ -1,23 +1,9 @@
-import type { Event } from '@editrix/common';
+import type { Event, IDisposable } from '@editrix/common';
 import { Emitter } from '@editrix/common';
+import type { IFileSystemService } from '@editrix/core';
 import type { TreeNode } from '@editrix/view-dom';
 import { BaseWidget, TreeWidget } from '@editrix/view-dom';
-
-/** Electron filesystem API exposed via preload. */
-interface FsAPI {
-  readDir(dirPath: string): Promise<{ name: string; path: string; type: string; extension: string }[]>;
-  watch(dirPath: string): Promise<string | null>;
-  unwatch(watchId: string): Promise<void>;
-  onChange(callback: (event: { kind: string; path: string }) => void): void;
-}
-
-function getFsAPI(): FsAPI | undefined {
-  return (window as unknown as { electronAPI?: { fs: FsAPI } }).electronAPI?.fs;
-}
-
-function getProjectPath(): string {
-  return (window as unknown as { electronAPI?: { getProjectPath(): string } }).electronAPI?.getProjectPath() ?? '';
-}
+import type { IProjectService } from './services.js';
 
 /** Map file extension to icon name. */
 function extToIcon(ext: string, isDir: boolean): string {
@@ -27,26 +13,29 @@ function extToIcon(ext: string, isDir: boolean): string {
     case '.ts': case '.js': return 'file';
     case '.png': case '.jpg': case '.jpeg': case '.webp': return 'grid';
     case '.gltf': case '.glb': case '.fbx': case '.obj': return 'box';
-    case '.editrix-scene': return 'layers';
+    case '.editrix-scene': case '.scene.json': return 'layers';
     default: return 'file';
   }
 }
 
 /**
- * Project Files panel — file tree reading from real filesystem.
- *
- * Reads the project directory from disk, displays as a tree.
- * Fires an event when a folder is selected so the Asset Browser can navigate.
+ * Project Files panel — file tree reading from real filesystem via
+ * {@link IFileSystemService}. Fires an event when a folder is selected so
+ * the asset browser can navigate.
  */
 export class ProjectFilesWidget extends BaseWidget {
+  private readonly _fileSystem: IFileSystemService;
+  private readonly _project: IProjectService;
   private _tree: TreeWidget | undefined;
-  private _projectPath = '';
-  private _watchId: string | null = null;
+  private _watchHandle: IDisposable | undefined;
+  private _changeSub: IDisposable | undefined;
   private readonly _onDidSelectFolder = new Emitter<string>();
   readonly onDidSelectFolder: Event<string> = this._onDidSelectFolder.event;
 
-  constructor(id: string) {
+  constructor(id: string, fileSystem: IFileSystemService, project: IProjectService) {
     super(id, 'project-files');
+    this._fileSystem = fileSystem;
+    this._project = project;
   }
 
   protected override buildContent(root: HTMLElement): void {
@@ -66,25 +55,20 @@ export class ProjectFilesWidget extends BaseWidget {
       }),
     );
 
-    // Load project files
-    this._projectPath = getProjectPath();
-    if (this._projectPath) {
-      this._loadTree();
+    if (this._project.isOpen) {
+      void this._loadTree();
       this._startWatching();
     }
   }
 
   private async _loadTree(): Promise<void> {
-    if (!this._tree || !this._projectPath) return;
-    const roots = await this._readDirRecursive(this._projectPath, 0);
+    if (!this._tree || !this._project.isOpen) return;
+    const roots = await this._readDirRecursive(this._project.path, 0);
     this._tree.setRoots(roots);
   }
 
   private async _readDirRecursive(dirPath: string, depth: number): Promise<TreeNode[]> {
-    const fs = getFsAPI();
-    if (!fs) return [];
-
-    const entries = await fs.readDir(dirPath);
+    const entries = await this._fileSystem.readDir(dirPath);
     const nodes: TreeNode[] = [];
 
     for (const entry of entries) {
@@ -104,14 +88,13 @@ export class ProjectFilesWidget extends BaseWidget {
     return nodes;
   }
 
-  private async _startWatching(): Promise<void> {
-    const fs = getFsAPI();
-    if (!fs || !this._projectPath) return;
-
-    this._watchId = await fs.watch(this._projectPath);
-    fs.onChange(() => {
-      // Debounce: reload tree on file changes
-      this._loadTree();
+  private _startWatching(): void {
+    if (!this._project.isOpen) return;
+    this._watchHandle = this._fileSystem.watch(this._project.path);
+    this._changeSub = this._fileSystem.onDidChangeFile(() => {
+      // Reload tree on any change. A future iteration could patch the tree
+      // in place to preserve scroll/expanded state instead of full rebuild.
+      void this._loadTree();
     });
   }
 
@@ -141,9 +124,8 @@ export class ProjectFilesWidget extends BaseWidget {
   }
 
   override dispose(): void {
-    if (this._watchId) {
-      getFsAPI()?.unwatch(this._watchId);
-    }
+    this._changeSub?.dispose();
+    this._watchHandle?.dispose();
     this._onDidSelectFolder.dispose();
     super.dispose();
   }

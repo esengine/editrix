@@ -822,6 +822,16 @@ ipcMain.handle('fs:readFile', async (_e, filePath) => {
   }
 });
 
+ipcMain.handle('fs:readFileBuffer', async (_e, filePath) => {
+  try {
+    // Buffer is structured-clone-serializable across the IPC boundary;
+    // the renderer turns it back into an ArrayBuffer in the service shim.
+    return fs.readFileSync(filePath);
+  } catch (err) {
+    throw new Error(`Cannot read file: ${filePath}`);
+  }
+});
+
 ipcMain.handle('fs:writeFile', async (_e, filePath, content) => {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {

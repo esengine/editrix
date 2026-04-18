@@ -1,8 +1,10 @@
+import { IFileSystemService } from '@editrix/core';
 import { IConsoleService } from '@editrix/plugin-console';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { IDocumentService, ILayoutService, IViewService } from '@editrix/shell';
 import { ContentBrowserWidget } from '../content-browser-widget.js';
 import { ProjectFilesWidget } from '../project-files-widget.js';
+import { IProjectService } from '../services.js';
 
 /**
  * Project Files (left tree) + Content Browser (centre browser/console) panels.
@@ -18,12 +20,14 @@ export const ProjectPanelsPlugin: IPlugin = {
   descriptor: {
     id: 'app.project-panels',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'app.document-sync'],
+    dependencies: ['editrix.layout', 'editrix.view', 'app.document-sync', 'app.filesystem', 'app.project'],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
     const view = ctx.services.get(IViewService);
     const documentService = ctx.services.get(IDocumentService);
+    const fileSystem = ctx.services.get(IFileSystemService);
+    const project = ctx.services.get(IProjectService);
 
     let contentBrowserWidget: ContentBrowserWidget | undefined;
 
@@ -43,7 +47,7 @@ export const ProjectPanelsPlugin: IPlugin = {
     );
     ctx.subscriptions.add(
       view.registerFactory('project-files', (id) => {
-        const widget = new ProjectFilesWidget(id);
+        const widget = new ProjectFilesWidget(id, fileSystem, project);
         widget.onDidSelectFolder((folderPath) => {
           if (contentBrowserWidget) {
             contentBrowserWidget.navigateTo(folderPath);
@@ -63,7 +67,7 @@ export const ProjectPanelsPlugin: IPlugin = {
     );
     ctx.subscriptions.add(
       view.registerFactory('content-browser', (id) => {
-        contentBrowserWidget = new ContentBrowserWidget(id);
+        contentBrowserWidget = new ContentBrowserWidget(id, fileSystem, project);
         // Wire double-click on scene files to open in document service
         contentBrowserWidget.onDidOpenFile((filePath) => {
           documentService.open(filePath).catch(() => {

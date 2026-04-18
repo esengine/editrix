@@ -1,20 +1,8 @@
+import { IFileSystemService } from '@editrix/core';
 import type { IECSSceneService, SceneData } from '@editrix/estella';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { DocumentService, IDocumentService } from '@editrix/shell';
 import { IECSScenePresence } from '../services.js';
-
-interface ElectronFsApi {
-  readFile(path: string): Promise<string>;
-  writeFile(path: string, content: string): Promise<void>;
-}
-
-interface ElectronApiHost {
-  fs: ElectronFsApi;
-}
-
-function getApi(): ElectronApiHost | undefined {
-  return (window as unknown as { electronAPI?: ElectronApiHost }).electronAPI;
-}
 
 /**
  * Owns the document service and the .scene.json file handler. Bridges the
@@ -32,15 +20,15 @@ export const DocumentSyncPlugin: IPlugin = {
   descriptor: {
     id: 'app.document-sync',
     version: '1.0.0',
-    dependencies: ['app.ecs-scene'],
+    dependencies: ['app.ecs-scene', 'app.filesystem'],
   },
   activate(ctx: IPluginContext) {
     const presence = ctx.services.get(IECSScenePresence);
-    const api = getApi();
+    const fileSystem = ctx.services.get(IFileSystemService);
 
     const documentService = new DocumentService(
-      (path) => api?.fs.readFile(path) ?? Promise.resolve(''),
-      (path, content) => api?.fs.writeFile(path, content) ?? Promise.resolve(),
+      (path) => fileSystem.readFile(path),
+      (path, content) => fileSystem.writeFile(path, content),
     );
     ctx.subscriptions.add(documentService);
     ctx.subscriptions.add(ctx.services.register(IDocumentService, documentService));

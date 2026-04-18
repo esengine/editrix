@@ -1,6 +1,8 @@
 import type { Event } from '@editrix/common';
 import { Emitter } from '@editrix/common';
+import type { FileEntry, IFileSystemService } from '@editrix/core';
 import { BaseWidget, createIconElement, ListWidget } from '@editrix/view-dom';
+import type { IProjectService } from './services.js';
 
 type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 
@@ -16,28 +18,6 @@ const LEVEL_CLASSES: Record<LogLevel, string> = {
   error: 'editrix-cb-log--error',
   debug: 'editrix-cb-log--debug',
 };
-
-/** Filesystem entry from the preload IPC. */
-interface FsEntry {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  extension: string;
-  size: number;
-}
-
-/** Electron filesystem API exposed via preload. */
-interface FsAPI {
-  readDir(dirPath: string): Promise<FsEntry[]>;
-}
-
-function getFsAPI(): FsAPI | undefined {
-  return (window as unknown as { electronAPI?: { fs: FsAPI } }).electronAPI?.fs;
-}
-
-function getProjectPath(): string {
-  return (window as unknown as { electronAPI?: { getProjectPath(): string } }).electronAPI?.getProjectPath() ?? '';
-}
 
 /** Map file extension to icon name. */
 function extToIcon(ext: string, isDir: boolean): string {
@@ -59,8 +39,9 @@ function extToIcon(ext: string, isDir: boolean): string {
  * Sidebar is always visible.
  */
 export class ContentBrowserWidget extends BaseWidget {
+  private readonly _fileSystem: IFileSystemService;
+  private readonly _project: IProjectService;
   private _activeView: 'assets' | 'console' = 'assets';
-  private _projectPath = '';
 
   // Sidebar elements
   private _termBtn: HTMLElement | undefined;
@@ -76,7 +57,7 @@ export class ContentBrowserWidget extends BaseWidget {
   private _gridEl: HTMLElement | undefined;
   private _breadcrumbEl: HTMLElement | undefined;
   private _searchInput: HTMLInputElement | undefined;
-  private _cachedEntries: FsEntry[] = [];
+  private _cachedEntries: readonly FileEntry[] = [];
 
   // Console state
   private _consoleList: ListWidget | undefined;
@@ -86,8 +67,10 @@ export class ContentBrowserWidget extends BaseWidget {
   private readonly _onDidOpenFile = new Emitter<string>();
   readonly onDidOpenFile: Event<string> = this._onDidOpenFile.event;
 
-  constructor(id: string) {
+  constructor(id: string, fileSystem: IFileSystemService, project: IProjectService) {
     super(id, 'content-browser');
+    this._fileSystem = fileSystem;
+    this._project = project;
   }
 
   /** Navigate asset browser to a real directory path. */
@@ -102,7 +85,7 @@ export class ContentBrowserWidget extends BaseWidget {
   /** Add a log entry to the console view. */
   log(level: LogLevel, message: string, source?: string): void {
     if (!this._consoleList) return;
-    const prefix = LEVEL_ICONS[level] ?? '';
+    const prefix = LEVEL_ICONS[level];
     const srcTag = source ? `[${source}] ` : '';
     this._consoleList.addItem({
       id: String(this._entryId++),
@@ -126,8 +109,7 @@ export class ContentBrowserWidget extends BaseWidget {
   protected override buildContent(root: HTMLElement): void {
     this._injectStyles();
 
-    this._projectPath = getProjectPath();
-    this._currentDirPath = this._projectPath;
+    this._currentDirPath = this._project.path;
 
     const outer = this.appendElement(root, 'div', 'editrix-cb-outer');
 
@@ -198,25 +180,26 @@ export class ContentBrowserWidget extends BaseWidget {
     if (!el) return;
     el.innerHTML = '';
 
-    if (!this._projectPath || !this._currentDirPath) return;
+    const root = this._project.path;
+    if (!root || !this._currentDirPath) return;
 
     // "project" root crumb
     const rootCrumb = document.createElement('span');
     rootCrumb.className = 'editrix-cb-crumb';
     rootCrumb.textContent = 'project';
-    rootCrumb.addEventListener('click', () => { this.navigateTo(this._projectPath); });
+    rootCrumb.addEventListener('click', () => { this.navigateTo(root); });
     el.appendChild(rootCrumb);
 
-    // Build segments from projectPath to currentDirPath
+    // Build segments from project root to currentDirPath
     const relative = this._currentDirPath
       .replace(/\\/g, '/')
-      .replace(this._projectPath.replace(/\\/g, '/'), '')
+      .replace(root.replace(/\\/g, '/'), '')
       .replace(/^\//, '');
 
     if (!relative) return;
 
     const parts = relative.split('/');
-    let accumulated = this._projectPath.replace(/\\/g, '/');
+    let accumulated = root.replace(/\\/g, '/');
     for (const part of parts) {
       accumulated += `/${part}`;
       const segPath = accumulated;
@@ -235,14 +218,13 @@ export class ContentBrowserWidget extends BaseWidget {
   }
 
   private async _loadAndRenderGrid(): Promise<void> {
-    const fs = getFsAPI();
-    if (!fs || !this._currentDirPath) {
+    if (!this._currentDirPath) {
       this._cachedEntries = [];
       this._renderGridFromCache();
       return;
     }
 
-    this._cachedEntries = await fs.readDir(this._currentDirPath);
+    this._cachedEntries = await this._fileSystem.readDir(this._currentDirPath);
     this._renderGridFromCache();
   }
 

@@ -21,13 +21,16 @@ import { LocalPluginScanner } from './local-plugin-scanner.js';
 import {
   DocumentSyncPlugin,
   ECSScenePlugin,
+  FilesystemPlugin,
   GameViewPlugin,
   HierarchyPlugin,
   InspectorPlugin,
   ProjectPanelsPlugin,
+  ProjectPlugin,
   RenderContextPlugin,
   SceneViewPlugin,
 } from './plugins/index.js';
+import { IProjectService } from './services.js';
 
 // ─── Simple Input Dialog ────────────────────────────────
 
@@ -197,15 +200,21 @@ async function main(): Promise<void> {
   const editor: EditorInstance = await createEditor({
     container,
     plugins: [
+      // Foundational app context (no deps)
+      ProjectPlugin,
+      FilesystemPlugin,
+      // Engine + render
       EstellaPlugin,
       RenderContextPlugin,
       ECSScenePlugin,
+      // Document + panel layer
       DocumentSyncPlugin,
       ProjectPanelsPlugin,
       SceneViewPlugin,
       GameViewPlugin,
       HierarchyPlugin,
       InspectorPlugin,
+      // Framework / settings panels
       PluginManagerPanelPlugin,
       SettingsPlugin,
     ],
@@ -214,6 +223,8 @@ async function main(): Promise<void> {
 
   const documentService = editor.kernel.services.get(IDocumentService);
   const consoleService = editor.kernel.services.get(IConsoleService);
+  const fileSystem = editor.kernel.services.get(IFileSystemService);
+  const project = editor.kernel.services.get(IProjectService);
 
   // ── Load estella WASM ──
   const estellaService = editor.kernel.services.get(IEstellaService);
@@ -282,8 +293,8 @@ async function main(): Promise<void> {
               consoleService.log('info', `Plugin "${name}" created at plugins/${slug}/`);
               // Hot-load: read plugin.json to get the main entry path
               try {
-                const pluginDir = `${projectPath.replace(/\\/g, '/')}/plugins/${slug}`;
-                const manifestRaw = await getApi()?.fs.readFile(`${pluginDir}/plugin.json`) ?? '';
+                const pluginDir = project.resolve(`plugins/${slug}`);
+                const manifestRaw = await fileSystem.readFile(`${pluginDir}/plugin.json`);
                 const manifest = JSON.parse(manifestRaw) as { main?: string };
                 const mainFile = manifest.main ?? 'dist/index.js';
                 const entryUrl = `file:///${pluginDir}/${mainFile}`;
@@ -575,11 +586,10 @@ async function main(): Promise<void> {
   });
 
   // ── Auto-open the default scene if it exists ──
-  if (projectPath) {
-    const scenePath = projectPath.replace(/\\/g, '/') + '/scenes/main.scene.json';
+  if (project.isOpen) {
+    const scenePath = project.resolve('scenes/main.scene.json');
     try {
-      const exists = await getApi()?.fs.readFile(scenePath);
-      if (exists) {
+      if (await fileSystem.exists(scenePath)) {
         await documentService.open(scenePath);
       }
     } catch {
@@ -588,52 +598,50 @@ async function main(): Promise<void> {
   }
 
   // ── Plugin hot-reload: watch plugin dist/ for changes ──
-  if (projectPath) {
-    const pluginsDir = projectPath.replace(/\\/g, '/') + '/plugins';
-    const fsApi = getApi()?.fs;
-    if (fsApi) {
-      void fsApi.watch(pluginsDir).then((watchId: string | null) => {
-        if (!watchId) return;
-        fsApi.onChange((event: { kind: string; path: string }) => {
-          // Only reload when a .js file changes
-          if (!event.path.endsWith('.js') || event.kind === 'deleted') return;
+  if (project.isOpen) {
+    const pluginsDir = project.resolve('plugins');
+    fileSystem.watch(pluginsDir);
+    fileSystem.onDidChangeFile((event) => {
+      // Only reload when a .js file changes
+      if (!event.path.endsWith('.js') || event.kind === 'deleted') return;
+      // Restrict to plugin-dir events (the watcher above is the only one we set up,
+      // but other plugins could install more — be defensive).
+      if (!event.path.startsWith(pluginsDir + '/')) return;
 
-          // Find which plugin this belongs to
-          const relative = event.path.replace(pluginsDir + '/', '');
-          const pluginSlug = relative.split('/')[0];
-          if (!pluginSlug) return;
+      // Find which plugin this belongs to
+      const relative = event.path.slice(pluginsDir.length + 1);
+      const pluginSlug = relative.split('/')[0];
+      if (!pluginSlug) return;
 
-          // Find the plugin ID from the loaded plugins
-          const allPlugins = editor.pluginManager.getAll();
-          const info = allPlugins.find((p) => !p.builtin && p.manifest.id === pluginSlug);
-          if (!info) return;
+      // Find the plugin ID from the loaded plugins
+      const allPlugins = editor.pluginManager.getAll();
+      const info = allPlugins.find((p) => !p.builtin && p.manifest.id === pluginSlug);
+      if (!info) return;
 
-          // Verify this is the main entry file by reading plugin.json
-          const expectedMain = info.manifest.main ?? 'dist/index.js';
-          const expectedPath = `${pluginsDir}/${pluginSlug}/${expectedMain}`;
-          if (event.path !== expectedPath) return;
+      // Verify this is the main entry file by reading plugin.json
+      const expectedMain = info.manifest.main ?? 'dist/index.js';
+      const expectedPath = `${pluginsDir}/${pluginSlug}/${expectedMain}`;
+      if (event.path !== expectedPath) return;
 
-          consoleService.log('info', `Plugin "${info.manifest.name}" changed, reloading...`);
+      consoleService.log('info', `Plugin "${info.manifest.name}" changed, reloading...`);
 
-          // Deactivate old version
-          void editor.kernel.deactivatePlugin(info.manifest.id).then(async () => {
-            try {
-              // Re-import with cache-busting timestamp
-              const entryUrl = `file:///${event.path}?t=${Date.now()}`;
-              const mod = await import(/* webpackIgnore: true */ entryUrl) as Record<string, unknown>;
-              const plugin = (mod['default'] ?? mod['plugin']) as IPlugin | undefined;
-              if (plugin && typeof plugin.activate === 'function') {
-                editor.kernel.registerPlugin(plugin);
-                await editor.kernel.activatePlugin(plugin.descriptor.id);
-                consoleService.log('info', `Plugin "${info.manifest.name}" reloaded successfully.`);
-              }
-            } catch (err) {
-              consoleService.log('error', `Failed to reload plugin: ${String(err)}`);
-            }
-          });
-        });
+      // Deactivate old version
+      void editor.kernel.deactivatePlugin(info.manifest.id).then(async () => {
+        try {
+          // Re-import with cache-busting timestamp
+          const entryUrl = `file:///${event.path}?t=${Date.now()}`;
+          const mod = await import(/* webpackIgnore: true */ entryUrl) as Record<string, unknown>;
+          const plugin = (mod['default'] ?? mod['plugin']) as IPlugin | undefined;
+          if (plugin && typeof plugin.activate === 'function') {
+            editor.kernel.registerPlugin(plugin);
+            await editor.kernel.activatePlugin(plugin.descriptor.id);
+            consoleService.log('info', `Plugin "${info.manifest.name}" reloaded successfully.`);
+          }
+        } catch (err) {
+          consoleService.log('error', `Failed to reload plugin: ${String(err)}`);
+        }
       });
-    }
+    });
   }
 
   consoleService.log('info', 'Editor ready');
