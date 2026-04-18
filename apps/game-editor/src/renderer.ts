@@ -13,11 +13,12 @@ import {
   ISelectionService,
   ISettingsService,
   IUndoRedoService,
+  IViewAdapter,
   IViewService,
 } from '@editrix/shell';
 import type { EditorInstance, IPlugin } from '@editrix/shell';
-import { createIconElement } from '@editrix/view-dom';
-import { showInputDialog } from './dialogs.js';
+import { createIconElement, DomViewAdapter } from '@editrix/view-dom';
+import { showInputDialog, showThreeChoiceDialog } from './dialogs.js';
 import { LocalPluginScanner } from './local-plugin-scanner.js';
 import {
   DocumentSyncPlugin,
@@ -25,6 +26,7 @@ import {
   ECSScenePlugin,
   FilesystemPlugin,
   HierarchyPlugin,
+  InspectorFiltersPlugin,
   InspectorPlugin,
   PlayModePlugin,
   ProjectPanelsPlugin,
@@ -41,6 +43,8 @@ interface ElectronAPI {
   maximize(): void;
   close(): void;
   getProjectPath(): string;
+  onRequestClose(handler: () => void): void;
+  closeAck(shouldClose: boolean): void;
   fs: {
     readFile(path: string): Promise<string>;
     writeFile(path: string, content: string): Promise<void>;
@@ -89,28 +93,22 @@ async function main(): Promise<void> {
 
   const EDITRIX_API_VERSION = 1;
 
-  // The editor is composed from app-level plugins (one per panel + a few
-  // wiring plugins) plus framework plugins. Activation order is computed
-  // from each plugin's descriptor.dependencies.
   const editor: EditorInstance = await createEditor({
     container,
     plugins: [
-      // Foundational app context (no deps)
       ProjectPlugin,
       FilesystemPlugin,
-      // Engine + render
+      InspectorFiltersPlugin,
       EstellaPlugin,
       RenderContextPlugin,
       ECSScenePlugin,
       PlayModePlugin,
-      // Document + panel layer
       DocumentSyncPlugin,
       DocumentTabsPlugin,
       ProjectPanelsPlugin,
       ViewportPlugin,
       HierarchyPlugin,
       InspectorPlugin,
-      // Framework / settings panels
       PluginManagerPanelPlugin,
       SettingsPlugin,
     ],
@@ -122,10 +120,12 @@ async function main(): Promise<void> {
   const fileSystem = editor.kernel.services.get(IFileSystemService);
   const project = editor.kernel.services.get(IProjectService);
 
-  // ── Load estella WASM ──
+  // Preload the runtime SDK so the first Play doesn't wait on a 368KB fetch.
   const estellaService = editor.kernel.services.get(IEstellaService);
-  estellaService.loadCore('estella:///').catch((err: unknown) => {
-    consoleService.log('error', `Failed to load estella WASM: ${String(err)}`, 'estella');
+  estellaService.loadCore('estella:///').then(() => {
+    return estellaService.loadSDK();
+  }).catch((err: unknown) => {
+    consoleService.log('error', `Failed to load estella: ${String(err)}`, 'estella');
   });
 
   // Check plugin API version compatibility
@@ -145,6 +145,13 @@ async function main(): Promise<void> {
   editor.view.menuBar.setAppIcon('extensions');
   editor.view.menuBar.addMenu({
     id: 'file', label: 'File', items: [
+      { id: 'file.newScene', label: 'New Scene', onClick: () => {
+        void editor.commands.execute('scene.new');
+      } },
+      { id: 'file.openScene', label: 'Open Scene...', onClick: () => {
+        void editor.commands.execute('scene.open');
+      } },
+      { id: 'sep0', label: '', separator: true },
       { id: 'file.save', label: 'Save', shortcut: 'Ctrl+S', onClick: () => {
         const active = documentService.activeDocument;
         if (active) {
@@ -214,18 +221,38 @@ async function main(): Promise<void> {
       },
     ],
   });
+  const DEFAULT_PANELS: readonly string[] = [
+    'viewport', 'hierarchy', 'inspector', 'project-files', 'content-browser',
+  ];
+  const openDefaultPanels = (): void => {
+    for (const id of DEFAULT_PANELS) editor.layout.openPanel(id);
+  };
+
+  editor.commands.register({
+    id: 'view.openPanel', title: 'Open Panel...', category: 'View',
+    execute() {
+      const adapter = editor.kernel.services.get(IViewAdapter);
+      if (adapter instanceof DomViewAdapter) adapter.showPanelPicker();
+    },
+  });
+  editor.commands.register({
+    id: 'view.resetLayout', title: 'Reset Layout', category: 'View',
+    execute() {
+      editor.layout.setLayout({ type: 'tab-group', panels: [], activeIndex: 0 });
+      openDefaultPanels();
+    },
+  });
+
+  editor.view.menuBar.addMenu({
+    id: 'view-menu', label: 'View', items: [
+      { id: 'view.openPanel', label: 'Open Panel...', onClick: () => { void editor.commands.execute('view.openPanel'); } },
+      { id: 'view.resetLayout', label: 'Reset Layout', onClick: () => { void editor.commands.execute('view.resetLayout'); } },
+    ],
+  });
+
   editor.view.menuBar.addMenu({ id: 'help', label: 'Help', items: [] });
 
-  // Open the panels each app plugin registered.
-  editor.layout.openPanel('viewport');
-  editor.layout.openPanel('hierarchy');
-  editor.layout.openPanel('inspector');
-  editor.layout.openPanel('project-files');
-  editor.layout.openPanel('content-browser');
-
-  // Document tabs are now rendered by DocumentTabsPlugin in the document
-  // tab bar above the layout area. Layout panel tabs are managed by the
-  // layout-renderer itself. No bookkeeping at this level any more.
+  openDefaultPanels();
 
   // ── Ctrl+S keyboard shortcut ──
   document.addEventListener('keydown', (e) => {
@@ -238,6 +265,42 @@ async function main(): Promise<void> {
         });
       }
     }
+  });
+
+  getApi()?.onRequestClose(() => {
+    void (async (): Promise<void> => {
+      const dirty = documentService.getOpenDocuments().filter((d) => d.dirty);
+      if (dirty.length === 0) {
+        getApi()?.closeAck(true);
+        return;
+      }
+
+      const message = dirty.length === 1
+        ? `"${dirty[0]?.name ?? ''}" has unsaved changes.\nSave before closing?`
+        : `${String(dirty.length)} files have unsaved changes:\n\n${dirty.map((d) => `• ${d.name}`).join('\n')}\n\nSave before closing?`;
+
+      const choice = await showThreeChoiceDialog(message);
+      if (choice === 'cancel') {
+        getApi()?.closeAck(false);
+        return;
+      }
+      if (choice === 'save') {
+        try {
+          for (const doc of dirty) {
+            await documentService.save(doc.filePath);
+          }
+        } catch (err) {
+          // Mid-flight save failure — stay open so the user can retry.
+          consoleService.log(
+            'error',
+            `Save failed, aborting close: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          getApi()?.closeAck(false);
+          return;
+        }
+      }
+      getApi()?.closeAck(true);
+    })();
   });
 
   // ── Right section: Play/Pause/Stop/Step + window controls ──

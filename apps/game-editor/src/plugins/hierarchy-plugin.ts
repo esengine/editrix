@@ -1,6 +1,6 @@
 import type { IECSSceneService } from '@editrix/estella';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import { ILayoutService, ISelectionService, IUndoRedoService, IViewService } from '@editrix/shell';
+import { IDocumentService, ILayoutService, ISelectionService, IUndoRedoService, IViewService } from '@editrix/shell';
 import type { TreeNode } from '@editrix/view-dom';
 import { showContextMenu, TreeWidget } from '@editrix/view-dom';
 import { showInputDialog } from '../dialogs.js';
@@ -70,19 +70,11 @@ function restoreEntitySnapshot(
   return newId;
 }
 
-/**
- * Hierarchy panel plugin: tree of ECS entities with create / delete / reorder
- * affordances and selection-service round-trip.
- *
- * Defers all ECS access through {@link IECSScenePresence}; the panel renders
- * fine before WASM loads (just empty). Once the scene binds, it refreshes and
- * subscribes to onHierarchyChanged for live updates.
- */
 export const HierarchyPlugin: IPlugin = {
   descriptor: {
     id: 'app.hierarchy',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties', 'app.ecs-scene'],
+    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties', 'app.ecs-scene', 'app.document-sync'],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
@@ -90,6 +82,12 @@ export const HierarchyPlugin: IPlugin = {
     const selection = ctx.services.get(ISelectionService);
     const undoRedo = ctx.services.get(IUndoRedoService);
     const presence = ctx.services.get(IECSScenePresence);
+    const documentService = ctx.services.get(IDocumentService);
+
+    const hasActiveSceneDoc = (): boolean => {
+      const active = documentService.activeDocument;
+      return active !== null && active.endsWith('.scene.json');
+    };
 
     let hierarchyTree: TreeWidget | undefined;
 
@@ -105,11 +103,51 @@ export const HierarchyPlugin: IPlugin = {
     }));
 
     ctx.subscriptions.add(layout.registerPanel({ id: 'hierarchy', title: 'Hierarchy', defaultRegion: 'left' }));
+
+    const refreshAddButtonState = (): void => {
+      const root = hierarchyTree?.getRootElement();
+      if (!root) return;
+      const btn = root.querySelector<HTMLButtonElement>('.editrix-tree-add-btn');
+      if (!btn) return;
+      const enabled = hasActiveSceneDoc();
+      btn.disabled = !enabled;
+      btn.style.opacity = enabled ? '' : '0.4';
+      btn.style.cursor = enabled ? '' : 'not-allowed';
+      btn.title = enabled ? '' : 'Open or create a scene to add entities';
+    };
+    ctx.subscriptions.add(documentService.onDidChangeActive(refreshAddButtonState));
+    ctx.subscriptions.add(documentService.onDidChangeDocuments(refreshAddButtonState));
+
     ctx.subscriptions.add(
       view.registerFactory('hierarchy', (id) => {
-        // showVisibility is off until ECS gains a Visibility component to bind to.
-        hierarchyTree = new TreeWidget(id, { showFilter: true, showAddButton: true, addButtonLabel: 'Add Entity' });
+        const canDrop = (sourceRaws: readonly string[], targetRaw: string): boolean => {
+          const ecs = presence.current;
+          if (!ecs) return false;
+          const targetId = selectionToEntityId(targetRaw);
+          if (targetId === undefined) return false;
+          const sourceIds = sourceRaws
+            .map(selectionToEntityId)
+            .filter((id): id is number => id !== undefined);
+          if (sourceIds.length === 0) return false;
+          if (sourceIds.includes(targetId)) return false;
+          for (const sourceId of sourceIds) {
+            let cursor: number | null = targetId;
+            while (cursor !== null) {
+              if (cursor === sourceId) return false;
+              cursor = ecs.getParent(cursor);
+            }
+          }
+          return true;
+        };
+        hierarchyTree = new TreeWidget(id, {
+          showFilter: true,
+          showAddButton: true,
+          addButtonLabel: 'Add Entity',
+          enableDrag: true,
+          canDrop,
+        });
         refreshHierarchy();
+        refreshAddButtonState();
 
         let syncingSelection = false;
         hierarchyTree.onDidChangeSelection((ids) => {
@@ -127,6 +165,7 @@ export const HierarchyPlugin: IPlugin = {
         hierarchyTree.onDidRequestAdd(() => {
           const ecs = presence.current;
           if (!ecs) return;
+          if (!hasActiveSceneDoc()) return;
           const entityId = ecs.createEntity('New Entity');
           selection.select([entityRef(entityId)]);
           undoRedo.push({
@@ -247,6 +286,78 @@ export const HierarchyPlugin: IPlugin = {
 
         hierarchyTree.onDidRequestRename((id) => { renameEntity(id); });
         hierarchyTree.onDidRequestDuplicate((ids) => { duplicateEntities(ids); });
+
+        hierarchyTree.onDidRequestDrop(({ sourceIds: sourceRaws, targetId: targetRaw, position }) => {
+          const ecs = presence.current;
+          if (!ecs) return;
+          const targetId = selectionToEntityId(targetRaw);
+          if (targetId === undefined) return;
+
+          // Filter to "roots in selection" — a descendant of another source
+          // comes along automatically when its ancestor moves.
+          const requested = sourceRaws
+            .map(selectionToEntityId)
+            .filter((id): id is number => id !== undefined);
+          if (requested.length === 0) return;
+          const requestedSet = new Set(requested);
+          const roots = requested.filter((id) => {
+            let cursor = ecs.getParent(id);
+            while (cursor !== null) {
+              if (requestedSet.has(cursor)) return false;
+              cursor = ecs.getParent(cursor);
+            }
+            return true;
+          });
+          if (roots.length === 0) return;
+
+          // Snapshot original positions for undo.
+          const originals = roots.map((id) => {
+            const parentId = ecs.getParent(id);
+            const siblings = parentId === null ? ecs.getRootEntities() : ecs.getChildren(parentId);
+            return { id, parentId, index: siblings.indexOf(id) };
+          });
+
+          let newParentId: number | null;
+          let newIndex: number | undefined;
+          if (position === 'inside') {
+            newParentId = targetId;
+            newIndex = undefined;
+          } else {
+            newParentId = ecs.getParent(targetId);
+            const targetSiblings = newParentId === null ? ecs.getRootEntities() : ecs.getChildren(newParentId);
+            const targetIdx = targetSiblings.indexOf(targetId);
+            if (targetIdx === -1) return;
+            newIndex = position === 'before' ? targetIdx : targetIdx + 1;
+          }
+
+          if (
+            roots.length === 1
+            && originals[0]
+            && originals[0].parentId === newParentId
+            && originals[0].index === newIndex
+          ) {
+            return;
+          }
+
+          ecs.moveEntities(roots, newParentId, newIndex);
+
+          const label = roots.length === 1 ? 'Move Entity' : `Move ${String(roots.length)} Entities`;
+          undoRedo.push({
+            label,
+            undo: () => {
+              // Reverse iteration so shifts from earlier removals don't
+              // invalidate later recorded indices.
+              for (let i = originals.length - 1; i >= 0; i--) {
+                const rec = originals[i];
+                if (!rec) continue;
+                ecs.moveEntity(rec.id, rec.parentId, rec.index);
+              }
+            },
+            redo: () => {
+              ecs.moveEntities(roots, newParentId, newIndex);
+            },
+          });
+        });
 
         hierarchyTree.onDidRequestContextMenu(({ ids, x, y }) => {
           const ecs = presence.current;

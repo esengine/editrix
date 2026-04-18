@@ -7,7 +7,7 @@
  * IECSSceneService). A different editor would define its own equivalents.
  */
 
-import type { Event } from '@editrix/common';
+import type { Event, IDisposable } from '@editrix/common';
 import { createServiceId } from '@editrix/common';
 import type { IECSSceneService } from '@editrix/estella';
 import type { SharedRenderContext } from './render-context.js';
@@ -169,3 +169,14 @@ export interface IPlayModeService {
 }
 
 export const IPlayModeService = createServiceId<IPlayModeService>('IPlayModeService');
+
+/**
+ * Extension point for "hide this component from the Inspector". Predicates
+ * compose via disjunction. UI-only — ECS queries still see the component.
+ */
+export interface IInspectorComponentFilter {
+  register(predicate: (componentName: string) => boolean): IDisposable;
+  isHidden(componentName: string): boolean;
+}
+
+export const IInspectorComponentFilter = createServiceId<IInspectorComponentFilter>('IInspectorComponentFilter');

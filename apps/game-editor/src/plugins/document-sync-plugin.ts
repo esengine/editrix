@@ -1,37 +1,36 @@
 import { IFileSystemService } from '@editrix/core';
 import type { IECSSceneService, SceneData } from '@editrix/estella';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import { DocumentService, IDocumentService } from '@editrix/shell';
-import { IECSScenePresence, IProjectService } from '../services.js';
+import { DocumentService, ICommandRegistry, IDocumentService, ISelectionService } from '@editrix/shell';
+import { showConfirmDialog } from '../dialogs.js';
+import { IECSScenePresence, IPlayModeService, IProjectService } from '../services.js';
+
+interface ElectronFileApi {
+  selectFile(options?: {
+    title?: string;
+    defaultPath?: string;
+    filters?: { name: string; extensions: string[] }[];
+  }): Promise<string | null>;
+}
+
+function getElectronFileApi(): ElectronFileApi | undefined {
+  return (window as unknown as { electronAPI?: ElectronFileApi }).electronAPI;
+}
 
 const DEFAULT_SCENE_RELATIVE = 'scenes/main.scene.json';
 
-/**
- * Owns the document service and the .scene.json file handler. Bridges the
- * gap between the synchronous document-open flow and the asynchronous ECS
- * runtime: parsed scene data that arrives before the ECS module is ready
- * is buffered and applied as soon as ECSScenePlugin's presence binds.
- *
- * Also owns "what the user sees on a fresh editor". On bind, exactly one of
- * the following runs (so the seed never collides with an autoload):
- *   1. If something already called documentService.open() before bind, the
- *      buffered SceneData is applied.
- *   2. Else, if the project has a default scene file at scenes/main.scene.json,
- *      it's opened automatically.
- *   3. Else, a default empty-project scene (Camera + Shape) is seeded.
- *
- * Wires every ECS state-mutation event to setDirty on the active document.
- */
 export const DocumentSyncPlugin: IPlugin = {
   descriptor: {
     id: 'app.document-sync',
     version: '1.0.0',
-    dependencies: ['app.ecs-scene', 'app.filesystem', 'app.project'],
+    dependencies: ['app.ecs-scene', 'app.filesystem', 'app.project', 'app.play-mode'],
   },
   activate(ctx: IPluginContext) {
     const presence = ctx.services.get(IECSScenePresence);
     const fileSystem = ctx.services.get(IFileSystemService);
     const project = ctx.services.get(IProjectService);
+    const selection = ctx.services.get(ISelectionService);
+    const playMode = ctx.services.get(IPlayModeService);
 
     const documentService = new DocumentService(
       (path) => fileSystem.readFile(path),
@@ -45,15 +44,28 @@ export const DocumentSyncPlugin: IPlugin = {
     ctx.subscriptions.add(
       documentService.registerHandler({
         extensions: ['.scene.json'],
-        load(filePath, content): Promise<void> {
+        async load(filePath, content): Promise<void> {
+          // Single-scene contract: opening a second scene closes the first.
+          const priorScenes = documentService
+            .getOpenDocuments()
+            .filter((d) => d.filePath !== filePath && d.filePath.endsWith('.scene.json'));
+          for (const prior of priorScenes) {
+            if (prior.dirty) {
+              const ok = await showConfirmDialog(
+                `Opening "${filePath.split('/').pop() ?? ''}" will close "${prior.name}" with unsaved changes.`,
+                { okLabel: 'Discard changes', destructive: true },
+              );
+              if (!ok) throw new Error('Open cancelled by user.');
+            }
+            documentService.close(prior.filePath);
+          }
+
           const data = parseSceneData(content, filePath);
           if (presence.current) {
             applyScene(presence.current, data);
           } else {
-            // ECS not ready yet — buffer; onDidBind below will drain it.
             pendingScene = data;
           }
-          return Promise.resolve();
         },
         serialize(_filePath): Promise<string> {
           if (!presence.current) {
@@ -66,52 +78,123 @@ export const DocumentSyncPlugin: IPlugin = {
 
     ctx.subscriptions.add(presence.onDidBind((ecs) => {
       void (async (): Promise<void> => {
-        // Run the initial-scene decision first so any entities it creates
-        // don't leak into dirty tracking — those entities are the file's
-        // canonical state, not a user edit.
+        // Initial scene is set before dirty wiring so seeded entities
+        // aren't treated as user edits.
         await chooseInitialScene(ecs);
         wireDirtyMarkers(ctx, documentService, ecs);
       })();
     }));
 
-    /**
-     * Decides what to put on screen the first time the ECS scene binds, in
-     * priority order. Each path is mutually exclusive — exactly one runs.
-     */
+    // Last scene doc closed → tear down play + selection + ECS together.
+    // Stop must precede clear so the snapshot restore writes into live state.
+    ctx.subscriptions.add(
+      documentService.onDidChangeDocuments(() => {
+        const hasSceneDoc = documentService
+          .getOpenDocuments()
+          .some((d) => d.extension === '.scene.json' || d.filePath.endsWith('.scene.json'));
+        if (hasSceneDoc) return;
+
+        pendingScene = undefined;
+        if (playMode.isInPlay) playMode.stop();
+        selection.clearSelection();
+        if (presence.current) {
+          presence.current.deserialize({ version: 1, name: '', entities: [] });
+        }
+      }),
+    );
+
     const chooseInitialScene = async (ecs: IECSSceneService): Promise<void> => {
-      // 1. Something already called documentService.open() before WASM loaded.
       if (pendingScene) {
         applyScene(ecs, pendingScene);
         pendingScene = undefined;
         return;
       }
 
-      // 2. Project has a default scene file — open it through the document
-      //    service so the document tab appears and dirty tracking starts.
       if (project.isOpen) {
         const scenePath = project.resolve(DEFAULT_SCENE_RELATIVE);
+
         try {
           if (await fileSystem.exists(scenePath)) {
             await documentService.open(scenePath);
             return;
           }
         } catch {
-          // Fall through to seed — the file existed but failed to load.
-          // The error already logs through the document handler chain.
+          return;
+        }
+
+        try {
+          await fileSystem.mkdir(project.resolve('scenes'));
+          await fileSystem.writeFile(scenePath, emptySceneJson());
+          await documentService.open(scenePath);
+        } catch (err) {
+          console.warn(
+            `[document-sync] Could not initialise ${DEFAULT_SCENE_RELATIVE}: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
-
-      // 3. Brand-new project: seed a minimal scene so the viewport isn't blank.
-      seedDefaultScene(ecs);
     };
+
+    const commands = ctx.services.get(ICommandRegistry);
+
+    ctx.subscriptions.add(
+      commands.register({
+        id: 'scene.new',
+        title: 'New Scene',
+        category: 'Scene',
+        async execute(): Promise<void> {
+          if (!project.isOpen) return;
+          const scenesDir = project.resolve('scenes');
+          await fileSystem.mkdir(scenesDir);
+          const scenePath = await nextUntitledScenePath(fileSystem, scenesDir);
+          await fileSystem.writeFile(scenePath, emptySceneJson());
+          await documentService.open(scenePath);
+        },
+      }),
+    );
+
+    ctx.subscriptions.add(
+      commands.register({
+        id: 'scene.open',
+        title: 'Open Scene...',
+        category: 'Scene',
+        async execute(): Promise<void> {
+          const api = getElectronFileApi();
+          if (!api) return;
+          const defaultPath = project.isOpen ? project.resolve('scenes') : undefined;
+          const picked = await api.selectFile({
+            title: 'Open Scene',
+            ...(defaultPath !== undefined ? { defaultPath } : {}),
+            filters: [
+              { name: 'Scene Files', extensions: ['scene.json', 'json'] },
+              { name: 'All Files', extensions: ['*'] },
+            ],
+          });
+          if (!picked) return;
+          try {
+            await documentService.open(picked);
+          } catch (err) {
+            await showConfirmDialog(
+              err instanceof Error ? err.message : String(err),
+              { okLabel: 'OK' },
+            );
+          }
+        },
+      }),
+    );
   },
 };
 
-/**
- * Parse and validate raw JSON as SceneData. Throws with a path-tagged message
- * when the shape is wrong — these errors bubble up to the document service's
- * "Failed to load document" wrapper, then to the UI's open-error dialog.
- */
+async function nextUntitledScenePath(
+  fileSystem: IFileSystemService,
+  scenesDir: string,
+): Promise<string> {
+  for (let i = 1; i < 10_000; i++) {
+    const candidate = `${scenesDir}/untitled-${String(i)}.scene.json`;
+    if (!(await fileSystem.exists(candidate))) return candidate;
+  }
+  throw new Error('Could not allocate an untitled scene filename.');
+}
+
 function parseSceneData(raw: string, filePath: string): SceneData {
   let parsed: unknown;
   try {
@@ -127,8 +210,6 @@ function parseSceneData(raw: string, filePath: string): SceneData {
   }
   const obj = parsed as Record<string, unknown>;
   if (!Array.isArray(obj['entities'])) {
-    // Detect the legacy SceneService format so the user gets a clear
-    // upgrade hint instead of a cryptic "entities is undefined".
     if ('nodeTypes' in obj || '$type' in obj) {
       throw new Error(
         `"${filePath}" is in the old SceneService format and is not supported. ` +
@@ -145,14 +226,10 @@ function parseSceneData(raw: string, filePath: string): SceneData {
   };
 }
 
-/**
- * Apply a SceneData payload to the ECS. An empty entities array is treated
- * as "fresh template" and triggers the default seed instead of leaving the
- * user looking at a blank viewport — covers the new-project case where we
- * write an intentionally empty scene file at create-project time.
- */
 function applyScene(ecs: IECSSceneService, data: SceneData): void {
   ecs.deserialize(data);
+  // Empty-entities file = fresh template; seed Camera + Shape so viewport
+  // isn't blank on create-project.
   if (data.entities.length === 0) {
     seedDefaultScene(ecs);
   }
@@ -168,14 +245,15 @@ function seedDefaultScene(ecs: IECSSceneService): void {
   ecs.addComponent(shapeId, 'ShapeRenderer');
 }
 
+function emptySceneJson(): string {
+  return `${JSON.stringify({ version: 1, name: 'Main Scene', entities: [] }, null, 2)}\n`;
+}
+
 function wireDirtyMarkers(
   ctx: IPluginContext,
   documentService: DocumentService,
   ecs: IECSSceneService,
 ): void {
-  // Mark active document dirty whenever ECS state changes (entity create/destroy,
-  // hierarchy reparent, component add/remove, property edit). Selection-only
-  // events are excluded — those don't dirty the file.
   const markDirty = (): void => {
     const active = documentService.activeDocument;
     if (active) documentService.setDirty(active, true);

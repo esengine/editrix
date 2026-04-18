@@ -4,7 +4,7 @@ import type { PropertyGroup, PropertyType } from '@editrix/properties';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { ILayoutService, ISelectionService, IUndoRedoService, IViewService } from '@editrix/shell';
 import { PropertyGridWidget, showContextMenu, showQuickPick } from '@editrix/view-dom';
-import { IECSScenePresence, ISharedRenderContext, parseSelectionRef } from '../services.js';
+import { IECSScenePresence, IInspectorComponentFilter, ISharedRenderContext, parseSelectionRef } from '../services.js';
 
 /** Resolve a selection-service id back to its entity number, if it is one. */
 function selectionToEntityId(serialized: string): number | undefined {
@@ -85,13 +85,14 @@ function sortByDefaultPriority(components: readonly string[]): string[] {
 function ecsToPropertyGroups(
   ecs: IECSSceneService,
   entityId: number,
+  filter: IInspectorComponentFilter,
   // Optional explicit ordering — used by the inspector to preserve the user's
   // insertion order. Components in `order` that aren't on the entity are
   // skipped; components on the entity that aren't in `order` fall through the
   // default priority sort and are appended after.
   order?: readonly string[],
 ): { groups: PropertyGroup[]; values: Record<string, unknown> } {
-  const live = [...ecs.getComponents(entityId)];
+  const live = ecs.getComponents(entityId).filter((c) => !filter.isHidden(c));
   let components: string[];
   if (order && order.length > 0) {
     const liveSet = new Set(live);
@@ -147,7 +148,7 @@ export const InspectorPlugin: IPlugin = {
   descriptor: {
     id: 'app.inspector',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties', 'app.ecs-scene'],
+    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties', 'app.ecs-scene', 'app.inspector-filters'],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
@@ -156,6 +157,7 @@ export const InspectorPlugin: IPlugin = {
     const undoRedo = ctx.services.get(IUndoRedoService);
     const presence = ctx.services.get(IECSScenePresence);
     const renderContextSvc = ctx.services.get(ISharedRenderContext);
+    const componentFilter = ctx.services.get(IInspectorComponentFilter);
 
     // Resolved lazily — IConsoleService is registered by ProjectPanelsPlugin
     // which may activate later in the dependency graph.
@@ -224,7 +226,7 @@ export const InspectorPlugin: IPlugin = {
         tracked = sortByDefaultPriority(ecs.getComponents(entityId));
         setInspectorOrder(entityId, tracked);
       }
-      const { groups, values } = ecsToPropertyGroups(ecs, entityId, tracked);
+      const { groups, values } = ecsToPropertyGroups(ecs, entityId, componentFilter, tracked);
       inspectorGrid.setData(groups, values);
     };
 
@@ -265,7 +267,7 @@ export const InspectorPlugin: IPlugin = {
           if (entityId === undefined || !ecs) return;
           const grid = inspectorGrid;
           const existing = new Set(ecs.getComponents(entityId));
-          const available = ecs.getAvailableComponents();
+          const available = ecs.getAvailableComponents().filter((c) => !componentFilter.isHidden(c));
 
           const anchor = grid?.getRootElement()?.querySelector('.editrix-inspector-add-btn') as HTMLElement | null;
           if (!anchor) return;
