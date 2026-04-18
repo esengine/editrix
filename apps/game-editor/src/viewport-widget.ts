@@ -5,7 +5,7 @@ import { GameViewWidget } from './game-view-widget.js';
 import type { SharedRenderContext } from './render-context.js';
 import { SceneViewWidget } from './scene-view-widget.js';
 
-type ViewportMode = 'scene' | 'game';
+type ViewportMode = 'scene' | 'game' | 'both';
 
 /**
  * Single viewport panel that hosts both the Scene View (interactive editor)
@@ -83,6 +83,7 @@ export class ViewportWidget extends BaseWidget {
     };
     buildButton('scene', 'Scene', 'layout');
     buildButton('game',  'Game',  'play');
+    buildButton('both',  'Both',  'columns');
 
     // Body holds both child widgets, only one visible at a time.
     const body = this.appendElement(root, 'div', 'editrix-viewport-body');
@@ -101,17 +102,28 @@ export class ViewportWidget extends BaseWidget {
   }
 
   private _applyMode(): void {
+    const showScene = this._mode === 'scene' || this._mode === 'both';
+    const showGame  = this._mode === 'game'  || this._mode === 'both';
+
     if (this._sceneContainer) {
-      this._sceneContainer.style.display = this._mode === 'scene' ? '' : 'none';
+      this._sceneContainer.style.display = showScene ? '' : 'none';
     }
     if (this._gameContainer) {
-      this._gameContainer.style.display = this._mode === 'game' ? '' : 'none';
+      this._gameContainer.style.display = showGame ? '' : 'none';
     }
+
+    // In single-mode the visible pane fills the body. In Both mode the body
+    // becomes a horizontal flex split; the data attribute drives the CSS.
+    const body = this._sceneContainer?.parentElement;
+    if (body) {
+      body.dataset['mode'] = this._mode;
+    }
+
     for (const [m, btn] of this._modeButtons) {
       btn.classList.toggle('editrix-viewport-segment-btn--active', m === this._mode);
     }
-    // Resize the visible widget so it fits the new pane (the hidden one
-    // had display:none and ResizeObservers may have skipped).
+    // Resize the now-visible widget(s); ResizeObservers may have skipped
+    // panes that were display:none on the previous frame.
     this._renderContext.requestRender();
   }
 
@@ -172,9 +184,24 @@ export class ViewportWidget extends BaseWidget {
   position: relative;
   overflow: hidden;
 }
-.editrix-viewport-pane {
+/* Single mode: the visible pane fills the body. */
+.editrix-viewport-body[data-mode="scene"] .editrix-viewport-pane,
+.editrix-viewport-body[data-mode="game"] .editrix-viewport-pane {
   position: absolute;
   inset: 0;
+}
+/* Both mode: switch to a horizontal flex split with a thin divider. */
+.editrix-viewport-body[data-mode="both"] {
+  display: flex;
+  flex-direction: row;
+}
+.editrix-viewport-body[data-mode="both"] .editrix-viewport-pane {
+  position: relative;
+  flex: 1 1 50%;
+  min-width: 0;
+}
+.editrix-viewport-body[data-mode="both"] .editrix-viewport-pane + .editrix-viewport-pane {
+  border-left: 1px solid var(--editrix-border, #303034);
 }
 `;
     document.head.appendChild(style);

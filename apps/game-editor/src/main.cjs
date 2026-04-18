@@ -393,31 +393,17 @@ function createProjectOnDisk(projectPath, projectConfig) {
   // Generate plugin type declarations
   generatePluginTypes(projectPath);
 
-  // Write a default scene file with proper format
+  // Write a minimal default scene in the current ECS SceneData shape.
+  // Empty entities array → DocumentSyncPlugin's default seed (Camera + Shape)
+  // populates the runtime when the user opens this file. We still write the
+  // file so the editor's scene-autoload finds something to open and the
+  // user has a tab to save into.
   fs.writeFileSync(
     path.join(projectPath, 'scenes', 'main.scene.json'),
     JSON.stringify({
-      $type: 'editrix:scene',
-      $version: 1,
+      version: 1,
       name: 'Main Scene',
-      nodeTypes: [
-        {
-          type: 'gameobject',
-          label: 'Game Object',
-          properties: [
-            { key: 'position.x', label: 'Position X', type: 'number', defaultValue: 0, group: 'Transform' },
-            { key: 'position.y', label: 'Position Y', type: 'number', defaultValue: 0, group: 'Transform' },
-            { key: 'position.z', label: 'Position Z', type: 'number', defaultValue: 0, group: 'Transform' },
-            { key: 'rotation.x', label: 'Rotation X', type: 'range', defaultValue: 0, min: 0, max: 360, step: 1, group: 'Transform' },
-            { key: 'rotation.y', label: 'Rotation Y', type: 'range', defaultValue: 0, min: 0, max: 360, step: 1, group: 'Transform' },
-            { key: 'rotation.z', label: 'Rotation Z', type: 'range', defaultValue: 0, min: 0, max: 360, step: 1, group: 'Transform' },
-            { key: 'active', label: 'Active', type: 'boolean', defaultValue: true, group: 'General' },
-          ],
-        },
-      ],
-      nodes: [
-        { id: 'root', name: 'Root', type: 'gameobject', icon: 'layers', visible: true, properties: {} },
-      ],
+      entities: [],
     }, null, 2),
     'utf-8',
   );

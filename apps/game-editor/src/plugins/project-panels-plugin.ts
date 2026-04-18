@@ -68,10 +68,14 @@ export const ProjectPanelsPlugin: IPlugin = {
     ctx.subscriptions.add(
       view.registerFactory('content-browser', (id) => {
         contentBrowserWidget = new ContentBrowserWidget(id, fileSystem, project);
-        // Wire double-click on scene files to open in document service
+        // Wire double-click on scene files to open in document service.
+        // Surface the actual error message so users see WHY a file failed
+        // (legacy format, parse error, missing handler) instead of a bland
+        // "Failed to open" with no diagnostic.
         contentBrowserWidget.onDidOpenFile((filePath) => {
-          documentService.open(filePath).catch(() => {
-            consoleService.log('error', `Failed to open: ${filePath}`);
+          documentService.open(filePath).catch((err: unknown) => {
+            const reason = err instanceof Error ? (err.cause instanceof Error ? err.cause.message : err.message) : String(err);
+            consoleService.log('error', `Failed to open ${filePath}: ${reason}`);
           });
         });
         return contentBrowserWidget;

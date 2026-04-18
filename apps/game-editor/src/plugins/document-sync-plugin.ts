@@ -45,10 +45,10 @@ export const DocumentSyncPlugin: IPlugin = {
     ctx.subscriptions.add(
       documentService.registerHandler({
         extensions: ['.scene.json'],
-        load(_filePath, content): Promise<void> {
-          const data = JSON.parse(content) as SceneData;
+        load(filePath, content): Promise<void> {
+          const data = parseSceneData(content, filePath);
           if (presence.current) {
-            presence.current.deserialize(data);
+            applyScene(presence.current, data);
           } else {
             // ECS not ready yet — buffer; onDidBind below will drain it.
             pendingScene = data;
@@ -81,7 +81,7 @@ export const DocumentSyncPlugin: IPlugin = {
     const chooseInitialScene = async (ecs: IECSSceneService): Promise<void> => {
       // 1. Something already called documentService.open() before WASM loaded.
       if (pendingScene) {
-        ecs.deserialize(pendingScene);
+        applyScene(ecs, pendingScene);
         pendingScene = undefined;
         return;
       }
@@ -106,6 +106,57 @@ export const DocumentSyncPlugin: IPlugin = {
     };
   },
 };
+
+/**
+ * Parse and validate raw JSON as SceneData. Throws with a path-tagged message
+ * when the shape is wrong — these errors bubble up to the document service's
+ * "Failed to load document" wrapper, then to the UI's open-error dialog.
+ */
+function parseSceneData(raw: string, filePath: string): SceneData {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (cause) {
+    throw new Error(
+      `"${filePath}" is not valid JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error(`"${filePath}" does not contain a scene object.`);
+  }
+  const obj = parsed as Record<string, unknown>;
+  if (!Array.isArray(obj['entities'])) {
+    // Detect the legacy SceneService format so the user gets a clear
+    // upgrade hint instead of a cryptic "entities is undefined".
+    if ('nodeTypes' in obj || '$type' in obj) {
+      throw new Error(
+        `"${filePath}" is in the old SceneService format and is not supported. ` +
+        `Delete the file (or replace its contents with {"version":1,"name":"...","entities":[]}) ` +
+        `and reopen the project — the editor will seed a fresh ECS scene.`,
+      );
+    }
+    throw new Error(`"${filePath}" is missing the required "entities" array.`);
+  }
+  return {
+    version: typeof obj['version'] === 'number' ? obj['version'] : 1,
+    name: typeof obj['name'] === 'string' ? obj['name'] : 'Scene',
+    entities: obj['entities'] as SceneData['entities'],
+  };
+}
+
+/**
+ * Apply a SceneData payload to the ECS. An empty entities array is treated
+ * as "fresh template" and triggers the default seed instead of leaving the
+ * user looking at a blank viewport — covers the new-project case where we
+ * write an intentionally empty scene file at create-project time.
+ */
+function applyScene(ecs: IECSSceneService, data: SceneData): void {
+  ecs.deserialize(data);
+  if (data.entities.length === 0) {
+    seedDefaultScene(ecs);
+  }
+}
 
 function seedDefaultScene(ecs: IECSSceneService): void {
   const camId = ecs.createEntity('Main Camera');
