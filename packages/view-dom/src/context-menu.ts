@@ -33,17 +33,23 @@ export interface ContextMenuOptions {
   readonly y: number;
 }
 
-let activeCleanup: (() => void) | undefined;
+/** Handle to an open context menu. */
+export interface ContextMenuHandle {
+  /** Close the menu. Safe to call after the menu is already closed. */
+  close(): void;
+}
 
 /**
  * Show a context menu at the given screen position.
  *
- * Only one context menu can be open at a time — opening a new one closes
- * the previous. The menu closes on click-outside or Escape.
+ * The menu closes on click-outside, Escape, or when `close()` on the
+ * returned handle is invoked. Multiple menus can coexist — each instance
+ * owns its own close path, so opening a menu in one editor does not
+ * disturb menus in another.
  *
  * @example
  * ```ts
- * showContextMenu({
+ * const menu = showContextMenu({
  *   x: e.clientX,
  *   y: e.clientY,
  *   items: [
@@ -53,15 +59,24 @@ let activeCleanup: (() => void) | undefined;
  *       onSelect: () => deleteEntity() },
  *   ],
  * });
+ * // menu.close() to dismiss programmatically.
  * ```
  */
-export function showContextMenu(options: ContextMenuOptions): void {
+export function showContextMenu(options: ContextMenuOptions): ContextMenuHandle {
   injectStyles();
-  closeActiveMenu();
 
   const { items, x, y } = options;
   const menu = createElement('div', 'editrix-context-menu');
   menu.tabIndex = 0;
+
+  let closed = false;
+  let onDocumentMouseDown: ((e: MouseEvent) => void) | null = null;
+  const close = (): void => {
+    if (closed) return;
+    closed = true;
+    if (onDocumentMouseDown) document.removeEventListener('mousedown', onDocumentMouseDown);
+    menu.remove();
+  };
 
   let focusedIndex = -1;
   const selectableItems: { el: HTMLElement; item: ContextMenuItem }[] = [];
@@ -98,7 +113,7 @@ export function showContextMenu(options: ContextMenuOptions): void {
     if (!item.disabled) {
       row.addEventListener('click', (e) => {
         e.stopPropagation();
-        closeActiveMenu();
+        close();
         item.onSelect?.();
       });
       row.addEventListener('mouseenter', () => {
@@ -152,14 +167,14 @@ export function showContextMenu(options: ContextMenuOptions): void {
         e.preventDefault();
         const focused = selectableItems[focusedIndex];
         if (focused && !focused.item.disabled) {
-          closeActiveMenu();
+          close();
           focused.item.onSelect?.();
         }
         break;
       }
       case 'Escape':
         e.preventDefault();
-        closeActiveMenu();
+        close();
         break;
     }
   });
@@ -180,23 +195,16 @@ export function showContextMenu(options: ContextMenuOptions): void {
   menu.focus();
 
   // ── Close on click-outside ──
-  const onMouseDown = (e: MouseEvent): void => {
+  onDocumentMouseDown = (e: MouseEvent): void => {
     if (!menu.contains(e.target as Node)) {
-      closeActiveMenu();
+      close();
     }
   };
-  requestAnimationFrame(() => { document.addEventListener('mousedown', onMouseDown); });
+  requestAnimationFrame(() => {
+    if (onDocumentMouseDown) document.addEventListener('mousedown', onDocumentMouseDown);
+  });
 
-  // ── Track active menu for cleanup ──
-  activeCleanup = () => {
-    document.removeEventListener('mousedown', onMouseDown);
-    menu.remove();
-    activeCleanup = undefined;
-  };
-}
-
-function closeActiveMenu(): void {
-  activeCleanup?.();
+  return { close };
 }
 
 // ── Styles ──

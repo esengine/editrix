@@ -12,6 +12,8 @@
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {

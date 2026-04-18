@@ -1,5 +1,5 @@
 // Icons
-export { createIconElement, getIcon, registerIcon } from './icons.js';
+export { createIconElement, defaultIconRegistry, getIcon, IconRegistry, registerIcon } from './icons.js';
 
 // DOM utilities
 export { clearChildren, createElement, setCssVars } from './dom-utils.js';
@@ -41,11 +41,11 @@ export { DomViewAdapter } from './dom-view-adapter.js';
 export { injectDefaultStyles } from './default-styles.js';
 
 // Context menu
-export type { ContextMenuItem, ContextMenuOptions } from './context-menu.js';
+export type { ContextMenuHandle, ContextMenuItem, ContextMenuOptions } from './context-menu.js';
 export { showContextMenu } from './context-menu.js';
 
 // Quick pick
-export type { QuickPickItem, QuickPickOptions } from './quick-pick.js';
+export type { QuickPickHandle, QuickPickItem, QuickPickOptions } from './quick-pick.js';
 export { showQuickPick } from './quick-pick.js';
 
 // Widget primitives

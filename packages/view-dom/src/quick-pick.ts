@@ -31,31 +31,45 @@ export interface QuickPickOptions {
   readonly onSelect: (item: QuickPickItem) => void;
 }
 
-let activeCleanup: (() => void) | undefined;
+/** Handle to an open quick pick popup. */
+export interface QuickPickHandle {
+  /** Close the popup. Safe to call after it is already closed. */
+  close(): void;
+}
 
 /**
  * Show an anchored, searchable pick list near a DOM element.
  *
- * Only one quick pick can be open at a time. The list filters as the user
- * types. Keyboard navigation with Up/Down/Enter/Escape is supported.
+ * The list filters as the user types. Keyboard navigation with
+ * Up/Down/Enter/Escape is supported. Multiple pickers can coexist — each
+ * instance owns its own close path.
  *
  * @example
  * ```ts
- * showQuickPick({
+ * const handle = showQuickPick({
  *   items: components.map(c => ({ id: c, label: c })),
  *   anchor: addButton,
  *   placeholder: 'Search components...',
  *   onSelect: (item) => addComponent(item.id),
  * });
+ * // handle.close() to dismiss programmatically.
  * ```
  */
-export function showQuickPick(options: QuickPickOptions): void {
+export function showQuickPick(options: QuickPickOptions): QuickPickHandle {
   injectStyles();
-  closeActivePopup();
 
   const { items, anchor, placeholder, onSelect } = options;
 
   const popup = createElement('div', 'editrix-quick-pick');
+
+  let closed = false;
+  let onDocumentMouseDown: ((e: MouseEvent) => void) | null = null;
+  const close = (): void => {
+    if (closed) return;
+    closed = true;
+    if (onDocumentMouseDown) document.removeEventListener('mousedown', onDocumentMouseDown);
+    popup.remove();
+  };
 
   // ── Search input ──
   const input = createElement('input', 'editrix-quick-pick-input');
@@ -139,7 +153,7 @@ export function showQuickPick(options: QuickPickOptions): void {
         const rowIndex = i;
         row.addEventListener('click', (e) => {
           e.stopPropagation();
-          closeActivePopup();
+          close();
           onSelect(item);
         });
         row.addEventListener('mouseenter', () => {
@@ -187,14 +201,14 @@ export function showQuickPick(options: QuickPickOptions): void {
         e.preventDefault();
         const item = filtered[selectedIndex];
         if (item && !item.disabled) {
-          closeActivePopup();
+          close();
           onSelect(item);
         }
         break;
       }
       case 'Escape':
         e.preventDefault();
-        closeActivePopup();
+        close();
         break;
     }
   });
@@ -233,19 +247,16 @@ export function showQuickPick(options: QuickPickOptions): void {
   input.focus();
 
   // ── Close on click-outside ──
-  const onMouseDown = (e: MouseEvent): void => {
+  onDocumentMouseDown = (e: MouseEvent): void => {
     if (!popup.contains(e.target as Node)) {
-      closeActivePopup();
+      close();
     }
   };
-  requestAnimationFrame(() => { document.addEventListener('mousedown', onMouseDown); });
+  requestAnimationFrame(() => {
+    if (onDocumentMouseDown) document.addEventListener('mousedown', onDocumentMouseDown);
+  });
 
-  // ── Track ──
-  activeCleanup = () => {
-    document.removeEventListener('mousedown', onMouseDown);
-    popup.remove();
-    activeCleanup = undefined;
-  };
+  return { close };
 }
 
 /** Find the first non-disabled item index starting from `start` in direction `dir`. */
@@ -257,10 +268,6 @@ function findFirstEnabled(items: readonly QuickPickItem[], start: number, dir: 1
     i += dir;
   }
   return -1;
-}
-
-function closeActivePopup(): void {
-  activeCleanup?.();
 }
 
 // ── Styles ──
