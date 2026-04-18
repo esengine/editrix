@@ -1,5 +1,5 @@
-import type { IPluginScanner } from '@editrix/shell';
 import type { DiscoveredPlugin } from '@editrix/core';
+import type { IPluginScanner } from '@editrix/shell';
 
 /**
  * Filesystem API subset used by the scanner.

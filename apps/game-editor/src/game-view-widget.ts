@@ -1,5 +1,5 @@
-import { BaseWidget } from '@editrix/view-dom';
 import type { ESEngineModule, CppRegistry } from '@editrix/estella';
+import { BaseWidget } from '@editrix/view-dom';
 import type { SharedRenderContext, RenderView } from './render-context.js';
 
 /**
@@ -27,7 +27,11 @@ export class GameViewWidget extends BaseWidget {
     this._canvas = document.createElement('canvas');
     this._canvas.className = 'editrix-gv-canvas';
     viewport.appendChild(this._canvas);
-    this._ctx2d = this._canvas.getContext('2d');
+    const ctx2d = this._canvas.getContext('2d');
+    if (!ctx2d) {
+      throw new Error('GameViewWidget: 2D canvas context unavailable.');
+    }
+    this._ctx2d = ctx2d;
 
     // Register as a render view
     const canvasRef = this._canvas;
@@ -35,7 +39,7 @@ export class GameViewWidget extends BaseWidget {
       render: (module: ESEngineModule, _registry: CppRegistry, w: number, h: number): void => {
         module.renderFrame(_registry, w, h);
       },
-      target: this._ctx2d!,
+      target: ctx2d,
       get width() { return canvasRef.clientWidth; },
       get height() { return canvasRef.clientHeight; },
     };
@@ -54,7 +58,7 @@ export class GameViewWidget extends BaseWidget {
       this._renderContext.requestRender();
     });
     ro.observe(this._canvas);
-    this.subscriptions.add({ dispose: () => ro.disconnect() });
+    this.subscriptions.add({ dispose: () => { ro.disconnect(); } });
   }
 
   override dispose(): void {

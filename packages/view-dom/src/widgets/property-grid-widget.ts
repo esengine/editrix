@@ -34,7 +34,7 @@ export class PropertyGridWidget extends BaseWidget {
    * during `drop`, not during `dragover` — we need the identity on
    * every dragover to know whether to show the drop indicator.
    */
-  private _draggingComponentId_: string | null = null;
+  private _draggingComponentId: string | null = null;
 
   private readonly _onDidRequestAddComponent = new Emitter<void>();
   private readonly _onDidRequestComponentMenu = new Emitter<{ componentId: string; anchor: HTMLElement }>();
@@ -183,21 +183,21 @@ export class PropertyGridWidget extends BaseWidget {
       if (!e.dataTransfer) return;
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('application/x-editrix-component', group.id);
-      this._draggingComponentId_ = group.id;
+      this._draggingComponentId = group.id;
       header.classList.add('editrix-inspector-card-header--dragging');
     });
     header.addEventListener('dragend', () => {
-      this._draggingComponentId_ = null;
+      this._draggingComponentId = null;
       header.classList.remove('editrix-inspector-card-header--dragging');
       // Clear any drop indicator that lingered past dragleave.
       this._contentEl?.querySelectorAll('.editrix-inspector-card-header--drop-above, .editrix-inspector-card-header--drop-below')
-        .forEach((el) => el.classList.remove(
+        .forEach((el) => { el.classList.remove(
           'editrix-inspector-card-header--drop-above',
           'editrix-inspector-card-header--drop-below',
-        ));
+        ); });
     });
     header.addEventListener('dragover', (e) => {
-      const sourceId = this._draggingComponentId_;
+      const sourceId = this._draggingComponentId;
       if (!sourceId || sourceId === group.id) return;
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';

@@ -253,7 +253,7 @@ export function showQuickPick(options: QuickPickOptions): QuickPickHandle {
     }
   };
   requestAnimationFrame(() => {
-    if (onDocumentMouseDown) document.addEventListener('mousedown', onDocumentMouseDown);
+    document.addEventListener('mousedown', onDocumentMouseDown);
   });
 
   return { close };

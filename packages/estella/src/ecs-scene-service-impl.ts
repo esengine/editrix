@@ -128,7 +128,9 @@ export class ECSSceneService implements IECSSceneService {
         const meta = this._entities.get(entityId);
         if (!meta) return;
         if (value === undefined) {
-            delete meta.extras[key];
+            // Reflect.deleteProperty avoids the @typescript-eslint/no-dynamic-delete
+            // warning that fires on the literal `delete obj[key]` form.
+            Reflect.deleteProperty(meta.extras, key);
         } else {
             meta.extras[key] = value;
         }

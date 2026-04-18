@@ -201,7 +201,7 @@ export function showContextMenu(options: ContextMenuOptions): ContextMenuHandle 
     }
   };
   requestAnimationFrame(() => {
-    if (onDocumentMouseDown) document.addEventListener('mousedown', onDocumentMouseDown);
+    document.addEventListener('mousedown', onDocumentMouseDown);
   });
 
   return { close };

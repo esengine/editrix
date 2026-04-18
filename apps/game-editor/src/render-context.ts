@@ -51,6 +51,7 @@ export class SharedRenderContext {
       preserveDrawingBuffer: true, // needed for drawImage to read back
     });
     if (!this._glContext) {
+      // eslint-disable-next-line no-console -- runs before IConsoleService exists
       console.error('SharedRenderContext: Failed to create WebGL2 context');
       return false;
     }
@@ -61,6 +62,7 @@ export class SharedRenderContext {
     });
 
     if (!module.initRendererWithContext(this._glContextHandle)) {
+      // eslint-disable-next-line no-console -- runs before IConsoleService exists
       console.error('SharedRenderContext: Failed to initialize estella renderer');
       return false;
     }

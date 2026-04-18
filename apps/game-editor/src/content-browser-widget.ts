@@ -79,7 +79,7 @@ export class ContentBrowserWidget extends BaseWidget {
     this._filterText = '';
     if (this._searchInput) this._searchInput.value = '';
     this._renderBreadcrumbs();
-    this._loadAndRenderGrid();
+    void this._loadAndRenderGrid();
   }
 
   /** Add a log entry to the console view. */
@@ -162,8 +162,9 @@ export class ContentBrowserWidget extends BaseWidget {
     this._searchInput = this.appendElement(searchWrap, 'input', 'editrix-cb-search-input');
     this._searchInput.type = 'text';
     this._searchInput.placeholder = 'Search...';
-    this._searchInput.addEventListener('input', () => {
-      this._filterText = this._searchInput!.value.toLowerCase();
+    const searchInput = this._searchInput;
+    searchInput.addEventListener('input', () => {
+      this._filterText = searchInput.value.toLowerCase();
       this._renderGridFromCache();
     });
     const searchIcon = this.appendElement(searchWrap, 'span', 'editrix-cb-search-icon');
@@ -172,7 +173,7 @@ export class ContentBrowserWidget extends BaseWidget {
     this._gridEl = this.appendElement(container, 'div', 'editrix-cb-grid');
 
     this._renderBreadcrumbs();
-    this._loadAndRenderGrid();
+    void this._loadAndRenderGrid();
   }
 
   private _renderBreadcrumbs(): void {

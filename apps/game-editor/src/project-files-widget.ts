@@ -50,8 +50,9 @@ export class ProjectFilesWidget extends BaseWidget {
 
     this.subscriptions.add(
       this._tree.onDidChangeSelection((ids) => {
-        if (ids.length === 0) return;
-        this._onDidSelectFolder.fire(ids[0]!);
+        const first = ids[0];
+        if (first === undefined) return;
+        this._onDidSelectFolder.fire(first);
       }),
     );
 

@@ -345,7 +345,7 @@ function renderProjectList(container: HTMLElement): void {
     star.addEventListener('click', (e) => {
       e.stopPropagation();
       project.starred = !project.starred;
-      api?.toggleStar(project.path);
+      void api?.toggleStar(project.path);
       renderProjectList(container);
     });
     row.appendChild(star);
@@ -464,9 +464,7 @@ function renderNewProject(main: HTMLElement): void {
   nameInput.value = newProjectName;
   nameInput.addEventListener('input', () => {
     newProjectName = nameInput.value;
-    if (pathPreview) {
-      pathPreview.textContent = `${pathJoin(newProjectLocation, toSlug(newProjectName))}`;
-    }
+    pathPreview.textContent = pathJoin(newProjectLocation, toSlug(newProjectName));
   });
   nameRow.appendChild(nameInput);
   form.appendChild(nameRow);
@@ -482,22 +480,20 @@ function renderNewProject(main: HTMLElement): void {
   locInput.value = newProjectLocation;
   locInput.addEventListener('input', () => {
     newProjectLocation = locInput.value;
-    if (pathPreview) {
-      pathPreview.textContent = `${pathJoin(newProjectLocation, toSlug(newProjectName))}`;
-    }
+    pathPreview.textContent = pathJoin(newProjectLocation, toSlug(newProjectName));
   });
   locWrap.appendChild(locInput);
   const browseBtn = el('button', 'el-np-browse-btn');
   browseBtn.appendChild(iconEl('folder-open', 14));
-  browseBtn.addEventListener('click', async () => {
-    const selected = await api?.selectFolder();
-    if (selected) {
-      newProjectLocation = selected;
-      locInput.value = selected;
-      if (pathPreview) {
+  browseBtn.addEventListener('click', () => {
+    void (async (): Promise<void> => {
+      const selected = await api?.selectFolder();
+      if (selected) {
+        newProjectLocation = selected;
+        locInput.value = selected;
         pathPreview.textContent = pathJoin(newProjectLocation, toSlug(newProjectName));
       }
-    }
+    })();
   });
   locWrap.appendChild(browseBtn);
   locRow.appendChild(locWrap);
@@ -520,7 +516,7 @@ function renderNewProject(main: HTMLElement): void {
 
   // Path preview
   const pathPreview = el('div', 'el-np-path-preview');
-  pathPreview.textContent = `${pathJoin(newProjectLocation, toSlug(newProjectName))}`;
+  pathPreview.textContent = pathJoin(newProjectLocation, toSlug(newProjectName));
   form.appendChild(pathPreview);
 
   settSection.appendChild(form);
@@ -541,27 +537,29 @@ function renderNewProject(main: HTMLElement): void {
   const createBtn = el('button', 'el-btn el-btn--primary');
   createBtn.textContent = 'Create Project  ';
   createBtn.appendChild(iconEl('plus', 14));
-  createBtn.addEventListener('click', async () => {
-    const projectPath = pathJoin(newProjectLocation, toSlug(newProjectName));
-    const projectConfig = {
-      name: newProjectName,
-      version: '0.1.0',
-      editrix: '0.1.0',
-      template: selectedTemplate,
-      plugins: {
-        builtin: true,
-        // Scene/ECS support is built into the editor itself; templates only add
-        // optional ecosystem plugins on top.
-        packages: [],
-      },
-      settings: {},
-      assets: { roots: ['assets'], ignore: ['*.tmp', '.DS_Store', 'Thumbs.db'] },
-    };
+  createBtn.addEventListener('click', () => {
+    void (async (): Promise<void> => {
+      const projectPath = pathJoin(newProjectLocation, toSlug(newProjectName));
+      const projectConfig = {
+        name: newProjectName,
+        version: '0.1.0',
+        editrix: '0.1.0',
+        template: selectedTemplate,
+        plugins: {
+          builtin: true,
+          // Scene/ECS support is built into the editor itself; templates only add
+          // optional ecosystem plugins on top.
+          packages: [],
+        },
+        settings: {},
+        assets: { roots: ['assets'], ignore: ['*.tmp', '.DS_Store', 'Thumbs.db'] },
+      };
 
-    const result = await api?.createProject(projectPath, projectConfig);
-    if (result?.success) {
-      api?.openProject(projectPath);
-    }
+      const result = await api?.createProject(projectPath, projectConfig);
+      if (result?.success) {
+        api?.openProject(projectPath);
+      }
+    })();
   });
   actions.appendChild(createBtn);
   main.appendChild(actions);
@@ -1061,7 +1059,7 @@ newProjectLocation = homePath
   : '';
 
 // Load real project list then render
-(async () => {
+void (async (): Promise<void> => {
   try {
     const rawProjects = await api?.listProjects() ?? [];
     projects = rawProjects.map((p: { path: string; name: string; editrixVersion?: string; lastOpened: string; starred: boolean }) => ({

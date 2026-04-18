@@ -25,20 +25,20 @@ function wrapIcon(svg: string): string {
 }
 
 export class IconRegistry {
-  private readonly icons = new Map<string, string>();
+  private readonly _icons = new Map<string, string>();
 
   constructor(includeDefaults = true) {
-    if (includeDefaults) this.installDefaults();
+    if (includeDefaults) this._installDefaults();
   }
 
   /** Register a custom icon. Overwrites if already present. */
   register(name: string, svg: string): void {
-    this.icons.set(name, svg);
+    this._icons.set(name, svg);
   }
 
   /** Return the SVG source for a name, or undefined if not registered. */
   get(name: string): string | undefined {
-    return this.icons.get(name);
+    return this._icons.get(name);
   }
 
   /** Create an HTMLElement wrapping the icon's SVG. */
@@ -52,7 +52,7 @@ export class IconRegistry {
     span.style.justifyContent = 'center';
     span.style.flexShrink = '0';
 
-    const svg = this.icons.get(name);
+    const svg = this._icons.get(name);
     if (svg) {
       span.innerHTML = svg;
     }
@@ -60,8 +60,8 @@ export class IconRegistry {
   }
 
   /** Register the built-in editor icon set. */
-  private installDefaults(): void {
-    const r = (name: string, svg: string): void => { this.icons.set(name, svg); };
+  private _installDefaults(): void {
+    const r = (name: string, svg: string): void => { this._icons.set(name, svg); };
 
     // Layout & navigation
     r('extensions', wrapIcon('<path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.5A2.5 2.5 0 0 0 9.5 11H3"/><path d="M20 21v-8.5a2.5 2.5 0 0 0-2.5-2.5H12"/>'));

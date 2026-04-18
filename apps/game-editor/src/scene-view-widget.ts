@@ -1,8 +1,8 @@
-import { BaseWidget, createIconElement, registerIcon } from '@editrix/view-dom';
 import type { ESEngineModule, CppRegistry, IECSSceneService } from '@editrix/estella';
 import type { ISelectionService, IUndoRedoService } from '@editrix/shell';
-import type { SharedRenderContext, RenderView } from './render-context.js';
+import { BaseWidget, createIconElement, registerIcon } from '@editrix/view-dom';
 import { EditorCamera } from './editor-camera.js';
+import type { SharedRenderContext, RenderView } from './render-context.js';
 
 // ─── Register tool icons ────────────────────────────────
 
@@ -26,7 +26,7 @@ type ToolId = 'select' | 'move' | 'rotate' | 'scale';
  */
 export class SceneViewWidget extends BaseWidget {
   private _activeTool: ToolId = 'select';
-  private _toolButtons = new Map<ToolId, HTMLElement>();
+  private readonly _toolButtons = new Map<ToolId, HTMLElement>();
   private _snapInput: HTMLInputElement | undefined;
   private _canvas: HTMLCanvasElement | undefined;
   private _ctx2d: CanvasRenderingContext2D | null = null;
@@ -77,7 +77,11 @@ export class SceneViewWidget extends BaseWidget {
     this._canvas = document.createElement('canvas');
     this._canvas.className = 'editrix-sv-canvas';
     viewport.appendChild(this._canvas);
-    this._ctx2d = this._canvas.getContext('2d');
+    const ctx2d = this._canvas.getContext('2d');
+    if (!ctx2d) {
+      throw new Error('SceneViewWidget: 2D canvas context unavailable.');
+    }
+    this._ctx2d = ctx2d;
 
     // Register as a render view
     const canvasRef = this._canvas;
@@ -91,7 +95,7 @@ export class SceneViewWidget extends BaseWidget {
         this._drawGrid(ctx, w, h);
         this._drawSelectionHighlight(ctx, w, h);
       },
-      target: this._ctx2d!,
+      target: ctx2d,
       get width() { return canvasRef.clientWidth; },
       get height() { return canvasRef.clientHeight; },
     };
@@ -110,7 +114,7 @@ export class SceneViewWidget extends BaseWidget {
       this._renderContext.requestRender();
     });
     ro.observe(this._canvas);
-    this.subscriptions.add({ dispose: () => ro.disconnect() });
+    this.subscriptions.add({ dispose: () => { ro.disconnect(); } });
 
     // Mouse handlers for pan/zoom
     this._setupMouseHandlers(this._canvas);
@@ -286,7 +290,8 @@ export class SceneViewWidget extends BaseWidget {
 
     // Reverse iterate — higher index = rendered later = on top
     for (let i = entities.length - 1; i >= 0; i--) {
-      const id = entities[i]!;
+      const id = entities[i];
+      if (id === undefined) continue;
       if (!ecs.hasComponent(id, 'Transform')) continue;
 
       const px = ecs.getProperty(id, 'Transform', 'position.x') as number;
@@ -353,7 +358,7 @@ export class SceneViewWidget extends BaseWidget {
       const cos = Math.cos(rotRad);
       const sin = Math.sin(rotRad);
       const corners: [number, number][] = [
-        [-hw, +hh], [+hw, +hh], [+hw, -hh], [-hw, -hh], // TL, TR, BR, BL in world (Y-up)
+        [-hw, hh], [hw, hh], [hw, -hh], [-hw, -hh], // TL, TR, BR, BL in world (Y-up)
       ];
       const screenCorners = corners.map(([lx, ly]) => {
         const wx = px + lx * cos - ly * sin;
@@ -366,8 +371,14 @@ export class SceneViewWidget extends BaseWidget {
       ctx.lineWidth = 1.5;
       ctx.setLineDash([]);
       ctx.beginPath();
-      ctx.moveTo(screenCorners[0]![0], screenCorners[0]![1]);
-      for (let ci = 1; ci < 4; ci++) ctx.lineTo(screenCorners[ci]![0], screenCorners[ci]![1]);
+      const first = screenCorners[0];
+      if (!first) continue;
+      ctx.moveTo(first[0], first[1]);
+      for (let ci = 1; ci < 4; ci++) {
+        const corner = screenCorners[ci];
+        if (!corner) continue;
+        ctx.lineTo(corner[0], corner[1]);
+      }
       ctx.closePath();
       ctx.stroke();
 
@@ -444,7 +455,7 @@ export class SceneViewWidget extends BaseWidget {
       }
 
       const ecs = this._ecsScene;
-      if (!ecs || !ecs.hasComponent(entityId, 'Transform')) return;
+      if (!ecs?.hasComponent(entityId, 'Transform')) return;
 
       this._isDragging = true;
       this._dragEntityId = entityId;
