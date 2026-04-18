@@ -1,11 +1,15 @@
-import { ICommandRegistry } from '@editrix/commands';
+import { CommandsPluginId, ICommandRegistry } from '@editrix/commands';
 import type { IPlugin, IPluginContext } from '@editrix/core';
 import { IPluginManager } from '@editrix/core';
-import { ILayoutService } from '@editrix/layout';
-import { IViewAdapter, IViewService } from '@editrix/view';
+import { ILayoutService, LayoutPluginId } from '@editrix/layout';
+import { IViewAdapter, IViewService, ViewPluginId } from '@editrix/view';
 import type { DomViewAdapter } from '@editrix/view-dom';
+import { ViewDomPluginId } from '@editrix/view-dom';
 import { PluginDetailWidget } from './plugin-detail-widget.js';
 import { PluginManagerWidget } from './plugin-manager-widget.js';
+
+/** Stable plugin id — dependents should import this rather than hard-coding the string. */
+export const PluginManagerPanelPluginId = 'editrix.plugin-manager' as const;
 
 /**
  * Plugin management panel plugin.
@@ -14,13 +18,13 @@ import { PluginManagerWidget } from './plugin-manager-widget.js';
  */
 export const PluginManagerPanelPlugin: IPlugin = {
   descriptor: {
-    id: 'editrix.plugin-manager',
+    id: PluginManagerPanelPluginId,
     version: '0.1.0',
     dependencies: [
-      'editrix.commands',
-      'editrix.layout',
-      'editrix.view',
-      'editrix.view-dom',
+      CommandsPluginId,
+      LayoutPluginId,
+      ViewPluginId,
+      ViewDomPluginId,
     ],
   },
 

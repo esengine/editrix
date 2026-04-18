@@ -63,4 +63,4 @@ export { TreeWidget } from './widgets/tree-widget.js';
 export { SettingsBinding } from './settings-binding.js';
 
 // Plugin factory
-export { createDomViewPlugin } from './dom-view-plugin.js';
+export { createDomViewPlugin, ViewDomPluginId } from './dom-view-plugin.js';

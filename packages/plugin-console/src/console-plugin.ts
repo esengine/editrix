@@ -1,9 +1,9 @@
-import { ICommandRegistry } from '@editrix/commands';
+import { CommandsPluginId, ICommandRegistry } from '@editrix/commands';
 import { createServiceId } from '@editrix/common';
 import type { IPlugin, IPluginContext } from '@editrix/core';
 import { ISettingsService } from '@editrix/core';
-import { ILayoutService } from '@editrix/layout';
-import { IViewService } from '@editrix/view';
+import { ILayoutService, LayoutPluginId } from '@editrix/layout';
+import { IViewService, ViewPluginId } from '@editrix/view';
 import { SettingsBinding } from '@editrix/view-dom';
 import type { LogLevel } from './console-widget.js';
 import { ConsoleWidget } from './console-widget.js';
@@ -37,11 +37,14 @@ export const IConsoleService = createServiceId<IConsoleService>('IConsoleService
  * console.log('info', 'Plugin loaded successfully', 'my-plugin');
  * ```
  */
+/** Stable plugin id — dependents should import this rather than hard-coding the string. */
+export const ConsolePluginId = 'editrix.console' as const;
+
 export const ConsolePlugin: IPlugin = {
   descriptor: {
-    id: 'editrix.console',
+    id: ConsolePluginId,
     version: '0.1.0',
-    dependencies: ['editrix.commands', 'editrix.layout', 'editrix.view'],
+    dependencies: [CommandsPluginId, LayoutPluginId, ViewPluginId],
   },
 
   activate(ctx: IPluginContext) {

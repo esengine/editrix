@@ -9,4 +9,4 @@ export { IViewAdapter } from './view-adapter.js';
 export { IViewService, ViewService } from './view-service.js';
 
 // Plugin
-export { ViewPlugin } from './view-plugin.js';
+export { ViewPlugin, ViewPluginId } from './view-plugin.js';

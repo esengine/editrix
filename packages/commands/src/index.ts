@@ -11,4 +11,4 @@ export type { Keybinding, ResolvedKeybinding } from './keybinding-service.js';
 export { IKeybindingService, KeybindingService } from './keybinding-service.js';
 
 // Plugin
-export { CommandsPlugin, IContextKeyServiceId } from './commands-plugin.js';
+export { CommandsPlugin, CommandsPluginId, IContextKeyServiceId } from './commands-plugin.js';

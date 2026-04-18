@@ -19,4 +19,4 @@ export {
 export { ILayoutService, LayoutService } from './layout-service.js';
 
 // Plugin
-export { LayoutPlugin } from './layout-plugin.js';
+export { LayoutPlugin, LayoutPluginId } from './layout-plugin.js';

@@ -1,6 +1,9 @@
 import type { IPlugin, IPluginContext } from '@editrix/core';
 import { ILayoutService, LayoutService } from './layout-service.js';
 
+/** Stable plugin id — dependents should import this rather than hard-coding the string. */
+export const LayoutPluginId = 'editrix.layout' as const;
+
 /**
  * Built-in plugin that registers the layout service.
  *
@@ -13,7 +16,7 @@ import { ILayoutService, LayoutService } from './layout-service.js';
  */
 export const LayoutPlugin: IPlugin = {
   descriptor: {
-    id: 'editrix.layout',
+    id: LayoutPluginId,
     version: '0.1.0',
   },
   activate(ctx: IPluginContext) {

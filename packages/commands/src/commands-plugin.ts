@@ -8,6 +8,9 @@ import { IKeybindingService, KeybindingService } from './keybinding-service.js';
 /** Service identifier for DI. */
 export const IContextKeyServiceId = createServiceId<IContextKeyService>('IContextKeyService');
 
+/** Stable plugin id — dependents should import this rather than hard-coding the string. */
+export const CommandsPluginId = 'editrix.commands' as const;
+
 /**
  * Built-in plugin that registers the command system services.
  *
@@ -22,7 +25,7 @@ export const IContextKeyServiceId = createServiceId<IContextKeyService>('IContex
  */
 export const CommandsPlugin: IPlugin = {
   descriptor: {
-    id: 'editrix.commands',
+    id: CommandsPluginId,
     version: '0.1.0',
   },
   activate(ctx: IPluginContext) {

@@ -1,16 +1,20 @@
-import { ICommandRegistry } from '@editrix/commands';
+import { CommandsPluginId, ICommandRegistry } from '@editrix/commands';
 import type { IPlugin, IPluginContext } from '@editrix/core';
-import { ILayoutService } from '@editrix/layout';
-import { IViewAdapter, IViewService } from '@editrix/view';
+import { ILayoutService, LayoutPluginId } from '@editrix/layout';
+import { IViewAdapter, IViewService, ViewPluginId } from '@editrix/view';
 import { injectDefaultStyles } from './default-styles.js';
 import type { DomViewAdapterOptions } from './dom-view-adapter.js';
 import { DomViewAdapter } from './dom-view-adapter.js';
 
+/** Stable plugin id — dependents should import this rather than hard-coding the string. */
+export const ViewDomPluginId = 'editrix.view-dom' as const;
+
 /**
  * Create the DOM view plugin with optional configuration.
  *
- * This plugin depends on `editrix.commands`, `editrix.layout`, and `editrix.view`.
- * It creates a {@link DomViewAdapter} and registers it as the {@link IViewAdapter}.
+ * This plugin depends on {@link CommandsPluginId}, {@link LayoutPluginId}, and
+ * {@link ViewPluginId}. It creates a {@link DomViewAdapter} and registers it
+ * as the {@link IViewAdapter}.
  *
  * @example
  * ```ts
@@ -22,9 +26,9 @@ import { DomViewAdapter } from './dom-view-adapter.js';
 export function createDomViewPlugin(options?: DomViewAdapterOptions): IPlugin {
   return {
     descriptor: {
-      id: 'editrix.view-dom',
+      id: ViewDomPluginId,
       version: '0.1.0',
-      dependencies: ['editrix.commands', 'editrix.layout', 'editrix.view'],
+      dependencies: [CommandsPluginId, LayoutPluginId, ViewPluginId],
     },
     activate(ctx: IPluginContext) {
       injectDefaultStyles();

@@ -1,6 +1,9 @@
 import type { IPlugin, IPluginContext } from '@editrix/core';
 import { IViewService, ViewService } from './view-service.js';
 
+/** Stable plugin id — dependents should import this rather than hard-coding the string. */
+export const ViewPluginId = 'editrix.view' as const;
+
 /**
  * Built-in plugin that registers the view service.
  *
@@ -13,7 +16,7 @@ import { IViewService, ViewService } from './view-service.js';
  */
 export const ViewPlugin: IPlugin = {
   descriptor: {
-    id: 'editrix.view',
+    id: ViewPluginId,
     version: '0.1.0',
   },
   activate(ctx: IPluginContext) {
