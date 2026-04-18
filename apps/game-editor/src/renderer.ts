@@ -26,12 +26,13 @@ import {
   GameViewPlugin,
   HierarchyPlugin,
   InspectorPlugin,
+  PlayModePlugin,
   ProjectPanelsPlugin,
   ProjectPlugin,
   RenderContextPlugin,
   SceneViewPlugin,
 } from './plugins/index.js';
-import { IProjectService } from './services.js';
+import { IPlayModeService, IProjectService } from './services.js';
 
 // ─── Layout Helpers ─────────────────────────────────────
 
@@ -139,6 +140,7 @@ async function main(): Promise<void> {
       EstellaPlugin,
       RenderContextPlugin,
       ECSScenePlugin,
+      PlayModePlugin,
       // Document + panel layer
       DocumentSyncPlugin,
       ProjectPanelsPlugin,
@@ -421,19 +423,71 @@ async function main(): Promise<void> {
     }
   });
 
-  // ── Right section: Play/Pause + window controls ──
+  // ── Right section: Play/Pause/Stop/Step + window controls ──
   const rightSection = editor.view.menuBar.rightSection;
   if (rightSection) {
-    for (const { icon, tooltip } of [
-      { icon: 'play', tooltip: 'Play' },
-      { icon: 'pause', tooltip: 'Pause' },
-    ]) {
-      const btn = document.createElement('button');
-      btn.className = 'editrix-menubar-play-btn';
-      btn.title = tooltip;
-      btn.appendChild(createIconElement(icon, 16));
-      rightSection.appendChild(btn);
-    }
+    const playMode = editor.kernel.services.get(IPlayModeService);
+
+    // Build a single play button that toggles based on mode (Play <-> Pause),
+    // a Stop button visible only while in play, and a Step button visible only
+    // while paused. The mode-change handler swaps icon/title/visibility.
+    const playBtn = document.createElement('button');
+    playBtn.className = 'editrix-menubar-play-btn';
+    playBtn.appendChild(createIconElement('play', 16));
+    playBtn.title = 'Play (F5)';
+    playBtn.addEventListener('click', () => {
+      switch (playMode.mode) {
+        case 'edit': playMode.play(); break;
+        case 'playing': playMode.pause(); break;
+        case 'paused': playMode.resume(); break;
+      }
+    });
+    rightSection.appendChild(playBtn);
+
+    const stopBtn = document.createElement('button');
+    stopBtn.className = 'editrix-menubar-play-btn';
+    stopBtn.appendChild(createIconElement('x', 16));
+    stopBtn.title = 'Stop (Shift+F5)';
+    stopBtn.style.display = 'none';
+    stopBtn.addEventListener('click', () => { playMode.stop(); });
+    rightSection.appendChild(stopBtn);
+
+    const stepBtn = document.createElement('button');
+    stepBtn.className = 'editrix-menubar-play-btn';
+    stepBtn.appendChild(createIconElement('refresh', 16));
+    stepBtn.title = 'Step one frame (F6)';
+    stepBtn.style.display = 'none';
+    stepBtn.addEventListener('click', () => { playMode.step(); });
+    rightSection.appendChild(stepBtn);
+
+    const updatePlayButtons = (mode: typeof playMode.mode): void => {
+      // Swap the play button between Play and Pause icons.
+      playBtn.replaceChildren(createIconElement(mode === 'playing' ? 'pause' : 'play', 16));
+      playBtn.title = mode === 'playing' ? 'Pause (F5)' : mode === 'paused' ? 'Resume (F5)' : 'Play (F5)';
+      stopBtn.style.display = mode === 'edit' ? 'none' : '';
+      stepBtn.style.display = mode === 'paused' ? '' : 'none';
+    };
+    updatePlayButtons(playMode.mode);
+    playMode.onDidChangeMode(({ current }) => { updatePlayButtons(current); });
+
+    // Keyboard: F5 toggles play/pause, Shift+F5 stops, F6 steps.
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'F5') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          playMode.stop();
+        } else {
+          switch (playMode.mode) {
+            case 'edit': playMode.play(); break;
+            case 'playing': playMode.pause(); break;
+            case 'paused': playMode.resume(); break;
+          }
+        }
+      } else if (e.key === 'F6' && playMode.mode === 'paused') {
+        e.preventDefault();
+        playMode.step();
+      }
+    });
 
     const spacer = document.createElement('div');
     spacer.style.cssText = 'width:6px;flex-shrink:0';
@@ -456,6 +510,28 @@ async function main(): Promise<void> {
   // ── Status bar ──
   editor.view.statusBar.addItem({ id: 'branch', text: '\u{2387} main (a1b2c3d)', alignment: 'left' });
   editor.view.statusBar.addItem({ id: 'version', text: 'editrix-0.1.0', alignment: 'left' });
+
+  // Mode indicator — quietly says EDIT, loudly says PLAY/PAUSED so the user
+  // is never confused about whether their changes are about to be reverted.
+  const playModeService = editor.kernel.services.get(IPlayModeService);
+  const renderModeLabel = (mode: typeof playModeService.mode): string => {
+    switch (mode) {
+      case 'playing': return '▶ PLAY';
+      case 'paused':  return '❚❚ PAUSED';
+      case 'edit':    return 'EDIT';
+    }
+  };
+  editor.view.statusBar.addItem({
+    id: 'play-mode',
+    text: renderModeLabel(playModeService.mode),
+    alignment: 'right',
+  });
+  playModeService.onDidChangeMode(({ current }) => {
+    editor.view.statusBar.updateItem('play-mode', renderModeLabel(current));
+    document.body.dataset['playMode'] = current;
+  });
+  document.body.dataset['playMode'] = playModeService.mode;
+
   editor.view.statusBar.addItem({
     id: 'cmd-hint', text: 'Ctrl+Shift+P', alignment: 'right',
     onClick: () => { editor.view.commandPalette.open(); },

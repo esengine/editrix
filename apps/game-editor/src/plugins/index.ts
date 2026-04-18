@@ -19,6 +19,7 @@ export { FilesystemPlugin } from './filesystem-plugin.js';
 export { GameViewPlugin } from './game-view-plugin.js';
 export { HierarchyPlugin } from './hierarchy-plugin.js';
 export { InspectorPlugin } from './inspector-plugin.js';
+export { PlayModePlugin } from './play-mode-plugin.js';
 export { ProjectPanelsPlugin } from './project-panels-plugin.js';
 export { ProjectPlugin } from './project-plugin.js';
 export { RenderContextPlugin } from './render-context-plugin.js';

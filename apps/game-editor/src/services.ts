@@ -121,3 +121,51 @@ export function parseSelectionRef(serialized: string): SelectionRef | undefined 
       return undefined;
   }
 }
+
+// ─── Play mode ─────────────────────────────────────────────────────────────
+
+/**
+ * Editor mode. The runtime simulation only ticks while `playing` is active;
+ * `paused` keeps the play-mode scene snapshot live and the render loop frozen
+ * so the user can step through frames with F6.
+ */
+export type PlayMode = 'edit' | 'playing' | 'paused';
+
+export interface PlayModeChangeEvent {
+  readonly previous: PlayMode;
+  readonly current: PlayMode;
+}
+
+/**
+ * Owns the editor's edit ↔ play state machine.
+ *
+ * Entering play takes a snapshot of the ECS scene (via SceneData round-trip);
+ * exiting play restores it so anything the user changed during play (entity
+ * create/destroy, property tweaks, transform drags) doesn't pollute the
+ * authored data. While playing, a requestAnimationFrame loop drives the
+ * shared render context every frame.
+ *
+ * Step (single-frame advance from paused) is provided for debugging — the
+ * scene renders once with a synthetic delta, then returns to paused.
+ */
+export interface IPlayModeService {
+  /** Current mode. */
+  readonly mode: PlayMode;
+  /** True if mode is 'playing' or 'paused'. */
+  readonly isInPlay: boolean;
+  /** Fired when mode transitions. */
+  readonly onDidChangeMode: Event<PlayModeChangeEvent>;
+
+  /** Enter play: snapshot the scene if not already in play, start the loop. */
+  play(): void;
+  /** Stop the loop without leaving play (snapshot intact, paused frame visible). */
+  pause(): void;
+  /** Resume from paused state. */
+  resume(): void;
+  /** Render exactly one frame while paused. No-op outside paused state. */
+  step(): void;
+  /** Exit play, restore the snapshot, drop selection (entity ids would be stale). */
+  stop(): void;
+}
+
+export const IPlayModeService = createServiceId<IPlayModeService>('IPlayModeService');
