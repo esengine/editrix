@@ -277,32 +277,6 @@ interface IDocumentService extends IDisposable {
   readonly onDidChangeDirty: EditrixEvent<{ filePath: string; dirty: boolean }>;
 }
 
-// ─── Scene Service ──────────────────────────────────────
-
-interface SceneNode {
-  readonly id: string;
-  readonly name: string;
-  readonly type: string;
-  readonly icon?: string;
-  readonly children: readonly string[];
-  readonly visible: boolean;
-}
-
-interface ISceneService extends IDisposable {
-  addNode(node: SceneNode, parentId?: string): void;
-  removeNode(nodeId: string): void;
-  getNode(nodeId: string): SceneNode | undefined;
-  getRootIds(): readonly string[];
-  getChildren(nodeId: string): readonly SceneNode[];
-  setNodeName(nodeId: string, name: string): void;
-  setNodeVisible(nodeId: string, visible: boolean): void;
-  setProperty(nodeId: string, key: string, value: unknown): void;
-  getProperty(nodeId: string, key: string): unknown;
-  getProperties(nodeId: string): Record<string, unknown>;
-  readonly onDidChangeScene: EditrixEvent<{ nodeId: string; changeType: string }>;
-  readonly onDidChangeProperty: EditrixEvent<{ nodeId: string; key: string; oldValue: unknown; newValue: unknown }>;
-}
-
 // ─── File System Service ────────────────────────────────
 
 interface FileEntry {
@@ -371,7 +345,6 @@ interface EditrixAPI {
   readonly IUndoRedoService: ServiceIdentifier<IUndoRedoService>;
   readonly IDocumentService: ServiceIdentifier<IDocumentService>;
   readonly IFileSystemService: ServiceIdentifier<IFileSystemService>;
-  readonly ISceneService: ServiceIdentifier<ISceneService>;
   readonly IPluginManager: ServiceIdentifier<IPluginManager>;
   readonly IConsoleService: ServiceIdentifier<IConsoleService>;
 }
@@ -660,7 +633,7 @@ ipcMain.handle('create-plugin', async (_e, { projectPath: projPath, pluginId, pl
  * Available services via window.__editrix:
  *   ILayoutService, IViewService, ISelectionService, IPropertyService,
  *   IDocumentService, IFileSystemService, ICommandRegistry, ISettingsService,
- *   IUndoRedoService, ISceneService, IPluginManager, IConsoleService
+ *   IUndoRedoService, IPluginManager, IConsoleService
  */
 
 class ${className}Widget implements IWidget {

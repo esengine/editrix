@@ -1,12 +1,10 @@
 import { IFileSystemService } from '@editrix/core';
 import { IEstellaService, EstellaPlugin, IECSSceneService, ECSSceneService } from '@editrix/estella';
-import type { ComponentFieldSchema, ESEngineModule } from '@editrix/estella';
+import type { ComponentFieldSchema, ESEngineModule, SceneData } from '@editrix/estella';
 import { IConsoleService } from '@editrix/plugin-console';
 import { PluginManagerPanelPlugin } from '@editrix/plugin-manager';
 import { SettingsPlugin } from '@editrix/plugin-settings';
 import type { PropertyGroup, PropertyType } from '@editrix/properties';
-import type { SceneFileData } from '@editrix/scene';
-import { ISceneService, SceneService } from '@editrix/scene';
 import {
   createEditor,
   DocumentService,
@@ -155,8 +153,6 @@ interface ElectronAPI {
 function getApi(): ElectronAPI | undefined {
   return (window as unknown as { electronAPI?: ElectronAPI }).electronAPI;
 }
-
-// ─── Convert SceneService tree → TreeWidget TreeNode[] ───
 
 // ─── ECS → PropertyGroup conversion ────────────────────
 
@@ -346,20 +342,6 @@ function restoreEntitySnapshot(
   return newId;
 }
 
-function sceneToTreeNodes(scene: ISceneService, nodeIds: readonly string[]): TreeNode[] {
-  return nodeIds.map((id) => {
-    const node = scene.getNode(id);
-    if (!node) return { id, label: id };
-    const children = scene.getChildren(id);
-    return {
-      id: node.id,
-      label: node.name,
-      ...(node.icon !== undefined ? { icon: node.icon } : {}),
-      ...(children.length > 0 ? { children: sceneToTreeNodes(scene, children.map((c) => c.id)) } : {}),
-    };
-  });
-}
-
 // ─── Editor Plugin: Hierarchy + Inspector + Scene ────────
 
 const EditorPanelsPlugin: IPlugin = {
@@ -386,13 +368,9 @@ const EditorPanelsPlugin: IPlugin = {
       }
     };
 
-    // ── Scene Service (legacy, kept for document handler compatibility) ──
-    const scene = new SceneService();
-    ctx.subscriptions.add(scene);
-    ctx.subscriptions.add(ctx.services.register(ISceneService, scene));
-
     // ── ECS Scene Service (created when WASM is ready) ──
     let ecsScene: ECSSceneService | undefined;
+    let pendingScene: SceneData | undefined;
     const estella = ctx.services.get(IEstellaService);
 
     // ── Document Service ──
@@ -403,41 +381,28 @@ const EditorPanelsPlugin: IPlugin = {
     ctx.subscriptions.add(documentService);
     ctx.subscriptions.add(ctx.services.register(IDocumentService, documentService));
 
-    // Register scene file handler
+    // Register scene file handler. Scene data is the ECS authoritative state
+    // serialized via IECSSceneService. If the ECS module hasn't finished
+    // loading yet (WASM init is async), parsed data is buffered and applied
+    // as soon as the ECS scene is created.
     ctx.subscriptions.add(
       documentService.registerHandler({
         extensions: ['.scene.json'],
         load(_filePath, content): Promise<void> {
-          const raw = JSON.parse(content) as Record<string, unknown>;
-          // Validate format — must have $type or at least nodeTypes+nodes
-          const data: SceneFileData = {
-            $type: 'editrix:scene',
-            $version: (raw['$version'] as number | undefined) ?? 1,
-            name: (raw['name'] as string | undefined) ?? 'Untitled',
-            nodeTypes: (raw['nodeTypes'] as SceneFileData['nodeTypes'] | undefined) ?? [],
-            nodes: (raw['nodes'] as SceneFileData['nodes'] | undefined) ?? [],
-          };
-          scene.deserialize(data);
+          const data = JSON.parse(content) as SceneData;
+          if (ecsScene) {
+            ecsScene.deserialize(data);
+          } else {
+            pendingScene = data;
+          }
           return Promise.resolve();
         },
         serialize(_filePath): Promise<string> {
-          const data = scene.serialize();
-          return Promise.resolve(JSON.stringify(data, null, 2));
+          if (!ecsScene) {
+            throw new Error('Cannot save scene — ECS runtime is not ready yet.');
+          }
+          return Promise.resolve(JSON.stringify(ecsScene.serialize(), null, 2));
         },
-      }),
-    );
-
-    // Mark scene dirty when properties change
-    ctx.subscriptions.add(
-      scene.onDidChangeScene(() => {
-        const active = documentService.activeDocument;
-        if (active) documentService.setDirty(active, true);
-      }),
-    );
-    ctx.subscriptions.add(
-      scene.onDidChangeProperty(() => {
-        const active = documentService.activeDocument;
-        if (active) documentService.setDirty(active, true);
       }),
     );
 
@@ -460,14 +425,33 @@ const EditorPanelsPlugin: IPlugin = {
       ctx.subscriptions.add(ecsScene.onComponentAdded(() => { refreshInspector(); }));
       ctx.subscriptions.add(ecsScene.onComponentRemoved(() => { refreshInspector(); }));
 
-      // Create default scene: Camera (for Game View) + test Shape
-      const camId = ecsScene.createEntity('Main Camera');
-      ecsScene.addComponent(camId, 'Camera');
-      ecsScene.setProperty(camId, 'Camera', 'isActive', true);
-      ecsScene.setProperty(camId, 'Transform', 'position.z', 200);
+      // Mark active document dirty whenever ECS state changes (entity create/destroy,
+      // hierarchy reparent, component add/remove, property edit). Selection-only
+      // events are excluded — those don't dirty the file.
+      const markDirty = (): void => {
+        const active = documentService.activeDocument;
+        if (active) documentService.setDirty(active, true);
+      };
+      ctx.subscriptions.add(ecsScene.onHierarchyChanged(markDirty));
+      ctx.subscriptions.add(ecsScene.onPropertyChanged(markDirty));
+      ctx.subscriptions.add(ecsScene.onComponentAdded(markDirty));
+      ctx.subscriptions.add(ecsScene.onComponentRemoved(markDirty));
 
-      const shapeId = ecsScene.createEntity('Test Shape');
-      ecsScene.addComponent(shapeId, 'ShapeRenderer');
+      if (pendingScene) {
+        // A document open landed before the ECS module was ready — apply it now
+        // and skip the default scene seed.
+        ecsScene.deserialize(pendingScene);
+        pendingScene = undefined;
+      } else {
+        // Default empty-project seed: Camera (for Game View) + test Shape.
+        const camId = ecsScene.createEntity('Main Camera');
+        ecsScene.addComponent(camId, 'Camera');
+        ecsScene.setProperty(camId, 'Camera', 'isActive', true);
+        ecsScene.setProperty(camId, 'Transform', 'position.z', 200);
+
+        const shapeId = ecsScene.createEntity('Test Shape');
+        ecsScene.addComponent(shapeId, 'ShapeRenderer');
+      }
 
       sceneViewWidget?.setECSScene(ecsScene);
 
@@ -513,20 +497,16 @@ const EditorPanelsPlugin: IPlugin = {
     let hierarchyTree: TreeWidget | undefined;
 
     const refreshHierarchy = (): void => {
-      if (!hierarchyTree) return;
-      if (ecsScene) {
-        const roots = ecsToTreeNodes(ecsScene, ecsScene.getRootEntities());
-        hierarchyTree.setRoots(roots);
-      } else {
-        const roots = sceneToTreeNodes(scene, scene.getRootIds());
-        hierarchyTree.setRoots(roots);
-      }
+      if (!hierarchyTree || !ecsScene) return;
+      const roots = ecsToTreeNodes(ecsScene, ecsScene.getRootEntities());
+      hierarchyTree.setRoots(roots);
     };
 
     ctx.subscriptions.add(layout.registerPanel({ id: 'hierarchy', title: 'Hierarchy', defaultRegion: 'left' }));
     ctx.subscriptions.add(
       view.registerFactory('hierarchy', (id) => {
-        hierarchyTree = new TreeWidget(id, { showFilter: true, showVisibility: true, showAddButton: true, addButtonLabel: 'Add Entity' });
+        // showVisibility is off until ECS gains a Visibility component to bind to.
+        hierarchyTree = new TreeWidget(id, { showFilter: true, showAddButton: true, addButtonLabel: 'Add Entity' });
         refreshHierarchy();
 
         let syncingSelection = false;
@@ -541,10 +521,6 @@ const EditorPanelsPlugin: IPlugin = {
           hierarchyTree.setSelection(ids);
           syncingSelection = false;
         }));
-
-        hierarchyTree.onDidChangeVisibility(({ id: nodeId, visible }) => {
-          scene.setNodeVisible(nodeId, visible);
-        });
 
         hierarchyTree.onDidRequestAdd(() => {
           if (ecsScene) {
@@ -640,8 +616,6 @@ const EditorPanelsPlugin: IPlugin = {
       }),
     );
 
-    ctx.subscriptions.add(scene.onDidChangeScene(() => { refreshHierarchy(); }));
-
     // ── Inspector ──
     let inspectorGrid: PropertyGridWidget | undefined;
 
@@ -698,64 +672,26 @@ const EditorPanelsPlugin: IPlugin = {
         return;
       }
 
-      // ECS path: entity selected
-      if (ecsScene) {
-        const entityId = Number(selectedId);
-        if (isNaN(entityId)) {
-          inspectorGrid.setData([], {});
-          return;
-        }
-        // First time we see this entity, seed the tracked order from
-        // the default priority sort; thereafter it's driven by user
-        // actions (addComponent appends). Either way we hand the
-        // resolved order to ecsToPropertyGroups which preserves it.
-        let tracked = getInspectorOrder(entityId);
-        if (!tracked) {
-          tracked = sortByDefaultPriority(ecsScene.getComponents(entityId));
-          setInspectorOrder(entityId, tracked);
-        }
-        const { groups, values } = ecsToPropertyGroups(ecsScene, entityId, tracked);
-        inspectorGrid.setData(groups, values);
-        return;
-      }
-
-      // Legacy path: SceneService node selected
-      const node = scene.getNode(selectedId);
-      if (!node) {
+      if (!ecsScene) {
         inspectorGrid.setData([], {});
         return;
       }
-      const schema = scene.getNodeTypeSchema(node.type);
-      if (!schema) {
+      const entityId = Number(selectedId);
+      if (isNaN(entityId)) {
         inspectorGrid.setData([], {});
         return;
       }
-      const groupMap = new Map<string, typeof schema.properties[number][]>();
-      for (const prop of schema.properties) {
-        const groupName = prop.group ?? 'Properties';
-        let arr = groupMap.get(groupName);
-        if (!arr) {
-          arr = [];
-          groupMap.set(groupName, arr);
-        }
-        arr.push(prop);
+      // First time we see this entity, seed the tracked order from
+      // the default priority sort; thereafter it's driven by user
+      // actions (addComponent appends). Either way we hand the
+      // resolved order to ecsToPropertyGroups which preserves it.
+      let tracked = getInspectorOrder(entityId);
+      if (!tracked) {
+        tracked = sortByDefaultPriority(ecsScene.getComponents(entityId));
+        setInspectorOrder(entityId, tracked);
       }
-      const groups = [...groupMap.entries()].map(([label, props]) => ({
-        id: label.toLowerCase(),
-        label,
-        properties: props.map((p) => ({
-          key: p.key,
-          label: p.label,
-          type: p.type,
-          defaultValue: p.defaultValue,
-          ...(p.description !== undefined ? { description: p.description } : {}),
-          ...(p.min !== undefined ? { min: p.min } : {}),
-          ...(p.max !== undefined ? { max: p.max } : {}),
-          ...(p.step !== undefined ? { step: p.step } : {}),
-          ...(p.enumValues !== undefined ? { enumValues: p.enumValues } : {}),
-        })),
-      }));
-      inspectorGrid.setData(groups, scene.getProperties(selectedId));
+      const { groups, values } = ecsToPropertyGroups(ecsScene, entityId, tracked);
+      inspectorGrid.setData(groups, values);
     };
 
     ctx.subscriptions.add(layout.registerPanel({ id: 'inspector', title: 'Inspector', defaultRegion: 'right' }));
@@ -765,19 +701,13 @@ const EditorPanelsPlugin: IPlugin = {
           onChange: (key, value) => {
             const selectedIds = selection.getSelection();
             const selectedId = selectedIds[0];
-            if (!selectedId) return;
-
-            if (ecsScene) {
-              // ECS path: key format is "ComponentName.fieldPath"
-              const dotIdx = key.indexOf('.');
-              if (dotIdx > 0) {
-                const comp = key.substring(0, dotIdx);
-                const field = key.substring(dotIdx + 1);
-                ecsScene.setProperty(Number(selectedId), comp, field, value);
-              }
-            } else {
-              scene.setProperty(selectedId, key, value);
-            }
+            if (!selectedId || !ecsScene) return;
+            // Inspector key format is "ComponentName.fieldPath".
+            const dotIdx = key.indexOf('.');
+            if (dotIdx <= 0) return;
+            const comp = key.substring(0, dotIdx);
+            const field = key.substring(dotIdx + 1);
+            ecsScene.setProperty(Number(selectedId), comp, field, value);
           },
         });
 
@@ -933,7 +863,6 @@ const EditorPanelsPlugin: IPlugin = {
       refreshInspector();
       renderContext.requestRender(); // update selection highlight in Scene View
     }));
-    ctx.subscriptions.add(scene.onDidChangeProperty(() => { refreshInspector(); }));
 
     // ── Project Files ──
     let contentBrowserWidget: ContentBrowserWidget | undefined;
@@ -1022,8 +951,8 @@ async function main(): Promise<void> {
     ICommandRegistry,
     ISettingsService,
     IUndoRedoService,
-    // Scene
-    ISceneService,
+    // Scene (ECS authoritative state)
+    IECSSceneService,
     // Plugin management
     IPluginManager,
     // Logging

@@ -541,8 +541,9 @@ function renderNewProject(main: HTMLElement): void {
       template: selectedTemplate,
       plugins: {
         builtin: true,
-        packages: selectedTemplate === '2d-game' || selectedTemplate === '3d-game'
-          ? ['@editrix/scene'] : [],
+        // Scene/ECS support is built into the editor itself; templates only add
+        // optional ecosystem plugins on top.
+        packages: [],
       },
       settings: {},
       assets: { roots: ['assets'], ignore: ['*.tmp', '.DS_Store', 'Thumbs.db'] },

@@ -15,7 +15,7 @@
  *   "template": "2d-game",
  *   "plugins": {
  *     "builtin": true,
- *     "packages": ["@editrix/scene"]
+ *     "packages": []
  *   }
  * }
  * ```
@@ -122,11 +122,12 @@ export function createDefaultProjectConfig(
     },
   };
 
-  // Template-specific plugin sets
+  // Template-specific plugin sets — currently no template requires extra
+  // packages because the runtime (ECS, scene, layout) is built into the editor.
   const templatePlugins: Record<string, readonly string[]> = {
     'empty': [],
-    '2d-game': ['@editrix/scene'],
-    '3d-game': ['@editrix/scene'],
+    '2d-game': [],
+    '3d-game': [],
     'ui-app': [],
     'node-editor': [],
   };

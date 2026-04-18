@@ -56,9 +56,6 @@ importers:
       '@editrix/properties':
         specifier: workspace:*
         version: link:../../packages/properties
-      '@editrix/scene':
-        specifier: workspace:*
-        version: link:../../packages/scene
       '@editrix/shell':
         specifier: workspace:*
         version: link:../../packages/shell
@@ -175,15 +172,6 @@ importers:
         version: link:../view-dom
 
   packages/properties:
-    dependencies:
-      '@editrix/common':
-        specifier: workspace:*
-        version: link:../common
-      '@editrix/core':
-        specifier: workspace:*
-        version: link:../core
-
-  packages/scene:
     dependencies:
       '@editrix/common':
         specifier: workspace:*

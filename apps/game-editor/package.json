@@ -20,7 +20,6 @@
     "@editrix/properties": "workspace:*",
     "@editrix/plugin-manager": "workspace:*",
     "@editrix/plugin-settings": "workspace:*",
-    "@editrix/scene": "workspace:*",
     "@editrix/shell": "workspace:*",
     "@editrix/view-dom": "workspace:*"
   },
