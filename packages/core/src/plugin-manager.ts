@@ -155,12 +155,20 @@ export class PluginManager implements IPluginManager {
     }
 
     const prev = info.state;
+    // Record the user preference up front; it's a settings concern that should
+    // persist regardless of whether the actual deactivate succeeds.
     this._disabledIds.add(pluginId);
     info.disabled = true;
 
-    // Deactivate if currently active
-    await this._kernel.deactivatePlugin(pluginId);
-    info.state = PluginState.Unloaded;
+    try {
+      await this._kernel.deactivatePlugin(pluginId);
+      info.state = PluginState.Unloaded;
+    } catch (cause) {
+      // Kernel teardown failed — the plugin is still observably active.
+      // Leave info.state truthful so callers don't think it's safely off.
+      this._onDidChangePlugin.fire({ pluginId, previousState: prev, newState: info.state });
+      throw new Error(`Plugin "${pluginId}" failed to deactivate during disable.`, { cause });
+    }
 
     this._onDidChangePlugin.fire({ pluginId, previousState: prev, newState: info.state });
   }
@@ -170,13 +178,25 @@ export class PluginManager implements IPluginManager {
     if (!info) {
       throw new Error(`Plugin "${pluginId}" is not known.`);
     }
+    if (info.builtin) {
+      // Builtins are always enabled; rejecting here mirrors disablePlugin so
+      // callers don't have to special-case the symmetry.
+      throw new Error(`Cannot enable built-in plugin "${pluginId}" — it is always active.`);
+    }
 
     const prev = info.state;
     this._disabledIds.delete(pluginId);
     info.disabled = false;
 
-    // Activate
-    await this._kernel.activatePlugin(pluginId);
+    try {
+      await this._kernel.activatePlugin(pluginId);
+    } catch (cause) {
+      // The most common reason this fails is that the plugin's load step
+      // never registered an IPlugin with the kernel (e.g. import error).
+      // Surface that with the plugin id so callers don't see the kernel's
+      // generic "not registered".
+      throw new Error(`Plugin "${pluginId}" could not be enabled.`, { cause });
+    }
     info.state = PluginState.Active;
 
     this._onDidChangePlugin.fire({ pluginId, previousState: prev, newState: info.state });
@@ -191,10 +211,14 @@ export class PluginManager implements IPluginManager {
       throw new Error(`Cannot uninstall built-in plugin "${pluginId}".`);
     }
 
-    // Deactivate first
-    await this._kernel.deactivatePlugin(pluginId);
+    try {
+      await this._kernel.deactivatePlugin(pluginId);
+    } catch (cause) {
+      // Don't drop the info entry — the kernel still holds the plugin and
+      // a retry should be possible once the underlying issue is resolved.
+      throw new Error(`Plugin "${pluginId}" failed to deactivate during uninstall.`, { cause });
+    }
 
-    // Remove from tracking
     this._infos.delete(pluginId);
     this._disabledIds.delete(pluginId);
 

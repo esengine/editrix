@@ -107,4 +107,18 @@ describe('ServiceRegistry', () => {
 
     expect(registry.has(ICounter)).toBe(false);
   });
+
+  it('should fire onDidChangeService for each entry on dispose', () => {
+    const registry = new ServiceRegistry();
+    registry.register(ICounter, { count: 0, increment() {} });
+    registry.register(ILogger, { log() {} });
+
+    const observed: string[] = [];
+    registry.onDidChangeService((id) => observed.push(id.name));
+
+    registry.dispose();
+
+    expect(observed).toContain('ICounter');
+    expect(observed).toContain('ILogger');
+  });
 });

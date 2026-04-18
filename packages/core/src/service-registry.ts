@@ -27,6 +27,7 @@ export interface IServiceRegistry {
 }
 
 interface ServiceEntry {
+  readonly id: ServiceIdentifier<unknown>;
   readonly impl: unknown;
   readonly scope: ServiceScope;
 }
@@ -56,7 +57,7 @@ export class ServiceRegistry implements IServiceRegistry, IDisposable {
       throw new Error(`Service "${id.name}" is already registered.`);
     }
 
-    const entry: ServiceEntry = { impl, scope };
+    const entry: ServiceEntry = { id: id as ServiceIdentifier<unknown>, impl, scope };
     this._entries.set(id.id, entry);
     this._onDidChange.fire(id as ServiceIdentifier<unknown>);
 
@@ -87,7 +88,13 @@ export class ServiceRegistry implements IServiceRegistry, IDisposable {
   }
 
   dispose(): void {
+    // Surface the unregistration so listeners (UI, caches) can release any
+    // references they kept to the resolved instances before the registry goes away.
+    const ids = [...this._entries.values()].map((e) => e.id);
     this._entries.clear();
+    for (const id of ids) {
+      this._onDidChange.fire(id);
+    }
     this._onDidChange.dispose();
   }
 }

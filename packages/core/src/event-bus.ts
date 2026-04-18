@@ -1,5 +1,15 @@
-import type { IDisposable } from '@editrix/common';
-import { toDisposable } from '@editrix/common';
+import type { Event, IDisposable } from '@editrix/common';
+import { Emitter, toDisposable } from '@editrix/common';
+
+/**
+ * Payload for the {@link IEventBus.onError} event.
+ */
+export interface EventBusListenerError {
+  /** The event ID that was being delivered when the listener threw. */
+  readonly eventId: string;
+  /** The error thrown by the listener. */
+  readonly error: unknown;
+}
 
 /**
  * Inter-plugin event bus. Supports exact-match and wildcard subscriptions.
@@ -22,6 +32,13 @@ export interface IEventBus {
    * Only `*` at the end of a dot-separated pattern is supported.
    */
   onWild(pattern: string, handler: (eventId: string, data: unknown) => void): IDisposable;
+
+  /**
+   * Fired when a listener throws during {@link emit}. The error is reported here
+   * instead of propagating, so a single buggy plugin cannot break delivery to
+   * the rest of the bus. Wire this to a logger in production.
+   */
+  readonly onError: Event<EventBusListenerError>;
 }
 
 /**
@@ -37,22 +54,38 @@ export interface IEventBus {
 export class EventBus implements IEventBus, IDisposable {
   private readonly _listeners = new Map<string, Set<(data: unknown) => void>>();
   private readonly _wildcards = new Map<string, Set<(eventId: string, data: unknown) => void>>();
+  private readonly _onError = new Emitter<EventBusListenerError>();
+
+  readonly onError: Event<EventBusListenerError> = this._onError.event;
 
   emit(eventId: string, data: unknown): void {
     const exact = this._listeners.get(eventId);
     if (exact) {
-      for (const handler of exact) {
-        handler(data);
+      // Snapshot so a listener that disposes itself or subscribes another
+      // does not perturb iteration mid-flight.
+      for (const handler of [...exact]) {
+        try {
+          handler(data);
+        } catch (error) {
+          this._reportError(eventId, error);
+        }
       }
     }
 
     for (const [pattern, handlers] of this._wildcards) {
-      if (matchWildcard(pattern, eventId)) {
-        for (const handler of handlers) {
+      if (!matchWildcard(pattern, eventId)) continue;
+      for (const handler of [...handlers]) {
+        try {
           handler(eventId, data);
+        } catch (error) {
+          this._reportError(eventId, error);
         }
       }
     }
+  }
+
+  private _reportError(eventId: string, error: unknown): void {
+    this._onError.fire({ eventId, error });
   }
 
   on(eventId: string, handler: (data: unknown) => void): IDisposable {
@@ -98,6 +131,7 @@ export class EventBus implements IEventBus, IDisposable {
   dispose(): void {
     this._listeners.clear();
     this._wildcards.clear();
+    this._onError.dispose();
   }
 }
 

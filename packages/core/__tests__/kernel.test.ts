@@ -178,6 +178,55 @@ describe('Kernel', () => {
         expect((err as Error).cause).toBe(originalError);
       }
     });
+
+    it('should dispose subscriptions if activate throws', async () => {
+      const kernel = createKernel();
+      const cleanup = vi.fn();
+
+      kernel.registerPlugin(
+        createPlugin('bad.plugin', {
+          activate: (ctx) => {
+            ctx.subscriptions.add({ dispose: cleanup });
+            throw new Error('boom');
+          },
+        }),
+      );
+
+      await expect(kernel.activatePlugin('bad.plugin')).rejects.toThrow('failed to activate');
+      expect(cleanup).toHaveBeenCalledOnce();
+    });
+
+    it('should let concurrent callers share the in-flight activation', async () => {
+      // Plugin A's activate registers a service asynchronously.
+      // Plugin B (which depends on A) consumes that service. If A is mid-activation
+      // when something else calls activatePlugin('A'), the second caller must
+      // observe the same completion point — not return early on the Activating state.
+      const kernel = createKernel();
+      const IFoo = createServiceId<{ value: number }>('IFoo');
+      let resolveActivate: (() => void) | undefined;
+      const activateGate = new Promise<void>((r) => {
+        resolveActivate = r;
+      });
+
+      kernel.registerPlugin(
+        createPlugin('a', {
+          activate: async (ctx) => {
+            await activateGate;
+            ctx.subscriptions.add(ctx.services.register(IFoo, { value: 42 }));
+          },
+        }),
+      );
+
+      const first = kernel.activatePlugin('a');
+      // Second concurrent caller should not get back `undefined` synchronously
+      // and proceed before the service is registered.
+      const second = kernel.activatePlugin('a');
+
+      resolveActivate!();
+      await Promise.all([first, second]);
+
+      expect(kernel.services.has(IFoo)).toBe(true);
+    });
   });
 
   describe('deactivatePlugin', () => {
@@ -336,6 +385,49 @@ describe('Kernel', () => {
       await kernel.shutdown();
 
       expect(order).toEqual(['b', 'a']);
+    });
+
+    it('should keep deactivating remaining plugins when one throws and aggregate the errors', async () => {
+      const kernel = createKernel();
+      const deactivated: string[] = [];
+
+      kernel.registerPlugin(
+        createPlugin('clean', {
+          deactivate: () => {
+            deactivated.push('clean');
+          },
+        }),
+      );
+      kernel.registerPlugin(
+        createPlugin('bad', {
+          deactivate: () => {
+            throw new Error('teardown failed');
+          },
+        }),
+      );
+      kernel.registerPlugin(
+        createPlugin('also-clean', {
+          deactivate: () => {
+            deactivated.push('also-clean');
+          },
+        }),
+      );
+
+      await kernel.start();
+
+      let aggregate: AggregateError | undefined;
+      try {
+        await kernel.shutdown();
+      } catch (err) {
+        aggregate = err as AggregateError;
+      }
+
+      expect(aggregate).toBeInstanceOf(AggregateError);
+      expect(aggregate!.errors).toHaveLength(1);
+      expect((aggregate!.errors[0] as Error).message).toContain('"bad"');
+      // The other two plugins still got their deactivate called.
+      expect(deactivated).toContain('clean');
+      expect(deactivated).toContain('also-clean');
     });
   });
 

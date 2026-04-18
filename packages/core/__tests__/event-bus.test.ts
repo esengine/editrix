@@ -99,4 +99,63 @@ describe('EventBus', () => {
     expect(h1).not.toHaveBeenCalled();
     expect(h2).not.toHaveBeenCalled();
   });
+
+  describe('listener error isolation', () => {
+    it('should keep delivering to other exact listeners when one throws', () => {
+      const bus = new EventBus();
+      const before = vi.fn();
+      const after = vi.fn();
+      const errors: unknown[] = [];
+
+      bus.onError(({ error }) => errors.push(error));
+      bus.on('e', before);
+      bus.on('e', () => {
+        throw new Error('boom');
+      });
+      bus.on('e', after);
+
+      bus.emit('e', 1);
+
+      expect(before).toHaveBeenCalledOnce();
+      expect(after).toHaveBeenCalledOnce();
+      expect(errors).toHaveLength(1);
+      expect((errors[0] as Error).message).toBe('boom');
+    });
+
+    it('should keep delivering to wildcard listeners when one throws', () => {
+      const bus = new EventBus();
+      const sane = vi.fn();
+      const errors: unknown[] = [];
+
+      bus.onError(({ eventId, error }) => errors.push({ eventId, error }));
+      bus.onWild('e.*', () => {
+        throw new Error('bad wild');
+      });
+      bus.onWild('e.*', sane);
+
+      bus.emit('e.sub', { ok: true });
+
+      expect(sane).toHaveBeenCalledOnce();
+      expect(errors).toHaveLength(1);
+      expect((errors[0] as { eventId: string }).eventId).toBe('e.sub');
+    });
+
+    it('should tolerate listeners that mutate the listener set during emit', () => {
+      const bus = new EventBus();
+      const captured: string[] = [];
+
+      const sub = bus.on('e', () => {
+        captured.push('first');
+        sub.dispose();
+      });
+      bus.on('e', () => captured.push('second'));
+
+      bus.emit('e', null);
+
+      // Both listeners run for this emit; first should be gone next time.
+      expect(captured).toEqual(['first', 'second']);
+      bus.emit('e', null);
+      expect(captured).toEqual(['first', 'second', 'second']);
+    });
+  });
 });

@@ -139,8 +139,18 @@ export class DocumentService implements IDocumentService {
       throw new Error(`No document handler registered for "${normalized}".`);
     }
 
-    const content = await this._readFile(normalized);
-    await handler.load(normalized, content);
+    let content: string;
+    try {
+      content = await this._readFile(normalized);
+    } catch (cause) {
+      throw new Error(`Failed to read document "${normalized}".`, { cause });
+    }
+
+    try {
+      await handler.load(normalized, content);
+    } catch (cause) {
+      throw new Error(`Failed to load document "${normalized}".`, { cause });
+    }
 
     const name = normalized.split('/').pop() ?? normalized;
     const ext = this._getExtension(name);
@@ -158,8 +168,19 @@ export class DocumentService implements IDocumentService {
     const handler = this._findHandler(normalized);
     if (!handler) return;
 
-    const content = await handler.serialize(normalized);
-    await this._writeFile(normalized, content);
+    let content: string;
+    try {
+      content = await handler.serialize(normalized);
+    } catch (cause) {
+      throw new Error(`Failed to serialize document "${normalized}".`, { cause });
+    }
+
+    try {
+      await this._writeFile(normalized, content);
+    } catch (cause) {
+      throw new Error(`Failed to write document "${normalized}".`, { cause });
+    }
+
     this.setDirty(normalized, false);
   }
 

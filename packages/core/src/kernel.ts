@@ -47,6 +47,10 @@ interface PluginEntry {
   readonly plugin: IPlugin;
   state: PluginState;
   subscriptions: DisposableStore;
+  // In-flight activation Promise — concurrent activatePlugin callers await this
+  // instead of returning early on the Activating state, which used to let dependents
+  // run before the dependency had finished registering its services.
+  activation?: Promise<void>;
 }
 
 /**
@@ -106,10 +110,25 @@ class Kernel implements IKernel {
     if (!entry) {
       throw new Error(`Plugin "${pluginId}" is not registered.`);
     }
-    if (entry.state === PluginState.Active || entry.state === PluginState.Activating) {
+    if (entry.state === PluginState.Active) {
       return;
     }
+    if (entry.activation) {
+      // A concurrent caller is mid-activation; share its Promise so both
+      // observe completion (or failure) at the same point.
+      return entry.activation;
+    }
 
+    const promise = this._doActivate(pluginId, entry);
+    entry.activation = promise;
+    try {
+      await promise;
+    } finally {
+      delete entry.activation;
+    }
+  }
+
+  private async _doActivate(pluginId: string, entry: PluginEntry): Promise<void> {
     // Dependencies must be active before this plugin can initialize
     const deps = entry.plugin.descriptor.dependencies ?? [];
     for (const dep of deps) {
@@ -138,6 +157,10 @@ class Kernel implements IKernel {
       this._onDidActivate.fire(pluginId);
       this._eventBus.emit('plugin.activated', pluginId);
     } catch (cause) {
+      // Tear down any disposables the plugin managed to register before
+      // throwing, so a retry starts from a clean store.
+      entry.subscriptions.dispose();
+      entry.subscriptions = new DisposableStore();
       entry.state = PluginState.Unloaded;
       throw new Error(`Plugin "${pluginId}" failed to activate.`, { cause });
     }
@@ -191,10 +214,22 @@ class Kernel implements IKernel {
 
   async shutdown(): Promise<void> {
     const order = this._topologicalSort().reverse();
+    const errors: Error[] = [];
     for (const pluginId of order) {
-      await this.deactivatePlugin(pluginId);
+      try {
+        await this.deactivatePlugin(pluginId);
+      } catch (cause) {
+        // Collect and continue — one buggy deactivate must not strand the
+        // rest of the editor with un-disposed resources.
+        errors.push(
+          new Error(`Plugin "${pluginId}" failed to deactivate.`, { cause }),
+        );
+      }
     }
     this.dispose();
+    if (errors.length > 0) {
+      throw new AggregateError(errors, 'One or more plugins failed to deactivate during shutdown.');
+    }
   }
 
   dispose(): void {
