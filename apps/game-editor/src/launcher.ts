@@ -84,7 +84,8 @@ interface ProjectEntry {
   version: string;
   lastOpened: string;
   starred: boolean;
-  warning?: boolean;
+  /** Folder still exists on disk. Set by main process via fs.existsSync. */
+  exists: boolean;
   _isoDate?: string;
 }
 
@@ -146,6 +147,8 @@ const api = (window as unknown as {
     listProjects(): Promise<ProjectEntry[]>;
     createProject(projectPath: string, projectConfig: unknown): Promise<{ success: boolean; error?: string }>;
     toggleStar(projectPath: string): Promise<boolean>;
+    removeProject(projectPath: string): Promise<{ success: boolean }>;
+    revealInFinder(projectPath: string): Promise<{ success: boolean; error?: string }>;
   };
 }).electronAPI;
 
@@ -337,6 +340,7 @@ function renderProjectList(container: HTMLElement): void {
 
   for (const project of filtered) {
     const row = el('div', 'el-project-row');
+    if (!project.exists) row.classList.add('el-project-row--missing');
 
     // Star
     const star = el('span', 'el-col-star el-star');
@@ -354,18 +358,24 @@ function renderProjectList(container: HTMLElement): void {
     const nameCell = el('div', 'el-col-name');
     const nameText = el('div', 'el-project-name');
     nameText.textContent = project.name;
+    if (!project.exists) {
+      const missingTag = el('span', 'el-project-missing-tag');
+      missingTag.textContent = 'Missing';
+      nameText.appendChild(missingTag);
+    }
     nameCell.appendChild(nameText);
     const pathText = el('div', 'el-project-path');
     pathText.textContent = project.path;
-    pathText.title = project.path;
+    pathText.title = project.exists ? project.path : `Folder no longer exists: ${project.path}`;
     nameCell.appendChild(pathText);
     row.appendChild(nameCell);
 
     // Version
     const versionCell = el('span', 'el-col-version');
     versionCell.textContent = project.version;
-    if (project.warning) {
+    if (!project.exists) {
       const warn = el('span', 'el-version-warn');
+      warn.title = 'Project folder no longer exists';
       warn.appendChild(iconEl('alert-triangle', 14));
       versionCell.appendChild(warn);
     }
@@ -379,17 +389,98 @@ function renderProjectList(container: HTMLElement): void {
     openedCell.appendChild(openedText);
     row.appendChild(openedCell);
 
-    // More menu
+    // More menu — opens row context menu (Open / Reveal / Remove).
     const more = el('span', 'el-col-more el-more-btn');
+    more.title = 'More options';
     more.appendChild(iconEl('more-horizontal', 16));
-    more.addEventListener('click', (e) => { e.stopPropagation(); });
+    more.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      showRowMenu(project, rect.right, rect.bottom);
+    });
     row.appendChild(more);
 
-    // Double-click opens project
-    row.addEventListener('dblclick', () => { api?.openProject(project.path); });
+    // Right-click anywhere on the row: same menu.
+    row.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showRowMenu(project, e.clientX, e.clientY);
+    });
+
+    // Double-click opens project — but if the folder is missing, prompt
+    // to remove from list instead of failing silently in the editor.
+    row.addEventListener('dblclick', () => {
+      if (project.exists) {
+        api?.openProject(project.path);
+      } else {
+        void confirmAndRemoveMissing(project);
+      }
+    });
 
     container.appendChild(row);
   }
+}
+
+/** Tiny in-DOM context menu — same idea as showContextMenu in view-dom but
+ *  the launcher is a separate window with no framework deps. */
+function showRowMenu(project: ProjectEntry, x: number, y: number): void {
+  // Close any prior menu.
+  document.querySelectorAll('.el-row-menu').forEach((n) => { n.remove(); });
+
+  const menu = el('div', 'el-row-menu');
+  menu.style.left = `${String(x)}px`;
+  menu.style.top = `${String(y)}px`;
+
+  const addItem = (label: string, icon: string, onClick: () => void, opts?: { destructive?: boolean; disabled?: boolean }): void => {
+    const item = el('div', 'el-row-menu-item');
+    if (opts?.destructive) item.classList.add('el-row-menu-item--destructive');
+    if (opts?.disabled) item.classList.add('el-row-menu-item--disabled');
+    item.appendChild(iconEl(icon, 14));
+    const text = el('span');
+    text.textContent = label;
+    item.appendChild(text);
+    if (!opts?.disabled) {
+      item.addEventListener('click', () => { menu.remove(); onClick(); });
+    }
+    menu.appendChild(item);
+  };
+
+  addItem('Open', 'folder-open', () => { api?.openProject(project.path); }, { disabled: !project.exists });
+  addItem('Reveal in Finder', 'folder', () => { void api?.revealInFinder(project.path); }, { disabled: !project.exists });
+  const sep = el('div', 'el-row-menu-sep'); menu.appendChild(sep);
+  addItem('Remove from list', 'x', () => { void removeProjectFromList(project.path); }, { destructive: true });
+
+  document.body.appendChild(menu);
+
+  // Position so it stays inside the viewport.
+  const menuRect = menu.getBoundingClientRect();
+  if (x + menuRect.width > window.innerWidth) menu.style.left = `${String(window.innerWidth - menuRect.width - 4)}px`;
+  if (y + menuRect.height > window.innerHeight) menu.style.top = `${String(window.innerHeight - menuRect.height - 4)}px`;
+
+  // Click-outside dismisses.
+  setTimeout(() => {
+    const close = (ev: MouseEvent): void => {
+      if (!menu.contains(ev.target as Node)) {
+        menu.remove();
+        document.removeEventListener('mousedown', close);
+      }
+    };
+    document.addEventListener('mousedown', close);
+  }, 0);
+}
+
+async function removeProjectFromList(projectPath: string): Promise<void> {
+  if (!api) return;
+  await api.removeProject(projectPath);
+  projects = await loadProjects();
+  render();
+}
+
+async function confirmAndRemoveMissing(project: ProjectEntry): Promise<void> {
+  // Tiny confirm dialog — launcher is framework-free so we roll our own.
+  const ok = window.confirm(
+    `"${project.name}" no longer exists at:\n${project.path}\n\nRemove it from the list?`,
+  );
+  if (ok) await removeProjectFromList(project.path);
 }
 
 function renderNewProject(main: HTMLElement): void {
@@ -837,6 +928,62 @@ function injectStyles(): void {
 .el-project-row:hover {
   background: rgba(255,255,255,0.03);
 }
+.el-project-row--missing {
+  opacity: 0.5;
+}
+.el-project-row--missing:hover {
+  opacity: 0.65;
+}
+.el-project-missing-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  background: rgba(229, 85, 97, 0.15);
+  color: #e55561;
+  border: 1px solid rgba(229, 85, 97, 0.3);
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  vertical-align: middle;
+  letter-spacing: 0.03em;
+}
+
+/* Row context menu */
+.el-row-menu {
+  position: fixed;
+  background: #2c2c32;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 4px;
+  min-width: 180px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 99999;
+  font-size: 13px;
+}
+.el-row-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  color: #ccc;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.el-row-menu-item:hover {
+  background: rgba(255,255,255,0.06);
+}
+.el-row-menu-item--destructive { color: #e55561; }
+.el-row-menu-item--destructive:hover { background: rgba(229, 85, 97, 0.12); }
+.el-row-menu-item--disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.el-row-menu-item--disabled:hover { background: transparent; }
+.el-row-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: #3a3a40;
+}
 
 /* Columns */
 .el-col-star { width: 36px; text-align: center; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
@@ -1061,17 +1208,31 @@ newProjectLocation = homePath
 // Load real project list then render
 void (async (): Promise<void> => {
   try {
-    const rawProjects = await api?.listProjects() ?? [];
-    projects = rawProjects.map((p: { path: string; name: string; editrixVersion?: string; lastOpened: string; starred: boolean }) => ({
-      name: p.name,
-      path: p.path,
-      version: p.editrixVersion ?? '0.1.0',
-      lastOpened: timeAgo(p.lastOpened),
-      starred: p.starred,
-      _isoDate: p.lastOpened,
-    }));
+    projects = await loadProjects();
   } catch {
     projects = [];
   }
   render();
 })();
+
+interface RawProject {
+  path: string;
+  name: string;
+  editrixVersion?: string;
+  lastOpened: string;
+  starred: boolean;
+  exists: boolean;
+}
+
+async function loadProjects(): Promise<ProjectEntry[]> {
+  const raw = (await api?.listProjects() ?? []) as RawProject[];
+  return raw.map((p) => ({
+    name: p.name,
+    path: p.path,
+    version: p.editrixVersion ?? '0.1.0',
+    lastOpened: timeAgo(p.lastOpened),
+    starred: p.starred,
+    exists: p.exists,
+    _isoDate: p.lastOpened,
+  }));
+}

@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('create-project', { projectPath, projectConfig }),
   openProject: (projectPath) => ipcRenderer.send('open-project', projectPath),
   toggleStar: (projectPath) => ipcRenderer.invoke('toggle-star', projectPath),
+  removeProject: (projectPath) => ipcRenderer.invoke('remove-project', projectPath),
+  revealInFinder: (projectPath) => ipcRenderer.invoke('reveal-in-finder', projectPath),
   createPlugin: (projectPath, pluginId, pluginName) =>
     ipcRenderer.invoke('create-plugin', { projectPath, pluginId, pluginName }),
 

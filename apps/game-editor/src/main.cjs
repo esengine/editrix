@@ -520,7 +520,33 @@ ipcMain.handle('select-file', async (e, options) => {
 // ── IPC: Project Management ─────────────────────────────
 
 ipcMain.handle('list-projects', () => {
-  return loadLauncherConfig().projects;
+  // Existence check on every read so missing-on-disk projects can be visually
+  // flagged in the launcher (Unity Hub / Godot / JetBrains all do this).
+  // The check is cheap (statSync per entry) so doing it inline is fine until
+  // we have hundreds of projects.
+  return loadLauncherConfig().projects.map((p) => ({
+    ...p,
+    exists: fs.existsSync(p.path),
+  }));
+});
+
+ipcMain.handle('remove-project', (_e, projectPath) => {
+  const config = loadLauncherConfig();
+  const before = config.projects.length;
+  config.projects = config.projects.filter((p) => p.path !== projectPath);
+  if (config.projects.length !== before) saveLauncherConfig(config);
+  return { success: true };
+});
+
+ipcMain.handle('reveal-in-finder', (_e, projectPath) => {
+  // shell.showItemInFolder opens the OS file browser focused on the path.
+  // On macOS it's Finder; Windows uses Explorer; Linux uses xdg-open semantics.
+  const { shell } = require('electron');
+  if (fs.existsSync(projectPath)) {
+    shell.showItemInFolder(projectPath);
+    return { success: true };
+  }
+  return { success: false, error: 'Path no longer exists' };
 });
 
 ipcMain.handle('create-project', (_e, { projectPath, projectConfig }) => {
