@@ -27,6 +27,8 @@ const ICONS: Record<string, string> = {
   'plus': svg('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>'),
   'more-horizontal': svg('<circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/>'),
   'alert-triangle': svg('<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+  'alert-circle': svg('<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>'),
+  'alert-octagon': svg('<polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>'),
   'clock': svg('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'),
 
   // Stars
@@ -78,10 +80,18 @@ function iconEl(name: string, size = 16): HTMLElement {
 
 // ─── Types ──────────────────────────────────────────────
 
+type VersionStatus =
+  | 'ok'
+  | 'project-older'
+  | 'project-newer'
+  | 'unknown'
+  | 'folder-missing';
+
 interface ProjectEntry {
   name: string;
   path: string;
-  version: string;
+  version: string | null;
+  versionStatus: VersionStatus;
   lastOpened: string;
   starred: boolean;
   /** Folder still exists on disk. Set by main process via fs.existsSync. */
@@ -332,6 +342,37 @@ function renderProjects(main: HTMLElement): void {
   main.appendChild(listContainer);
 }
 
+function versionBadge(status: VersionStatus, projectVersion: string | null): HTMLElement | null {
+  if (status === 'ok' || status === 'folder-missing') return null;
+
+  const badge = el('span', 'el-version-badge');
+  let icon: string;
+  let tooltip: string;
+  let tone: string;
+  switch (status) {
+    case 'project-older':
+      icon = 'alert-triangle';
+      tone = 'el-version-badge--warn';
+      tooltip = `Project created with v${projectVersion ?? '?'}. Will be upgraded on save.`;
+      break;
+    case 'project-newer':
+      icon = 'alert-octagon';
+      tone = 'el-version-badge--error';
+      tooltip = `Project requires v${projectVersion ?? '?'}. Upgrade Editrix to open.`;
+      break;
+    case 'unknown':
+    default:
+      icon = 'alert-circle';
+      tone = 'el-version-badge--muted';
+      tooltip = 'editrix.json is missing or unreadable.';
+      break;
+  }
+  badge.classList.add(tone);
+  badge.title = tooltip;
+  badge.appendChild(iconEl(icon, 14));
+  return badge;
+}
+
 function renderProjectList(container: HTMLElement): void {
   container.innerHTML = '';
   const filtered = projects.filter((p) =>
@@ -370,14 +411,13 @@ function renderProjectList(container: HTMLElement): void {
     nameCell.appendChild(pathText);
     row.appendChild(nameCell);
 
-    // Version
     const versionCell = el('span', 'el-col-version');
-    versionCell.textContent = project.version;
-    if (!project.exists) {
-      const warn = el('span', 'el-version-warn');
-      warn.title = 'Project folder no longer exists';
-      warn.appendChild(iconEl('alert-triangle', 14));
-      versionCell.appendChild(warn);
+    const versionText = el('span', 'el-version-text');
+    versionText.textContent = project.exists ? (project.version ?? '—') : '—';
+    versionCell.appendChild(versionText);
+    if (project.exists) {
+      const badge = versionBadge(project.versionStatus, project.version);
+      if (badge) versionCell.appendChild(badge);
     }
     row.appendChild(versionCell);
 
@@ -1012,8 +1052,19 @@ function injectStyles(): void {
   white-space: nowrap;
 }
 
-/* Version warning */
-.el-version-warn { color: #e5c07b; display: inline-flex; }
+/* Version compat badge — reports editrix.json vs. app version mismatch.
+   Purposefully distinct from row-level "Missing" state (row dim + badge on
+   name), so one icon never means two things. */
+.el-version-text { font-variant-numeric: tabular-nums; }
+.el-version-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  cursor: help;
+}
+.el-version-badge--warn  { color: #e5c07b; }  /* older — will migrate */
+.el-version-badge--error { color: #e55561; }  /* newer — blocked */
+.el-version-badge--muted { color: #7e7e86; }  /* unknown — unreadable */
 
 /* More button */
 .el-more-btn {
@@ -1218,7 +1269,8 @@ void (async (): Promise<void> => {
 interface RawProject {
   path: string;
   name: string;
-  editrixVersion?: string;
+  editrixVersion?: string | null;
+  versionStatus?: VersionStatus;
   lastOpened: string;
   starred: boolean;
   exists: boolean;
@@ -1229,7 +1281,8 @@ async function loadProjects(): Promise<ProjectEntry[]> {
   return raw.map((p) => ({
     name: p.name,
     path: p.path,
-    version: p.editrixVersion ?? '0.1.0',
+    version: p.editrixVersion ?? null,
+    versionStatus: p.versionStatus ?? (p.exists ? 'unknown' : 'folder-missing'),
     lastOpened: timeAgo(p.lastOpened),
     starred: p.starred,
     exists: p.exists,
