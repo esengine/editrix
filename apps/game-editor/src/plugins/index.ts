@@ -13,6 +13,7 @@
  *             ↘ hierarchy
  *             ↘ inspector
  */
+export { AssetCatalogPlugin } from './asset-catalog-plugin.js';
 export { DocumentSyncPlugin } from './document-sync-plugin.js';
 export { DocumentTabsPlugin } from './document-tabs-plugin.js';
 export { ECSScenePlugin } from './ecs-scene-plugin.js';
@@ -20,6 +21,7 @@ export { FilesystemPlugin } from './filesystem-plugin.js';
 export { HierarchyPlugin } from './hierarchy-plugin.js';
 export { InspectorFiltersPlugin } from './inspector-filters-plugin.js';
 export { InspectorPlugin } from './inspector-plugin.js';
+export { OSDropImportPlugin } from './os-drop-import-plugin.js';
 export { PlayModePlugin } from './play-mode-plugin.js';
 export { ProjectPanelsPlugin } from './project-panels-plugin.js';
 export { ProjectPlugin } from './project-plugin.js';

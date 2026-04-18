@@ -1,9 +1,19 @@
 import type { Event, IDisposable } from '@editrix/common';
-import { Emitter } from '@editrix/common';
+import { Emitter, isMac } from '@editrix/common';
 import type { IFileSystemService } from '@editrix/core';
 import type { TreeNode } from '@editrix/view-dom';
-import { BaseWidget, TreeWidget } from '@editrix/view-dom';
+import { BaseWidget, showContextMenu, TreeWidget } from '@editrix/view-dom';
 import type { IProjectService } from './services.js';
+
+const REVEAL_LABEL = isMac() ? 'Reveal in Finder' : 'Show in Explorer';
+
+interface ElectronRevealApi {
+  revealInFinder(path: string): Promise<{ success: boolean; error?: string }>;
+}
+
+function revealApi(): ElectronRevealApi | undefined {
+  return (window as unknown as { electronAPI?: ElectronRevealApi }).electronAPI;
+}
 
 /** Map file extension to icon name. */
 function extToIcon(ext: string, isDir: boolean): string {
@@ -56,6 +66,22 @@ export class ProjectFilesWidget extends BaseWidget {
       }),
     );
 
+    this.subscriptions.add(
+      this._tree.onDidRequestContextMenu(({ ids, x, y }) => {
+        const path = ids[0];
+        if (path === undefined) return;
+        showContextMenu({
+          x, y,
+          items: [
+            {
+              label: REVEAL_LABEL, icon: 'folder',
+              onSelect: () => { void revealApi()?.revealInFinder(path); },
+            },
+          ],
+        });
+      }),
+    );
+
     if (this._project.isOpen) {
       void this._loadTree();
       this._startWatching();
@@ -73,6 +99,7 @@ export class ProjectFilesWidget extends BaseWidget {
     const nodes: TreeNode[] = [];
 
     for (const entry of entries) {
+      if (entry.name.endsWith('.meta')) continue;
       const icon = extToIcon(entry.extension, entry.type === 'directory');
       const children = (entry.type === 'directory' && depth < 2)
         ? await this._readDirRecursive(entry.path, depth + 1)

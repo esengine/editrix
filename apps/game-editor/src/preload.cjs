@@ -1,10 +1,14 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // Window controls
   minimize: () => ipcRenderer.send('window-minimize'),
   maximize: () => ipcRenderer.send('window-maximize'),
   close: () => ipcRenderer.send('window-close'),
+
+  // Electron 34+ removed File.path in the renderer; use webUtils to resolve
+  // the OS filesystem path from a File picked up by a drop/paste event.
+  getPathForFile: (file) => webUtils.getPathForFile(file),
 
   // Single-listener slot so hot reload doesn't accumulate handlers.
   onRequestClose: (handler) => {

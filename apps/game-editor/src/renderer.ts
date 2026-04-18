@@ -23,6 +23,7 @@ import { createIconElement, DomViewAdapter } from '@editrix/view-dom';
 import { showInputDialog, showThreeChoiceDialog } from './dialogs.js';
 import { LocalPluginScanner } from './local-plugin-scanner.js';
 import {
+  AssetCatalogPlugin,
   DocumentSyncPlugin,
   DocumentTabsPlugin,
   ECSScenePlugin,
@@ -30,6 +31,7 @@ import {
   HierarchyPlugin,
   InspectorFiltersPlugin,
   InspectorPlugin,
+  OSDropImportPlugin,
   PlayModePlugin,
   ProjectPanelsPlugin,
   ProjectPlugin,
@@ -100,6 +102,8 @@ async function main(): Promise<void> {
     plugins: [
       ProjectPlugin,
       FilesystemPlugin,
+      AssetCatalogPlugin,
+      OSDropImportPlugin,
       InspectorFiltersPlugin,
       EstellaPlugin,
       RenderContextPlugin,

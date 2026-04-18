@@ -1,8 +1,18 @@
 import type { Event } from '@editrix/common';
-import { Emitter } from '@editrix/common';
+import { Emitter, isMac } from '@editrix/common';
 import type { FileEntry, IFileSystemService } from '@editrix/core';
-import { BaseWidget, createIconElement, ListWidget } from '@editrix/view-dom';
+import { BaseWidget, createIconElement, ListWidget, showContextMenu } from '@editrix/view-dom';
 import type { IProjectService } from './services.js';
+
+const REVEAL_LABEL = isMac() ? 'Reveal in Finder' : 'Show in Explorer';
+
+interface ElectronRevealApi {
+  revealInFinder(path: string): Promise<{ success: boolean; error?: string }>;
+}
+
+function revealApi(): ElectronRevealApi | undefined {
+  return (window as unknown as { electronAPI?: ElectronRevealApi }).electronAPI;
+}
 
 type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 
@@ -110,6 +120,16 @@ export class ContentBrowserWidget extends BaseWidget {
     this._injectStyles();
 
     this._currentDirPath = this._project.path;
+
+    // Refresh the visible grid when the watched filesystem reports changes
+    // inside the current directory (ignoring .meta sidecars so UUID writes
+    // don't cause double-renders).
+    this.subscriptions.add(this._fileSystem.onDidChangeFile((e) => {
+      if (e.path.endsWith('.meta')) return;
+      if (!e.path.startsWith(this._currentDirPath)) return;
+      if (this._activeView !== 'assets') return;
+      void this._loadAndRenderGrid();
+    }));
 
     const outer = this.appendElement(root, 'div', 'editrix-cb-outer');
 
@@ -225,7 +245,9 @@ export class ContentBrowserWidget extends BaseWidget {
       return;
     }
 
-    this._cachedEntries = await this._fileSystem.readDir(this._currentDirPath);
+    const raw = await this._fileSystem.readDir(this._currentDirPath);
+    // Hide .meta sidecars — they're UUID plumbing, not user-visible content.
+    this._cachedEntries = raw.filter((e) => !e.name.endsWith('.meta'));
     this._renderGridFromCache();
   }
 
@@ -270,6 +292,20 @@ export class ContentBrowserWidget extends BaseWidget {
       } else {
         card.addEventListener('dblclick', () => { this._onDidOpenFile.fire(item.path); });
       }
+
+      card.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._selectCard(item.path);
+        showContextMenu({
+          x: e.clientX, y: e.clientY,
+          items: [
+            {
+              label: REVEAL_LABEL, icon: 'folder',
+              onSelect: () => { void revealApi()?.revealInFinder(item.path); },
+            },
+          ],
+        });
+      });
 
       el.appendChild(card);
     }

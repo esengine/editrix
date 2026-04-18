@@ -189,3 +189,39 @@ export interface IInspectorComponentFilter {
 }
 
 export const IInspectorComponentFilter = createServiceId<IInspectorComponentFilter>('IInspectorComponentFilter');
+
+export type AssetType = 'image' | 'scene' | 'audio' | 'font' | 'unknown';
+
+export interface AssetEntry {
+  readonly uuid: string;
+  /** Path relative to the project root, forward-slashed (e.g. `assets/sprites/hero.png`). */
+  readonly relativePath: string;
+  /** Absolute path on disk (forward-slashed). */
+  readonly absolutePath: string;
+  readonly type: AssetType;
+  readonly mtime: string;
+  readonly size: number;
+}
+
+export type AssetChange =
+  | { readonly kind: 'added'; readonly asset: AssetEntry }
+  | { readonly kind: 'removed'; readonly uuid: string; readonly relativePath: string }
+  | { readonly kind: 'modified'; readonly asset: AssetEntry };
+
+/**
+ * Catalog of the project's assets/ tree, keyed by stable UUID v4. `.meta`
+ * sidecar files persist the UUID next to each asset (same pattern as Unity)
+ * so references survive file moves and team-member swaps.
+ */
+export interface IAssetCatalogService {
+  /** Completes when the initial scan has finished. */
+  readonly ready: Promise<void>;
+  /** All known assets. Read-only snapshot — safe to iterate without copying. */
+  getAll(): readonly AssetEntry[];
+  getByUuid(uuid: string): AssetEntry | undefined;
+  /** `relativePath` is the forward-slashed project-relative path. */
+  getByPath(relativePath: string): AssetEntry | undefined;
+  readonly onDidChange: Event<AssetChange>;
+}
+
+export const IAssetCatalogService = createServiceId<IAssetCatalogService>('IAssetCatalogService');
