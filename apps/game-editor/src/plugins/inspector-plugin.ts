@@ -3,13 +3,51 @@ import { IConsoleService } from '@editrix/plugin-console';
 import type { PropertyGroup, PropertyType } from '@editrix/properties';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { ILayoutService, ISelectionService, IUndoRedoService, IViewService } from '@editrix/shell';
+import type { AssetPickerBinding, AssetRefPreview } from '@editrix/view-dom';
 import { PropertyGridWidget, showContextMenu, showQuickPick } from '@editrix/view-dom';
-import { IECSScenePresence, IInspectorComponentFilter, ISharedRenderContext, parseSelectionRef } from '../services.js';
+import { AssetInspectorWidget } from '../asset-inspector-widget.js';
+import type { AssetEntry, IAssetCatalogService as IAssetCatalogServiceShape } from '../services.js';
+import {
+  IAssetCatalogService,
+  IECSScenePresence,
+  IInspectorComponentFilter,
+  ISharedRenderContext,
+  parseSelectionRef,
+} from '../services.js';
 
 /** Resolve a selection-service id back to its entity number, if it is one. */
 function selectionToEntityId(serialized: string): number | undefined {
   const ref = parseSelectionRef(serialized);
   return ref?.kind === 'entity' ? ref.id : undefined;
+}
+
+// ─── Asset picker helpers ─────────────────────────────────
+
+function assetFilename(relativePath: string): string {
+  const slash = relativePath.lastIndexOf('/');
+  return slash >= 0 ? relativePath.slice(slash + 1) : relativePath;
+}
+
+function assetFolder(relativePath: string): string {
+  const slash = relativePath.lastIndexOf('/');
+  return slash >= 0 ? relativePath.slice(0, slash) : '';
+}
+
+/** Turn a project-relative path into a URL the renderer can load via protocol. */
+function assetUrl(relativePath: string): string {
+  return `project-asset:///${relativePath.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+function resolveAssetPreview(catalog: IAssetCatalogServiceShape, ref: string): AssetRefPreview | undefined {
+  if (!ref) return undefined;
+  const uuid = ref.startsWith('@uuid:') ? ref.slice('@uuid:'.length) : ref;
+  const entry: AssetEntry | undefined = catalog.getByUuid(uuid);
+  if (!entry) return undefined;
+  return {
+    label: assetFilename(entry.relativePath),
+    description: assetFolder(entry.relativePath),
+    ...(entry.type === 'image' ? { thumbnailUrl: assetUrl(entry.relativePath) } : {}),
+  };
 }
 
 // ─── ECS field-type → Inspector PropertyType ──────────────
@@ -82,6 +120,13 @@ function sortByDefaultPriority(components: readonly string[]): string[] {
   });
 }
 
+// Asset refs live in per-entity metadata, not the ECS int field — the runtime
+// texture handle doesn't exist in edit mode. ImageImporter binds metadata →
+// handle at load time.
+function assetMetadataKey(fullKey: string): string {
+  return `asset:${fullKey}`;
+}
+
 function ecsToPropertyGroups(
   ecs: IECSSceneService,
   entityId: number,
@@ -129,7 +174,12 @@ function ecsToPropertyGroups(
 
     for (const f of schema) {
       const fullKey = `${compName}.${f.key}`;
-      values[fullKey] = ecs.getProperty(entityId, compName, f.key);
+      if (f.type === 'asset') {
+        const stored = ecs.getEntityMetadata(entityId, assetMetadataKey(fullKey));
+        values[fullKey] = typeof stored === 'string' ? stored : '';
+      } else {
+        values[fullKey] = ecs.getProperty(entityId, compName, f.key);
+      }
     }
   }
 
@@ -148,7 +198,7 @@ export const InspectorPlugin: IPlugin = {
   descriptor: {
     id: 'app.inspector',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties', 'app.ecs-scene', 'app.inspector-filters'],
+    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties', 'app.ecs-scene', 'app.inspector-filters', 'app.asset-catalog'],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
@@ -158,6 +208,7 @@ export const InspectorPlugin: IPlugin = {
     const presence = ctx.services.get(IECSScenePresence);
     const renderContextSvc = ctx.services.get(ISharedRenderContext);
     const componentFilter = ctx.services.get(IInspectorComponentFilter);
+    const catalog: IAssetCatalogServiceShape = ctx.services.get(IAssetCatalogService);
 
     // Resolved lazily — IConsoleService is registered by ProjectPanelsPlugin
     // which may activate later in the dependency graph.
@@ -172,6 +223,9 @@ export const InspectorPlugin: IPlugin = {
     };
 
     let inspectorGrid: PropertyGridWidget | undefined;
+    let assetInspector: AssetInspectorWidget | undefined;
+    let entityContainer: HTMLElement | undefined;
+    let assetContainer: HTMLElement | undefined;
 
     const INSPECTOR_ORDER_KEY = 'inspectorComponentOrder';
 
@@ -205,19 +259,37 @@ export const InspectorPlugin: IPlugin = {
       }
     };
 
+    const showEntity = (): void => {
+      entityContainer?.classList.remove('editrix-inspector-view--hidden');
+      assetContainer?.classList.add('editrix-inspector-view--hidden');
+    };
+    const showAsset = (entry: AssetEntry | undefined): void => {
+      assetInspector?.setAsset(entry);
+      entityContainer?.classList.add('editrix-inspector-view--hidden');
+      assetContainer?.classList.remove('editrix-inspector-view--hidden');
+    };
+
     const refreshInspector = (): void => {
       if (!inspectorGrid) return;
+      const selectedIds = selection.getSelection();
+      const selectedId = selectedIds[0];
+      const parsed = selectedId !== undefined ? parseSelectionRef(selectedId) : undefined;
+
+      // Asset selection → hand off to the AssetInspectorWidget.
+      if (parsed?.kind === 'asset') {
+        showAsset(catalog.getByUuid(parsed.uuid));
+        return;
+      }
+
+      // Entity selection → normal property grid flow.
+      showEntity();
       const ecs = presence.current;
       if (!ecs) {
         inspectorGrid.setData([], {});
         return;
       }
-      const selectedIds = selection.getSelection();
-      const selectedId = selectedIds[0];
-      const entityId = selectedId !== undefined ? selectionToEntityId(selectedId) : undefined;
+      const entityId = parsed?.kind === 'entity' ? parsed.id : undefined;
       if (entityId === undefined) {
-        // Either nothing is selected, or the selection is an asset/folder/etc.
-        // The inspector renders entity property grids only — clear when off-target.
         inspectorGrid.setData([], {});
         return;
       }
@@ -242,10 +314,47 @@ export const InspectorPlugin: IPlugin = {
       renderContextSvc.context.requestRender(); // update Scene View selection highlight
     }));
 
+    ctx.subscriptions.add(catalog.onDidChange(() => { refreshInspector(); }));
+    ctx.subscriptions.add(catalog.onDidChangeImporter(() => { refreshInspector(); }));
+
     ctx.subscriptions.add(layout.registerPanel({ id: 'inspector', title: 'Inspector', defaultRegion: 'right' }));
     ctx.subscriptions.add(
       view.registerFactory('inspector', (id) => {
+        // Inject one-shot CSS for the host container's view switching.
+        if (!document.getElementById('editrix-inspector-host-styles')) {
+          const style = document.createElement('style');
+          style.id = 'editrix-inspector-host-styles';
+          style.textContent = `
+.editrix-inspector-host { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; position: relative; }
+.editrix-inspector-view { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.editrix-inspector-view--hidden { display: none !important; }
+`;
+          document.head.appendChild(style);
+        }
+
+        const assetPicker: AssetPickerBinding = {
+          resolve: (ref) => resolveAssetPreview(catalog, ref),
+          requestPicker: (args) => {
+            const images = catalog.getAll()
+              .filter((a) => a.type === 'image')
+              .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+            showQuickPick({
+              anchor: args.anchor,
+              placeholder: 'Search images...',
+              items: images.map((a) => ({
+                id: a.uuid,
+                label: assetFilename(a.relativePath),
+                description: assetFolder(a.relativePath),
+                iconUrl: assetUrl(a.relativePath),
+                ...(args.currentRef === a.uuid ? { disabled: true } : {}),
+              })),
+              onSelect: (item) => { args.setValue(item.id); },
+            });
+          },
+        };
+
         inspectorGrid = new PropertyGridWidget(id, {
+          assetPicker,
           onChange: (key, value) => {
             const ecs = presence.current;
             const selectedId = selection.getSelection()[0];
@@ -255,6 +364,13 @@ export const InspectorPlugin: IPlugin = {
             if (dotIdx <= 0) return;
             const comp = key.substring(0, dotIdx);
             const field = key.substring(dotIdx + 1);
+            const fieldDesc = ecs.getComponentSchema(comp).find((f) => f.key === field);
+            if (fieldDesc?.type === 'asset') {
+              const next = typeof value === 'string' && value !== '' ? value : undefined;
+              ecs.setEntityMetadata(entityId, assetMetadataKey(key), next);
+              refreshInspector();
+              return;
+            }
             ecs.setProperty(entityId, comp, field, value);
           },
         });
@@ -425,8 +541,49 @@ export const InspectorPlugin: IPlugin = {
           });
         });
 
-        refreshInspector();
-        return inspectorGrid;
+        // Host widget that mounts both sub-views (entity grid + asset view)
+        // side-by-side and toggles visibility. Keeps the Inspector panel
+        // contract simple — one widget in, selection-aware content out.
+        assetInspector = new AssetInspectorWidget(`${id}-asset`, {
+          getImporterSettings: (uuid) => catalog.getImporterSettings(uuid),
+          setImporterSettings: (uuid, patch) => catalog.setImporterSettings(uuid, patch),
+        });
+        const hostGrid = inspectorGrid;
+        const hostAsset = assetInspector;
+        const host = {
+          id,
+          get hasFocus(): boolean { return hostGrid.hasFocus || hostAsset.hasFocus; },
+          mount(container: unknown): void {
+            const parent = container as HTMLElement;
+            const root = document.createElement('div');
+            root.className = 'editrix-inspector-host';
+            parent.appendChild(root);
+
+            entityContainer = document.createElement('div');
+            entityContainer.className = 'editrix-inspector-view';
+            root.appendChild(entityContainer);
+            hostGrid.mount(entityContainer);
+
+            assetContainer = document.createElement('div');
+            assetContainer.className = 'editrix-inspector-view editrix-inspector-view--hidden';
+            root.appendChild(assetContainer);
+            hostAsset.mount(assetContainer);
+
+            refreshInspector();
+          },
+          resize(w: number, h: number): void {
+            hostGrid.resize(w, h);
+            hostAsset.resize(w, h);
+          },
+          focus(): void {
+            hostGrid.focus();
+          },
+          dispose(): void {
+            hostGrid.dispose();
+            hostAsset.dispose();
+          },
+        };
+        return host;
       }),
     );
   },

@@ -6,6 +6,9 @@ import type { IProjectService } from './services.js';
 
 const REVEAL_LABEL = isMac() ? 'Reveal in Finder' : 'Show in Explorer';
 
+/** MIME type used by internal editor drags — distinct from OS file drops. */
+export const ASSET_PATH_MIME = 'application/x-editrix-asset-path';
+
 interface ElectronRevealApi {
   revealInFinder(path: string): Promise<{ success: boolean; error?: string }>;
 }
@@ -76,6 +79,9 @@ export class ContentBrowserWidget extends BaseWidget {
   // File open event
   private readonly _onDidOpenFile = new Emitter<string>();
   readonly onDidOpenFile: Event<string> = this._onDidOpenFile.event;
+
+  private readonly _onDidSelectAsset = new Emitter<string>();
+  readonly onDidSelectAsset: Event<string> = this._onDidSelectAsset.event;
 
   constructor(id: string, fileSystem: IFileSystemService, project: IProjectService) {
     super(id, 'content-browser');
@@ -274,6 +280,19 @@ export class ContentBrowserWidget extends BaseWidget {
       card.className = 'editrix-cb-card';
       card.dataset['id'] = item.path;
 
+      if (item.type !== 'directory') {
+        card.draggable = true;
+        card.addEventListener('dragstart', (e) => {
+          if (!e.dataTransfer) return;
+          e.dataTransfer.setData(ASSET_PATH_MIME, item.path);
+          e.dataTransfer.effectAllowed = 'copy';
+          card.classList.add('editrix-cb-card--dragging');
+        });
+        card.addEventListener('dragend', () => {
+          card.classList.remove('editrix-cb-card--dragging');
+        });
+      }
+
       const iconWrap = document.createElement('div');
       iconWrap.className = 'editrix-cb-card-icon';
       iconWrap.appendChild(createIconElement(extToIcon(item.extension, item.type === 'directory'), 32));
@@ -285,7 +304,10 @@ export class ContentBrowserWidget extends BaseWidget {
       label.title = item.name;
       card.appendChild(label);
 
-      card.addEventListener('click', () => { this._selectCard(item.path); });
+      card.addEventListener('click', () => {
+        this._selectCard(item.path);
+        if (item.type !== 'directory') this._onDidSelectAsset.fire(item.path);
+      });
 
       if (item.type === 'directory') {
         card.addEventListener('dblclick', () => { this.navigateTo(item.path); });
@@ -546,6 +568,9 @@ export class ContentBrowserWidget extends BaseWidget {
   border-color: var(--editrix-accent);
   background: rgba(74, 143, 255, 0.1);
 }
+.editrix-cb-card--dragging {
+  opacity: 0.45;
+}
 .editrix-cb-card-icon {
   width: 44px; height: 44px;
   display: flex; align-items: center; justify-content: center;
@@ -569,10 +594,25 @@ export class ContentBrowserWidget extends BaseWidget {
   grid-column: 1 / -1;
 }
 
-/* ── Console list — allow text selection ── */
+/* ── Console list — allow text selection, no truncation ── */
 .editrix-cb-view .editrix-list-container {
   user-select: text;
   cursor: text;
+}
+/* Override the generic list's single-line ellipsis — log messages need to
+   stay readable at full length. Each row grows to fit, long text wraps. */
+.editrix-cb-view .editrix-list-item {
+  align-items: flex-start;
+  padding: 3px 8px;
+}
+.editrix-cb-view .editrix-list-item-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
 }
 .editrix-cb-view .editrix-list-filter-input {
   background: #414141;
@@ -591,6 +631,7 @@ export class ContentBrowserWidget extends BaseWidget {
 
   override dispose(): void {
     this._onDidOpenFile.dispose();
+    this._onDidSelectAsset.dispose();
     super.dispose();
   }
 }
