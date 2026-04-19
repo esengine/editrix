@@ -2,6 +2,7 @@ import type { Event } from '@editrix/common';
 import type { ESEngineModule, IECSSceneService } from '@editrix/estella';
 import type { ISelectionService, IUndoRedoService } from '@editrix/shell';
 import { BaseWidget, createIconElement } from '@editrix/view-dom';
+import type { AnimationEditorWidget } from './animation-editor-widget.js';
 import { GameViewWidget } from './game-view-widget.js';
 import type { SharedRenderContext } from './render-context.js';
 import type { SceneAssetDropEvent } from './scene-view-widget.js';
@@ -35,6 +36,11 @@ export class ViewportWidget extends BaseWidget {
   private readonly _modeButtons = new Map<ViewportMode, HTMLElement>();
   private _sceneContainer: HTMLElement | undefined;
   private _gameContainer: HTMLElement | undefined;
+  private _animContainer: HTMLElement | undefined;
+  private _animWidget: AnimationEditorWidget | undefined;
+  private _animActive = false;
+  private _bodyEl: HTMLElement | undefined;
+  private _headerEl: HTMLElement | undefined;
   private _prefabBannerEl: HTMLElement | undefined;
   private _prefabBannerTitleEl: HTMLElement | undefined;
   private _prefabBannerExitHandler: (() => void) | undefined;
@@ -70,6 +76,36 @@ export class ViewportWidget extends BaseWidget {
 
   initCamera(module: ESEngineModule): void {
     this._sceneWidget.initCamera(module);
+  }
+
+  /**
+   * Mount an Animation Editor overlay that covers the scene/game panes
+   * when the active document is a `.esanim`. Pass `undefined` to unmount
+   * and restore the regular scene/game view. The widget is owned by the
+   * caller — this method just hosts it inside the viewport body.
+   */
+  setAnimationEditor(widget: AnimationEditorWidget | undefined): void {
+    if (widget === undefined) {
+      if (!this._animActive) return;
+      this._animActive = false;
+      if (this._animContainer) this._animContainer.style.display = 'none';
+      this._animWidget = undefined;
+      if (this._headerEl) this._headerEl.style.display = '';
+      this._applyMode();
+      return;
+    }
+    if (!this._animContainer) return;
+    if (this._animWidget === widget && this._animActive) return;
+    this._animContainer.replaceChildren();
+    widget.mount(this._animContainer);
+    this._animWidget = widget;
+    this._animActive = true;
+    this._animContainer.style.display = '';
+    // Hide the Scene/Game segmented header; the animation editor has its
+    // own header strip with the Close button.
+    if (this._headerEl) this._headerEl.style.display = 'none';
+    if (this._sceneContainer) this._sceneContainer.style.display = 'none';
+    if (this._gameContainer) this._gameContainer.style.display = 'none';
   }
 
   /**
@@ -115,6 +151,7 @@ export class ViewportWidget extends BaseWidget {
 
     // Header: segmented control. Future: tool buttons can sit on the right.
     const header = this.appendElement(root, 'div', 'editrix-viewport-header');
+    this._headerEl = header;
     const segment = this.appendElement(header, 'div', 'editrix-viewport-segment');
 
     const buildButton = (mode: ViewportMode, label: string, icon: string): HTMLElement => {
@@ -133,8 +170,13 @@ export class ViewportWidget extends BaseWidget {
 
     // Body holds both child widgets, only one visible at a time.
     const body = this.appendElement(root, 'div', 'editrix-viewport-body');
+    this._bodyEl = body;
     this._sceneContainer = this.appendElement(body, 'div', 'editrix-viewport-pane');
     this._gameContainer = this.appendElement(body, 'div', 'editrix-viewport-pane');
+    // Animation editor overlay — covers the body when active. Hidden by
+    // default; the ViewportPlugin toggles it on `.esanim` docs.
+    this._animContainer = this.appendElement(body, 'div', 'editrix-viewport-anim-overlay');
+    this._animContainer.style.display = 'none';
 
     this._sceneWidget.mount(this._sceneContainer);
     this._gameWidget.mount(this._gameContainer);
@@ -143,6 +185,10 @@ export class ViewportWidget extends BaseWidget {
   }
 
   private _applyMode(): void {
+    // When the animation overlay is up, the mode toggles are hidden and
+    // neither scene nor game pane should render.
+    if (this._animActive) return;
+
     const showScene = this._mode === 'scene' || this._mode === 'both';
     const showGame  = this._mode === 'game'  || this._mode === 'both';
 
@@ -263,6 +309,10 @@ export class ViewportWidget extends BaseWidget {
 }
 .editrix-viewport-body[data-mode="both"] .editrix-viewport-pane + .editrix-viewport-pane {
   border-left: 1px solid var(--editrix-border, #303034);
+}
+.editrix-viewport-anim-overlay {
+  position: absolute; inset: 0;
+  background: var(--editrix-bg-deep, #1c1c20);
 }
 `;
     document.head.appendChild(style);

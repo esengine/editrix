@@ -1,8 +1,10 @@
 import { IEstellaService, type IECSSceneService } from '@editrix/estella';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { IDocumentService, ILayoutService, ISelectionService, IUndoRedoService, IViewService } from '@editrix/shell';
+import { AnimationEditorWidget } from '../animation-editor-widget.js';
 import {
   entityRef,
+  IAnimationService,
   IAssetCatalogService,
   IECSScenePresence,
   IPrefabService,
@@ -26,7 +28,7 @@ export const ViewportPlugin: IPlugin = {
   descriptor: {
     id: 'app.viewport',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'app.render-context', 'app.ecs-scene', 'app.asset-catalog', 'app.project', 'app.document-sync', 'app.prefab'],
+    dependencies: ['editrix.layout', 'editrix.view', 'app.render-context', 'app.ecs-scene', 'app.asset-catalog', 'app.project', 'app.document-sync', 'app.prefab', 'app.animation'],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
@@ -40,6 +42,7 @@ export const ViewportPlugin: IPlugin = {
     const project = ctx.services.get(IProjectService);
     const documentService = ctx.services.get(IDocumentService);
     const prefabService = ctx.services.get(IPrefabService);
+    const animationService = ctx.services.get(IAnimationService);
 
     let widget: ViewportWidget | undefined;
 
@@ -82,6 +85,29 @@ export const ViewportPlugin: IPlugin = {
       ctx.subscriptions.add(documentService.onDidChangeActive(refreshPrefabBanner));
       ctx.subscriptions.add(documentService.onDidChangeDocuments(refreshPrefabBanner));
       refreshPrefabBanner();
+
+      // Animation Mode overlay. `.esanim` docs mount a dedicated editor
+      // widget over the viewport body; anything else hides it without
+      // tearing down. One widget instance is reused across clips — we
+      // just rebind its document pointer. This keeps the DOM subtree
+      // warm across tab-swaps and avoids re-allocating on every switch.
+      let animWidget: AnimationEditorWidget | undefined;
+      const refreshAnimation = (): void => {
+        const activePath = documentService.activeDocument;
+        if (activePath?.endsWith('.esanim') === true) {
+          animWidget ??= new AnimationEditorWidget(`${id}-anim`, animationService, catalog, project);
+          animWidget.setOnExit(() => { documentService.close(activePath); });
+          widget?.setAnimationEditor(animWidget);
+          animWidget.setDocument(activePath);
+        } else {
+          widget?.setAnimationEditor(undefined);
+          animWidget?.setDocument(undefined);
+        }
+      };
+      ctx.subscriptions.add(documentService.onDidChangeActive(refreshAnimation));
+      ctx.subscriptions.add(documentService.onDidChangeDocuments(refreshAnimation));
+      ctx.subscriptions.add({ dispose: () => { animWidget?.dispose(); } });
+      refreshAnimation();
 
       ctx.subscriptions.add(widget.onDidDropAsset(({ absolutePath, worldX, worldY, hitEntityId }) => {
         const rel = toProjectRelative(absolutePath, project.path);

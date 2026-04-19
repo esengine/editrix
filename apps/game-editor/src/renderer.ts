@@ -23,6 +23,7 @@ import { createIconElement, DomViewAdapter } from '@editrix/view-dom';
 import { showInputDialog, showThreeChoiceDialog } from './dialogs.js';
 import { LocalPluginScanner } from './local-plugin-scanner.js';
 import {
+  AnimationPlugin,
   AssetCatalogPlugin,
   DocumentSyncPlugin,
   DocumentTabsPlugin,
@@ -115,6 +116,7 @@ async function main(): Promise<void> {
       ImageImporterPlugin,
       DocumentSyncPlugin,
       DocumentTabsPlugin,
+      AnimationPlugin,
       ProjectPanelsPlugin,
       ViewportPlugin,
       HierarchyPlugin,
@@ -365,18 +367,21 @@ async function main(): Promise<void> {
     rightSection.appendChild(stepBtn);
 
     // Play is meaningful only for `.scene.json` docs. When the user has a
-    // `.esprefab` tab active the Scene View holds a prefab source, not a
-    // scene — ticking it would run whatever systems happen to match the
-    // prefab's components, which is almost never what the user intended.
-    const isPrefabDoc = (): boolean => documentService.activeDocument?.endsWith('.esprefab') === true;
+    // `.esprefab` or `.esanim` tab active the Scene View isn't showing a
+    // runnable scene — ticking it would run whatever systems happen to
+    // match, which is almost never what the user intended.
+    const isNonSceneDoc = (): boolean => {
+      const active = documentService.activeDocument;
+      return active?.endsWith('.esprefab') === true || active?.endsWith('.esanim') === true;
+    };
 
     const updatePlayButtons = (mode: typeof playMode.mode): void => {
       // Swap the play button between Play and Pause icons.
       playBtn.replaceChildren(createIconElement(mode === 'playing' ? 'pause' : 'play', 16));
-      const inPrefab = isPrefabDoc();
-      playBtn.disabled = inPrefab;
-      playBtn.title = inPrefab
-        ? 'Play is disabled while editing a prefab'
+      const blocked = isNonSceneDoc();
+      playBtn.disabled = blocked;
+      playBtn.title = blocked
+        ? 'Play is disabled for this document type'
         : mode === 'playing' ? 'Pause (F5)' : mode === 'paused' ? 'Resume (F5)' : 'Play (F5)';
       stopBtn.style.display = mode === 'edit' ? 'none' : '';
       stepBtn.style.display = mode === 'paused' ? '' : 'none';
@@ -392,7 +397,7 @@ async function main(): Promise<void> {
     document.addEventListener('keydown', (e) => {
       if (e.key === 'F5') {
         e.preventDefault();
-        if (isPrefabDoc()) return; // silently ignore — tooltip + disabled button already communicate why
+        if (isNonSceneDoc()) return; // silently ignore — tooltip + disabled button already communicate why
         if (e.shiftKey) {
           playMode.stop();
         } else {

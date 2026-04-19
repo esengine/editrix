@@ -130,6 +130,8 @@ function iconForExtension(ext: string): string {
       // Blue cube icon, registered by HierarchyPlugin — distinguishes
       // prefab-source tabs from scene tabs at a glance.
       return 'prefab-instance';
+    case '.esanim':
+      return 'anim-clip';
     case '.json':
       return 'layers';
     case '.ts':

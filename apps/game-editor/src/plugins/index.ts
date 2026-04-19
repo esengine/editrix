@@ -13,6 +13,7 @@
  *             ↘ hierarchy
  *             ↘ inspector
  */
+export { AnimationPlugin } from './animation-plugin.js';
 export { AssetCatalogPlugin } from './asset-catalog-plugin.js';
 export { DocumentSyncPlugin } from './document-sync-plugin.js';
 export { DocumentTabsPlugin } from './document-tabs-plugin.js';

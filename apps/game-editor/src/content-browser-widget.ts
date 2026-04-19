@@ -41,6 +41,7 @@ function extToIcon(ext: string, isDir: boolean): string {
   if (isDir) return 'folder';
   switch (ext) {
     case '.esprefab': return 'prefab-instance'; // blue cube, matches hierarchy badge
+    case '.esanim': return 'anim-clip'; // film strip, matches animation tab icon
     case '.json': return 'file';
     case '.ts': case '.js': return 'file';
     case '.png': case '.jpg': case '.jpeg': case '.webp': return 'grid';
@@ -108,17 +109,28 @@ export class ContentBrowserWidget extends BaseWidget {
    * pull in IAssetCatalogService / IPrefabService as deps.
    */
   private readonly _buildCardMenu: ((path: string) => readonly ContextMenuItem[]) | undefined;
+  /**
+   * Optional extender for the empty-area (grid background) context menu.
+   * Invoked on right-click outside any card; the returned items are shown
+   * above the widget's defaults. `targetDirPath` is the directory the user
+   * is currently browsing — the place new files would land in.
+   */
+  private readonly _buildEmptyAreaMenu: ((targetDirPath: string) => readonly ContextMenuItem[]) | undefined;
 
   constructor(
     id: string,
     fileSystem: IFileSystemService,
     project: IProjectService,
-    options?: { buildCardMenu?: (path: string) => readonly ContextMenuItem[] },
+    options?: {
+      buildCardMenu?: (path: string) => readonly ContextMenuItem[];
+      buildEmptyAreaMenu?: (targetDirPath: string) => readonly ContextMenuItem[];
+    },
   ) {
     super(id, 'content-browser');
     this._fileSystem = fileSystem;
     this._project = project;
     this._buildCardMenu = options?.buildCardMenu;
+    this._buildEmptyAreaMenu = options?.buildEmptyAreaMenu;
   }
 
   /** Navigate asset browser to a real directory path. */
@@ -280,6 +292,16 @@ export class ContentBrowserWidget extends BaseWidget {
       const parsed = this._parseTreeNodeIds(raw);
       if (parsed.length === 0) return;
       this._onDidDropTreeNodes.fire({ nodeIds: parsed, targetDirPath: this._currentDirPath });
+    });
+
+    // Right-click on empty grid area (not on a card) → create-new menu.
+    this._gridEl.addEventListener('contextmenu', (e) => {
+      const target = e.target as HTMLElement | null;
+      if (!target || target !== this._gridEl) return;
+      e.preventDefault();
+      const extra = this._buildEmptyAreaMenu ? this._buildEmptyAreaMenu(this._currentDirPath) : [];
+      if (extra.length === 0) return;
+      showContextMenu({ x: e.clientX, y: e.clientY, items: extra });
     });
 
     this._renderBreadcrumbs();

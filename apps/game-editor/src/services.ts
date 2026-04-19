@@ -190,7 +190,7 @@ export interface IInspectorComponentFilter {
 
 export const IInspectorComponentFilter = createServiceId<IInspectorComponentFilter>('IInspectorComponentFilter');
 
-export type AssetType = 'image' | 'scene' | 'audio' | 'font' | 'prefab' | 'unknown';
+export type AssetType = 'image' | 'scene' | 'audio' | 'font' | 'prefab' | 'anim-clip' | 'unknown';
 
 export interface AssetEntry {
   readonly uuid: string;
@@ -479,3 +479,49 @@ export const PREFAB_METADATA_KEYS = {
   /** Present on every node inside an instance subtree (root and children). */
   ENTITY_ID: 'prefab:entityId',
 } as const;
+
+// ─── Animation authoring ────────────────────────────────────────────────────
+
+/** One frame of a sprite animation clip, as stored on disk. */
+export interface AnimFrameData {
+  /** Project-relative path of the frame texture (e.g. `assets/sprites/run_01.png`). */
+  readonly texture: string;
+  /** Per-frame duration override in seconds. Omitted → inherit from clip fps. */
+  readonly duration?: number;
+}
+
+/** On-disk shape of a `.esanim` file. Matches the runtime SDK's `AnimClipAssetData`. */
+export interface AnimClipData {
+  readonly version: string;
+  readonly type: 'animation-clip';
+  readonly fps: number;
+  readonly loop: boolean;
+  readonly frames: readonly AnimFrameData[];
+}
+
+/**
+ * Editor-side animation-clip authoring service.
+ *
+ * Owns in-memory state for any `.esanim` tab that's currently open:
+ * loads on `documentService.open`, serialises on save, and fires change
+ * events so the editor UI can repaint. Closing the tab drops the entry.
+ */
+export interface IAnimationService {
+  /** Current in-memory clip data for an open `.esanim`, or undefined if not open. */
+  getClip(filePath: string): AnimClipData | undefined;
+  /**
+   * Replace the clip data for an open `.esanim` and mark the doc dirty.
+   * Throws if the file isn't currently open as a document tab.
+   */
+  updateClip(filePath: string, next: AnimClipData): void;
+  /**
+   * Create a new empty `.esanim` at {@link filePath}. Writes a `.meta`
+   * sidecar (pre-assigned UUID) then the file body so the catalog doesn't
+   * race to assign its own UUID. Opens the resulting file as a document.
+   */
+  createClip(filePath: string): Promise<string>;
+  /** Fired whenever any open clip's data changes (load, edit, save). */
+  readonly onDidChangeClip: Event<{ filePath: string; data: AnimClipData }>;
+}
+
+export const IAnimationService = createServiceId<IAnimationService>('IAnimationService');

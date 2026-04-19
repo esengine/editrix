@@ -2,7 +2,7 @@ import { IFileSystemService } from '@editrix/core';
 import type { LogLevel } from '@editrix/plugin-console';
 import { IConsoleService } from '@editrix/plugin-console';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import { IDocumentService, ILayoutService, ISelectionService, IViewService } from '@editrix/shell';
+import { ICommandRegistry, IDocumentService, ILayoutService, ISelectionService, IViewService } from '@editrix/shell';
 import type { ContextMenuItem } from '@editrix/view-dom';
 import { ContentBrowserWidget } from '../content-browser-widget.js';
 import { showConfirmDialog, showInputDialog } from '../dialogs.js';
@@ -43,7 +43,7 @@ export const ProjectPanelsPlugin: IPlugin = {
   descriptor: {
     id: 'app.project-panels',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'app.document-sync', 'app.filesystem', 'app.project', 'app.asset-catalog', 'app.prefab'],
+    dependencies: ['editrix.layout', 'editrix.view', 'app.document-sync', 'app.filesystem', 'app.project', 'app.asset-catalog', 'app.prefab', 'app.animation'],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
@@ -55,6 +55,7 @@ export const ProjectPanelsPlugin: IPlugin = {
     const catalog = ctx.services.get(IAssetCatalogService);
     const prefabService = ctx.services.get(IPrefabService);
     const presence = ctx.services.get(IECSScenePresence);
+    const commands = ctx.services.get(ICommandRegistry);
 
     let contentBrowserWidget: ContentBrowserWidget | undefined;
 
@@ -208,7 +209,15 @@ export const ProjectPanelsPlugin: IPlugin = {
             onSelect: () => { void createVariantFromAsset(asset.uuid, path); },
           }];
         };
-        contentBrowserWidget = new ContentBrowserWidget(id, fileSystem, project, { buildCardMenu });
+        const buildEmptyAreaMenu = (targetDirPath: string): readonly ContextMenuItem[] => [
+          {
+            label: 'New Animation Clip...', icon: 'plus-circle',
+            onSelect: () => {
+              void commands.execute('animation.newClip', { targetDirPath });
+            },
+          },
+        ];
+        contentBrowserWidget = new ContentBrowserWidget(id, fileSystem, project, { buildCardMenu, buildEmptyAreaMenu });
         // Flush logs that arrived before the widget mounted.
         for (const entry of pending) {
           contentBrowserWidget.log(entry.level, entry.message, entry.source);
