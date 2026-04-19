@@ -13,6 +13,8 @@ export interface QuickPickItem {
   readonly description?: string;
   /** Icon name from the icon registry. */
   readonly icon?: string;
+  /** Thumbnail URL rendered in the icon slot. Takes precedence over `icon`. */
+  readonly iconUrl?: string;
   /** Whether the item is shown but not selectable (e.g. already-added component). */
   readonly disabled?: boolean;
 }
@@ -120,8 +122,13 @@ export function showQuickPick(options: QuickPickOptions): QuickPickHandle {
       if (item.disabled) row.classList.add('editrix-quick-pick-item--disabled');
       if (i === selectedIndex) row.classList.add('editrix-quick-pick-item--selected');
 
-      // Icon
-      if (item.icon && getIcon(item.icon)) {
+      // Icon — thumbnail URL takes precedence over named icon.
+      if (item.iconUrl) {
+        const thumb = createElement('img', 'editrix-quick-pick-thumb');
+        thumb.src = item.iconUrl;
+        thumb.draggable = false;
+        row.appendChild(thumb);
+      } else if (item.icon && getIcon(item.icon)) {
         const icon = createElement('span', 'editrix-quick-pick-icon');
         icon.appendChild(createIconElement(item.icon, 14));
         row.appendChild(icon);
@@ -352,6 +359,14 @@ function injectStyles(): void {
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
+    }
+    .editrix-quick-pick-thumb {
+      width: 20px;
+      height: 20px;
+      object-fit: cover;
+      border-radius: 2px;
+      flex-shrink: 0;
+      background: var(--editrix-bg-dim, rgba(255,255,255,0.04));
     }
     .editrix-quick-pick-label {
       flex: 1;

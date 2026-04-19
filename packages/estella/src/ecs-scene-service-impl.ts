@@ -48,6 +48,7 @@ export class ECSSceneService implements IECSSceneService {
     private readonly _onComponentRemoved = new Emitter<ComponentEvent>();
     private readonly _onPropertyChanged = new Emitter<PropertyEvent>();
     private readonly _onHierarchyChanged = new Emitter<void>();
+    private readonly _onMetadataChanged = new Emitter<{ entityId: number; key: string; value: unknown }>();
 
     readonly onEntityCreated = this._onEntityCreated.event;
     readonly onEntityDestroyed = this._onEntityDestroyed.event;
@@ -55,6 +56,7 @@ export class ECSSceneService implements IECSSceneService {
     readonly onComponentRemoved = this._onComponentRemoved.event;
     readonly onPropertyChanged = this._onPropertyChanged.event;
     readonly onHierarchyChanged = this._onHierarchyChanged.event;
+    readonly onMetadataChanged = this._onMetadataChanged.event;
 
     constructor(module: ESEngineModule, registry: CppRegistry, renderCallback?: () => void) {
         this._module = module;
@@ -134,6 +136,7 @@ export class ECSSceneService implements IECSSceneService {
         } else {
             meta.extras[key] = value;
         }
+        this._onMetadataChanged.fire({ entityId, key, value });
     }
 
     // ── Entity Lifecycle ────────────────────────────────────

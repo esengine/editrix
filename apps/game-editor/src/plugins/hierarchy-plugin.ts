@@ -85,8 +85,7 @@ export const HierarchyPlugin: IPlugin = {
     const documentService = ctx.services.get(IDocumentService);
 
     const hasActiveSceneDoc = (): boolean => {
-      const active = documentService.activeDocument;
-      return active !== null && active.endsWith('.scene.json');
+      return documentService.activeDocument?.endsWith('.scene.json') === true;
     };
 
     let hierarchyTree: TreeWidget | undefined;
@@ -333,8 +332,7 @@ export const HierarchyPlugin: IPlugin = {
 
           if (
             roots.length === 1
-            && originals[0]
-            && originals[0].parentId === newParentId
+            && originals[0]?.parentId === newParentId
             && originals[0].index === newIndex
           ) {
             return;

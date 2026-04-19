@@ -103,6 +103,7 @@ export interface IECSSceneService extends IDisposable {
     readonly onComponentRemoved: Event<ComponentEvent>;
     readonly onPropertyChanged: Event<PropertyEvent>;
     readonly onHierarchyChanged: Event<void>;
+    readonly onMetadataChanged: Event<{ entityId: number; key: string; value: unknown }>;
 
     // Serialization
     serialize(): SceneData;

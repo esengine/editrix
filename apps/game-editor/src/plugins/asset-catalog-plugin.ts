@@ -3,7 +3,7 @@ import type { IDisposable } from '@editrix/common';
 import { IFileSystemService } from '@editrix/core';
 import type { FileChangeEvent } from '@editrix/core';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import type { AssetChange, AssetEntry, AssetType, IAssetCatalogService } from '../services.js';
+import type { AssetChange, AssetEntry, AssetType, IAssetCatalogService, ImporterSettings } from '../services.js';
 import { IAssetCatalogService as IAssetCatalogServiceId, IProjectService } from '../services.js';
 
 const META_SUFFIX = '.meta';
@@ -36,16 +36,22 @@ export const AssetCatalogPlugin: IPlugin = {
 class EmptyCatalog implements IAssetCatalogService {
   readonly ready = Promise.resolve();
   private readonly _onDidChange = new Emitter<AssetChange>();
+  private readonly _onDidChangeImporter = new Emitter<{ uuid: string; settings: ImporterSettings }>();
   readonly onDidChange = this._onDidChange.event;
+  readonly onDidChangeImporter = this._onDidChangeImporter.event;
   getAll(): readonly AssetEntry[] { return []; }
   getByUuid(): undefined { return undefined; }
   getByPath(): undefined { return undefined; }
+  getImporterSettings(): ImporterSettings { return {}; }
+  setImporterSettings(): Promise<void> { return Promise.resolve(); }
 }
 
 class AssetCatalog implements IAssetCatalogService, IDisposable {
   private readonly _byUuid = new Map<string, AssetEntry>();
   private readonly _byPath = new Map<string, AssetEntry>();
+  private readonly _importerByUuid = new Map<string, ImporterSettings>();
   private readonly _onDidChange = new Emitter<AssetChange>();
+  private readonly _onDidChangeImporter = new Emitter<{ uuid: string; settings: ImporterSettings }>();
   private _readyResolve!: () => void;
   private _watchHandle: IDisposable | undefined;
   private _changeSub: IDisposable | undefined;
@@ -54,6 +60,7 @@ class AssetCatalog implements IAssetCatalogService, IDisposable {
 
   readonly ready: Promise<void>;
   readonly onDidChange = this._onDidChange.event;
+  readonly onDidChangeImporter = this._onDidChangeImporter.event;
 
   constructor(
     private readonly _fs: IFileSystemService,
@@ -87,6 +94,22 @@ class AssetCatalog implements IAssetCatalogService, IDisposable {
     return this._byPath.get(relativePath);
   }
 
+  getImporterSettings(uuid: string): ImporterSettings {
+    return this._importerByUuid.get(uuid) ?? {};
+  }
+
+  async setImporterSettings(uuid: string, patch: ImporterSettings): Promise<void> {
+    const asset = this._byUuid.get(uuid);
+    if (!asset) return;
+    const existing = this._importerByUuid.get(uuid) ?? {};
+    const merged: ImporterSettings = { ...existing, ...patch };
+    this._importerByUuid.set(uuid, merged);
+    const metaPath = asset.absolutePath + META_SUFFIX;
+    const body = { uuid, mtime: asset.mtime, importer: merged };
+    await this._fs.writeFile(metaPath, JSON.stringify(body, null, 2));
+    this._onDidChangeImporter.fire({ uuid, settings: merged });
+  }
+
   dispose(): void {
     if (this._rescanTimer !== undefined) {
       clearTimeout(this._rescanTimer);
@@ -97,8 +120,10 @@ class AssetCatalog implements IAssetCatalogService, IDisposable {
     this._watchHandle?.dispose();
     this._watchHandle = undefined;
     this._onDidChange.dispose();
+    this._onDidChangeImporter.dispose();
     this._byUuid.clear();
     this._byPath.clear();
+    this._importerByUuid.clear();
   }
 
   private _handleFsEvent(e: FileChangeEvent): void {
@@ -179,8 +204,13 @@ class AssetCatalog implements IAssetCatalogService, IDisposable {
     const metaPath = absPath + META_SUFFIX;
     try {
       const raw = await this._fs.readFile(metaPath);
-      const parsed = JSON.parse(raw) as { uuid?: unknown };
-      if (typeof parsed.uuid === 'string' && parsed.uuid.length > 0) return parsed.uuid;
+      const parsed = JSON.parse(raw) as { uuid?: unknown; importer?: unknown };
+      if (typeof parsed.uuid === 'string' && parsed.uuid.length > 0) {
+        if (parsed.importer && typeof parsed.importer === 'object') {
+          this._importerByUuid.set(parsed.uuid, parsed.importer as ImporterSettings);
+        }
+        return parsed.uuid;
+      }
     } catch { /* missing or malformed — fall through and re-create */ }
     const uuid = uuidv4();
     await this._fs.writeFile(metaPath, JSON.stringify({ uuid, mtime }, null, 2));
@@ -213,8 +243,8 @@ function uuidv4(): string {
   // RFC 4122 v4 fallback for hosts without crypto.randomUUID.
   const b = new Uint8Array(16);
   for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
-  b[6] = (b[6]! & 0x0f) | 0x40;
-  b[8] = (b[8]! & 0x3f) | 0x80;
+  b[6] = ((b[6] ?? 0) & 0x0f) | 0x40;
+  b[8] = ((b[8] ?? 0) & 0x3f) | 0x80;
   const hex = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }

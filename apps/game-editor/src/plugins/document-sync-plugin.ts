@@ -1,5 +1,6 @@
 import { IFileSystemService } from '@editrix/core';
 import type { IECSSceneService, SceneData } from '@editrix/estella';
+import { IConsoleService } from '@editrix/plugin-console';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { DocumentService, ICommandRegistry, IDocumentService, ISelectionService } from '@editrix/shell';
 import { showConfirmDialog } from '../dialogs.js';
@@ -127,9 +128,15 @@ export const DocumentSyncPlugin: IPlugin = {
           await fileSystem.writeFile(scenePath, emptySceneJson());
           await documentService.open(scenePath);
         } catch (err) {
-          console.warn(
-            `[document-sync] Could not initialise ${DEFAULT_SCENE_RELATIVE}: ${err instanceof Error ? err.message : String(err)}`,
-          );
+          const msg = `Could not initialise ${DEFAULT_SCENE_RELATIVE}: ${err instanceof Error ? err.message : String(err)}`;
+          try {
+            ctx.services.get(IConsoleService).log('warn', msg, 'document-sync');
+          } catch {
+            // IConsoleService is registered by ProjectPanelsPlugin and may
+            // not be available yet during early activation paths.
+            // eslint-disable-next-line no-console -- fallback only
+            console.warn(`[document-sync] ${msg}`);
+          }
         }
       }
     };

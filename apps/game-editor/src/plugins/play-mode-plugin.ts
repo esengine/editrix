@@ -1,12 +1,16 @@
 import { Emitter } from '@editrix/common';
 import type { SceneData } from '@editrix/estella';
 import { IEstellaService } from '@editrix/estella';
+import { IConsoleService } from '@editrix/plugin-console';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { ISelectionService } from '@editrix/shell';
 import {
   IECSScenePresence,
   IPlayModeService,
+  IRuntimeAppPresence,
   ISharedRenderContext,
+  type IRuntimeApp,
+  type IRuntimeAppPresence as IRuntimeAppPresenceShape,
   type PlayMode,
   type PlayModeChangeEvent,
 } from '../services.js';
@@ -33,14 +37,43 @@ export const PlayModePlugin: IPlugin = {
 
     const onDidChangeMode = new Emitter<PlayModeChangeEvent>();
     ctx.subscriptions.add(onDidChangeMode);
+    const onDidBindApp = new Emitter<IRuntimeApp>();
+    const onDidUnbindApp = new Emitter<void>();
+    ctx.subscriptions.add(onDidBindApp);
+    ctx.subscriptions.add(onDidUnbindApp);
 
     let mode: PlayMode = 'edit';
     let snapshot: SceneData | undefined;
     let rafHandle: number | undefined;
     let app: EstellaApp | undefined;
+    let runtimeApp: IRuntimeApp | undefined;
     let lastTickMs: number | undefined;
     let frameCount = 0;
     let avgDtMs = 0;
+
+    const runtimePresence: IRuntimeAppPresenceShape = {
+      get current() { return runtimeApp; },
+      onDidBind: onDidBindApp.event,
+      onDidUnbind: onDidUnbindApp.event,
+    };
+    ctx.subscriptions.add(ctx.services.register(IRuntimeAppPresence, runtimePresence));
+
+    const stringifyErr = (err: unknown): string => {
+      if (err instanceof Error) return err.message;
+      if (typeof err === 'string') return err;
+      try { return JSON.stringify(err); } catch { return 'unknown error'; }
+    };
+    const warn = (msg: string, err?: unknown): void => {
+      const text = err !== undefined ? `${msg}: ${stringifyErr(err)}` : msg;
+      try {
+        ctx.services.get(IConsoleService).log('warn', text, 'play-mode');
+      } catch {
+        // IConsoleService is registered by ProjectPanelsPlugin and may not be
+        // available during early activation paths. Fall through to console.
+        // eslint-disable-next-line no-console -- fallback only
+        console.warn(`[play-mode] ${text}`);
+      }
+    };
 
     const transition = (next: PlayMode): void => {
       if (mode === next) return;
@@ -65,7 +98,7 @@ export const PlayModePlugin: IPlugin = {
         const tickPromise = app ? app.tick(dt) : Promise.resolve();
         tickPromise
           .catch((err: unknown) => {
-            console.warn('[play-mode] app.tick threw — pausing play:', err);
+            warn('app.tick threw — pausing play', err);
             stopLoop();
             transition('paused');
           })
@@ -103,30 +136,8 @@ export const PlayModePlugin: IPlugin = {
         if (mode === 'playing') return;
         if (mode === 'edit') {
           snapshot = ecs.serialize();
-
-          if (!app) {
-            const sdk = estella.sdk;
-            const wasmModule = estella.module;
-            if (sdk && wasmModule) {
-              try {
-                const handle = ecs.getCppHandle();
-                const created = typeof sdk['createWebApp'] === 'function'
-                  ? (sdk['createWebApp'] as (m: unknown) => EstellaApp)(wasmModule)
-                  : new (sdk['App'] as { new(): EstellaApp })();
-                created.connectCpp(handle.registry, handle.module);
-                app = created;
-              } catch (err) {
-                console.warn('[play-mode] Failed to construct runtime App — play will render-only:', err);
-              }
-            } else if (!sdk) {
-              void estella.loadSDK().catch((err: unknown) => {
-                console.warn('[play-mode] loadSDK failed:', err);
-              });
-              console.warn('[play-mode] Runtime SDK not loaded yet; play will render-only until SDK is ready.');
-            }
-          } else if (app.setPaused) {
-            app.setPaused(false);
-          }
+          if (app?.setPaused) app.setPaused(false);
+          if (!app) warn('Play started before runtime App was ready — will be render-only this session.');
         }
         transition('playing');
         startLoop();
@@ -154,12 +165,9 @@ export const PlayModePlugin: IPlugin = {
       stop(): void {
         if (mode === 'edit') return;
         stopLoop();
-        if (app) {
-          try { app.disconnectCpp?.(); } catch (err) {
-            console.warn('[play-mode] disconnectCpp threw:', err);
-          }
-          app = undefined;
-        }
+        // Keep the App alive across play/stop — the resolver and bound texture
+        // handles stay valid for edit mode. Just pause ticking.
+        try { app?.setPaused?.(true); } catch (err) { warn('setPaused threw', err); }
         const ecs = presence.current;
         if (ecs && snapshot) {
           // Entity ids change on deserialize; stale selection would point
@@ -178,14 +186,59 @@ export const PlayModePlugin: IPlugin = {
 
     ctx.subscriptions.add(ctx.services.register(IPlayModeService, service));
 
+    // App construction runs eagerly (on SDK + ECS ready) so the Assets
+    // pipeline is live in edit mode, not just during Play.
+    const tryCreateApp = (): void => {
+      if (app) return;
+      const ecs = presence.current;
+      const sdk = estella.sdk;
+      const wasmModule = estella.module;
+      if (!ecs || !sdk || !wasmModule) return;
+      try {
+        const handle = ecs.getCppHandle();
+        const sdkRec = sdk as unknown as Record<string, unknown>;
+        const factory = sdkRec['createWebApp'];
+        const created = typeof factory === 'function'
+          ? (factory as (m: unknown) => EstellaApp)(wasmModule)
+          : new (sdkRec['App'] as new () => EstellaApp)();
+        created.connectCpp(handle.registry, handle.module);
+        created.setPaused?.(true);
+        app = created;
+        runtimeApp = { instance: created, sdk: sdkRec };
+        onDidBindApp.fire(runtimeApp);
+      } catch (err) {
+        warn('Failed to construct runtime App — textures will not load', err);
+      }
+    };
+
+    ctx.subscriptions.add(presence.onDidBind(() => { tryCreateApp(); }));
+
+    // loadSDK rejects if loadCore hasn't run — renderer.ts fires it after
+    // createEditor, so at activate we must defer.
+    const kickLoadSDK = (): void => {
+      estella.loadSDK()
+        .then(() => { tryCreateApp(); })
+        .catch((err: unknown) => { warn('loadSDK failed', err); });
+    };
+    if (estella.isReady) {
+      kickLoadSDK();
+    } else {
+      ctx.subscriptions.add(estella.onReady(() => { tryCreateApp(); kickLoadSDK(); }));
+    }
+    tryCreateApp();
+
     ctx.subscriptions.add({
       dispose(): void {
-        if (mode !== 'edit') {
-          stopLoop();
-          if (app) {
-            try { app.disconnectCpp?.(); } catch { /* empty */ }
-            app = undefined;
+        stopLoop();
+        if (app) {
+          if (runtimeApp) {
+            onDidUnbindApp.fire();
+            runtimeApp = undefined;
           }
+          try { app.disconnectCpp?.(); } catch { /* empty */ }
+          app = undefined;
+        }
+        if (mode !== 'edit') {
           const ecs = presence.current;
           if (ecs && snapshot) {
             try { ecs.deserialize(snapshot); } catch { /* empty */ }

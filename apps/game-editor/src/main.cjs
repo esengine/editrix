@@ -1129,10 +1129,10 @@ ipcMain.handle('fs:unwatch', (_e, watchId) => {
 
 // ── Custom Protocol for WASM assets ────────────────────
 
-protocol.registerSchemesAsPrivileged([{
-  scheme: 'estella',
-  privileges: { secure: true, supportFetchAPI: true, corsEnabled: true },
-}]);
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'estella', privileges: { secure: true, supportFetchAPI: true, corsEnabled: true } },
+  { scheme: 'project-asset', privileges: { secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
+]);
 
 // ── App Lifecycle ───────────────────────────────────────
 
@@ -1145,6 +1145,24 @@ app.whenReady().then(() => {
     const filePath = path.join(__dirname, '..', 'wasm', decodeURIComponent(filename));
     const fileUrl = pathToFileURL(filePath).href;
     return net.fetch(fileUrl);
+  });
+
+  // Serve files from the open project's root via project-asset:// protocol.
+  // The editor's ImageImporterPlugin registers an AssetRefResolver that maps
+  // `@uuid:xxx` → project-relative path, and the SDK concatenates `baseUrl +
+  // path` to get the fetch URL. We accept any host (editor/project/etc.) plus
+  // the leading slash(es) — the actual authority is cosmetic, file resolution
+  // is scoped against `currentProjectPath` below.
+  protocol.handle('project-asset', (request) => {
+    if (!currentProjectPath) return new Response(null, { status: 404 });
+    const parsed = new URL(request.url);
+    const rel = decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
+    const abs = path.normalize(path.join(currentProjectPath, rel));
+    const rootWithSep = currentProjectPath.endsWith(path.sep) ? currentProjectPath : currentProjectPath + path.sep;
+    if (abs !== currentProjectPath && !abs.startsWith(rootWithSep)) {
+      return new Response(null, { status: 403 });
+    }
+    return net.fetch(pathToFileURL(abs).href);
   });
 
   Menu.setApplicationMenu(null);

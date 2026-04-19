@@ -22,6 +22,7 @@ export type PropertyChangeHandler = (key: string, value: unknown) => void;
  */
 export class PropertyGridWidget extends BaseWidget {
   private readonly _onChange: PropertyChangeHandler | undefined;
+  private readonly _assetPicker: AssetPickerBinding | undefined;
   private _groups: readonly PropertyGroup[] = [];
   private _values: Record<string, unknown> = {};
   private readonly _collapsed = new Set<string>();
@@ -59,6 +60,7 @@ export class PropertyGridWidget extends BaseWidget {
   constructor(id: string, options?: PropertyGridOptions) {
     super(id, 'property-grid');
     this._onChange = options?.onChange;
+    this._assetPicker = options?.assetPicker;
   }
 
   setData(groups: readonly PropertyGroup[], values: Record<string, unknown>): void {
@@ -577,30 +579,116 @@ export class PropertyGridWidget extends BaseWidget {
         break;
       }
 
-      case 'asset':
-      case 'entity': {
-        // Reference types render as a read-only handle until a real picker UI
-        // ships with the asset pipeline. The value is typically a UUID string
-        // (asset) or numeric id (entity); callers can read/copy it but can't
-        // edit through the inspector yet.
-        const ref = createElement('span', 'editrix-inspector-readonly');
-        if (value === undefined || value === null || value === '' || value === 0) {
-          ref.textContent = '— none —';
-          ref.classList.add('editrix-inspector-readonly--empty');
+      case 'asset': {
+        if (this._assetPicker) {
+          wrapper.appendChild(this._buildAssetChip(prop, value));
         } else {
-          // Asset uuids and entity numeric handles both stringify cleanly;
-          // anything else (an unexpected object) falls back to JSON.
-          const display = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-            ? String(value)
-            : JSON.stringify(value);
-          ref.textContent = `${prop.type}:${display}`;
+          wrapper.appendChild(this._buildRefFallback(prop, value));
         }
-        wrapper.appendChild(ref);
+        break;
+      }
+
+      case 'entity': {
+        wrapper.appendChild(this._buildRefFallback(prop, value));
         break;
       }
     }
 
     return wrapper;
+  }
+
+  /** Plain read-only rendering used for `entity` refs (and `asset` when no picker is bound). */
+  private _buildRefFallback(prop: PropertyDescriptor, value: unknown): HTMLElement {
+    const ref = createElement('span', 'editrix-inspector-readonly');
+    if (value === undefined || value === null || value === '' || value === 0) {
+      ref.textContent = '— none —';
+      ref.classList.add('editrix-inspector-readonly--empty');
+    } else {
+      const display = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+        ? String(value)
+        : JSON.stringify(value);
+      ref.textContent = `${prop.type}:${display}`;
+    }
+    return ref;
+  }
+
+  /**
+   * Clickable asset chip — thumbnail + label + clear button. Click anywhere but
+   * the × opens the host's picker; × clears the field. Unresolvable refs still
+   * render (as a missing-asset chip) so the user can see something went wrong.
+   */
+  private _buildAssetChip(prop: PropertyDescriptor, value: unknown): HTMLElement {
+    const picker = this._assetPicker;
+    const chip = createElement('div', 'editrix-inspector-asset-chip');
+    const currentRef = typeof value === 'string' && value !== '' ? value : undefined;
+
+    const thumb = createElement('div', 'editrix-inspector-asset-thumb');
+    chip.appendChild(thumb);
+
+    const textCol = createElement('div', 'editrix-inspector-asset-text');
+    const labelEl = createElement('span', 'editrix-inspector-asset-label');
+    const descEl = createElement('span', 'editrix-inspector-asset-desc');
+    textCol.appendChild(labelEl);
+    textCol.appendChild(descEl);
+    chip.appendChild(textCol);
+
+    const chevron = createElement('span', 'editrix-inspector-asset-chevron');
+    chevron.textContent = '\u25BE';
+    chip.appendChild(chevron);
+
+    const clearBtn = createElement('button', 'editrix-inspector-asset-clear');
+    clearBtn.type = 'button';
+    clearBtn.textContent = '\u00D7';
+    clearBtn.title = 'Clear';
+    chip.appendChild(clearBtn);
+
+    const applyState = (): void => {
+      thumb.replaceChildren();
+      if (!currentRef) {
+        chip.classList.add('editrix-inspector-asset-chip--empty');
+        labelEl.textContent = 'None';
+        descEl.textContent = 'Click to pick an asset';
+        clearBtn.style.display = 'none';
+        return;
+      }
+      chip.classList.remove('editrix-inspector-asset-chip--empty');
+      clearBtn.style.display = '';
+      const preview = picker?.resolve(currentRef);
+      if (!preview) {
+        chip.classList.add('editrix-inspector-asset-chip--missing');
+        labelEl.textContent = 'Missing asset';
+        descEl.textContent = currentRef;
+        return;
+      }
+      chip.classList.remove('editrix-inspector-asset-chip--missing');
+      labelEl.textContent = preview.label;
+      descEl.textContent = preview.description ?? '';
+      if (preview.thumbnailUrl) {
+        const img = createElement('img', 'editrix-inspector-asset-img');
+        img.src = preview.thumbnailUrl;
+        img.draggable = false;
+        thumb.appendChild(img);
+      }
+    };
+    applyState();
+
+    chip.addEventListener('click', (e) => {
+      if (e.target === clearBtn) return;
+      if (!picker) return;
+      picker.requestPicker({
+        fieldKey: prop.key,
+        anchor: chip,
+        currentRef,
+        setValue: (next) => { this._fireChange(prop.key, next); this._renderGrid(); },
+      });
+    });
+    clearBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._fireChange(prop.key, '');
+      this._renderGrid();
+    });
+
+    return chip;
   }
 
   /** Drag-to-adjust: hold mouse on label, drag left/right to change numeric value. */
@@ -1134,6 +1222,75 @@ export class PropertyGridWidget extends BaseWidget {
         font-size: 12px; color: var(--editrix-text-dim);
       }
 
+      /* ── Asset picker chip ── */
+      .editrix-inspector-asset-chip {
+        display: flex; align-items: center; gap: 8px;
+        padding: 4px 6px;
+        background: #2b2c31;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 4px;
+        cursor: pointer;
+        min-height: 28px;
+      }
+      .editrix-inspector-asset-chip:hover {
+        border-color: rgba(255,255,255,0.18);
+        background: #33343A;
+      }
+      .editrix-inspector-asset-chip--empty .editrix-inspector-asset-label {
+        color: var(--editrix-text-dim);
+        font-style: italic;
+      }
+      .editrix-inspector-asset-chip--missing {
+        border-color: rgba(255, 90, 90, 0.45);
+      }
+      .editrix-inspector-asset-chip--missing .editrix-inspector-asset-label {
+        color: #ff8a8a;
+      }
+      .editrix-inspector-asset-thumb {
+        width: 24px; height: 24px;
+        flex-shrink: 0;
+        background: repeating-conic-gradient(rgba(255,255,255,0.04) 0 25%, transparent 0 50%);
+        background-size: 10px 10px;
+        border-radius: 3px;
+        overflow: hidden;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .editrix-inspector-asset-img {
+        width: 100%; height: 100%; object-fit: cover; display: block;
+      }
+      .editrix-inspector-asset-text {
+        flex: 1; min-width: 0;
+        display: flex; flex-direction: column; gap: 1px;
+      }
+      .editrix-inspector-asset-label {
+        font-size: 12px;
+        color: var(--editrix-text, #e4e4e4);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .editrix-inspector-asset-desc {
+        font-size: 10px;
+        color: var(--editrix-text-dim);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .editrix-inspector-asset-chevron {
+        color: var(--editrix-text-dim); font-size: 10px; flex-shrink: 0;
+      }
+      .editrix-inspector-asset-clear {
+        width: 18px; height: 18px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        color: var(--editrix-text-dim);
+        font-size: 14px; line-height: 1;
+        cursor: pointer;
+        border-radius: 3px;
+        flex-shrink: 0;
+      }
+      .editrix-inspector-asset-clear:hover {
+        background: rgba(255,90,90,0.15);
+        color: #ff8a8a;
+      }
+
       /* ── Range row ── */
       .editrix-inspector-range-row {
         display: flex; gap: 6px; align-items: center;
@@ -1285,9 +1442,44 @@ export class PropertyGridWidget extends BaseWidget {
   }
 }
 
+/**
+ * Resolved display data for an asset reference. Returned by
+ * {@link AssetPickerBinding.resolve}.
+ */
+export interface AssetRefPreview {
+  /** Human-readable label (filename, usually). */
+  readonly label: string;
+  /** Thumbnail URL (e.g. for image assets). */
+  readonly thumbnailUrl?: string;
+  /** Short extra context shown in dimmed text (e.g. a folder path). */
+  readonly description?: string;
+}
+
+/**
+ * Adapter between the widget's reference-type fields and whatever catalog
+ * owns the assets. The widget doesn't know about UUIDs or filesystems —
+ * it delegates both display lookup and pick UI to the host.
+ */
+export interface AssetPickerBinding {
+  /** Return display data for a serialized asset ref, or undefined if unknown. */
+  resolve(ref: string): AssetRefPreview | undefined;
+  /**
+   * Open the host's picker UI anchored at `anchor`. When the user confirms,
+   * the host must call `setValue(nextRef)` — passing `''` means "clear".
+   */
+  requestPicker(args: {
+    readonly fieldKey: string;
+    readonly anchor: HTMLElement;
+    readonly currentRef: string | undefined;
+    setValue(next: string): void;
+  }): void;
+}
+
 /** Options for creating a {@link PropertyGridWidget}. */
 export interface PropertyGridOptions {
   readonly onChange?: PropertyChangeHandler;
+  /** If omitted, `'asset'` fields fall back to the read-only display. */
+  readonly assetPicker?: AssetPickerBinding;
 }
 
 /**

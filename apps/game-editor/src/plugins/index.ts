@@ -19,6 +19,7 @@ export { DocumentTabsPlugin } from './document-tabs-plugin.js';
 export { ECSScenePlugin } from './ecs-scene-plugin.js';
 export { FilesystemPlugin } from './filesystem-plugin.js';
 export { HierarchyPlugin } from './hierarchy-plugin.js';
+export { ImageImporterPlugin } from './image-importer-plugin.js';
 export { InspectorFiltersPlugin } from './inspector-filters-plugin.js';
 export { InspectorPlugin } from './inspector-plugin.js';
 export { OSDropImportPlugin } from './os-drop-import-plugin.js';

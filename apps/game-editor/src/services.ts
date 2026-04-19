@@ -208,6 +208,16 @@ export type AssetChange =
   | { readonly kind: 'removed'; readonly uuid: string; readonly relativePath: string }
   | { readonly kind: 'modified'; readonly asset: AssetEntry };
 
+/** Per-asset settings persisted under the `importer` key of the `.meta` sidecar. */
+export interface ImporterSettings {
+  readonly texture?: {
+    readonly filter?: 'linear' | 'nearest';
+    readonly wrap?: 'repeat' | 'clamp' | 'mirror';
+    readonly mipmaps?: boolean;
+  };
+  readonly [key: string]: unknown;
+}
+
 /**
  * Catalog of the project's assets/ tree, keyed by stable UUID v4. `.meta`
  * sidecar files persist the UUID next to each asset (same pattern as Unity)
@@ -221,7 +231,41 @@ export interface IAssetCatalogService {
   getByUuid(uuid: string): AssetEntry | undefined;
   /** `relativePath` is the forward-slashed project-relative path. */
   getByPath(relativePath: string): AssetEntry | undefined;
+  /** Importer settings from the `.meta` sidecar. Returns empty object if none. */
+  getImporterSettings(uuid: string): ImporterSettings;
+  /** Merge-in importer settings for `uuid` and persist to `.meta`. */
+  setImporterSettings(uuid: string, patch: ImporterSettings): Promise<void>;
   readonly onDidChange: Event<AssetChange>;
+  readonly onDidChangeImporter: Event<{ uuid: string; settings: ImporterSettings }>;
 }
 
 export const IAssetCatalogService = createServiceId<IAssetCatalogService>('IAssetCatalogService');
+
+/**
+ * Minimal view of the estella runtime App that non–play-mode plugins depend on.
+ * The App is created lazily (first Play) and torn down on Stop, so asset-wiring
+ * plugins can't hold a reference across the lifecycle — they re-bind each time.
+ */
+export interface IRuntimeApp {
+  /** The SDK's App instance. Typed `unknown` because the SDK is late-bound. */
+  readonly instance: unknown;
+  /** Matching SDK module — exposes `Assets` ResourceDef, `AssetRegistry`, etc. */
+  readonly sdk: Record<string, unknown>;
+}
+
+/**
+ * Presence wrapper for the runtime App. The App is created lazily by
+ * PlayModePlugin on the first Play transition and torn down on Stop; consumers
+ * subscribe to {@link onDidBind}/{@link onDidUnbind} rather than holding
+ * references directly.
+ */
+export interface IRuntimeAppPresence {
+  /** The currently-bound runtime App, or undefined in edit mode. */
+  readonly current: IRuntimeApp | undefined;
+  /** Fired each time the App is created (potentially many times per session). */
+  readonly onDidBind: Event<IRuntimeApp>;
+  /** Fired when the App is about to be disposed. */
+  readonly onDidUnbind: Event<void>;
+}
+
+export const IRuntimeAppPresence = createServiceId<IRuntimeAppPresence>('IRuntimeAppPresence');

@@ -56,7 +56,12 @@ export { showQuickPick } from './quick-pick.js';
 export { BaseWidget } from './widgets/base-widget.js';
 export type { ListItem, ListWidgetOptions } from './widgets/list-widget.js';
 export { ListWidget } from './widgets/list-widget.js';
-export type { PropertyChangeHandler, PropertyGridOptions } from './widgets/property-grid-widget.js';
+export type {
+  AssetPickerBinding,
+  AssetRefPreview,
+  PropertyChangeHandler,
+  PropertyGridOptions,
+} from './widgets/property-grid-widget.js';
 export { PropertyGridWidget } from './widgets/property-grid-widget.js';
 export type { ToolbarAction } from './widgets/toolbar-widget.js';
 export { Toolbar } from './widgets/toolbar-widget.js';
