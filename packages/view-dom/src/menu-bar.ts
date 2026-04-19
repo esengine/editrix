@@ -1,6 +1,6 @@
+import { formatKeyForDisplay } from '@editrix/commands';
 import type { Event, IDisposable } from '@editrix/common';
 import { Emitter, toDisposable } from '@editrix/common';
-import { formatKeyForDisplay } from '@editrix/commands';
 import { createElement } from './dom-utils.js';
 import { createIconElement, getIcon } from './icons.js';
 

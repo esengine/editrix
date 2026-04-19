@@ -24,6 +24,18 @@ export default tseslint.config(
     },
   },
 
+  // Tests and vitest configs live outside per-package build tsconfigs.
+  // Running them through the default project trips tseslint's glob guard,
+  // so skip them at the lint level — they're checked by `vitest` instead.
+  {
+    ignores: [
+      '**/__tests__/**/*.ts',
+      '**/*.test.ts',
+      '**/*.spec.ts',
+      '**/vitest.config.ts',
+    ],
+  },
+
   // Project rules
   {
     plugins: {

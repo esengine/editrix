@@ -56,7 +56,7 @@ export type EstellaModuleName = 'physics' | 'spine' | 'particles' | 'tilemap';
 
 export interface EstellaSDK {
     createWebApp: (module: ESEngineModule, options?: unknown) => unknown;
-    App: { new(): unknown };
+    App: new () => unknown;
     corePlugin: unknown;
     [key: string]: unknown;
 }

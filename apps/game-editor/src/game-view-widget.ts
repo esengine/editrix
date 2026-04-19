@@ -10,7 +10,6 @@ import type { SharedRenderContext, RenderView } from './render-context.js';
  */
 export class GameViewWidget extends BaseWidget {
   private _canvas: HTMLCanvasElement | undefined;
-  private _ctx2d: CanvasRenderingContext2D | null = null;
   private readonly _renderContext: SharedRenderContext;
   private _view: RenderView | undefined;
 
@@ -31,7 +30,6 @@ export class GameViewWidget extends BaseWidget {
     if (!ctx2d) {
       throw new Error('GameViewWidget: 2D canvas context unavailable.');
     }
-    this._ctx2d = ctx2d;
 
     // Register as a render view
     const canvasRef = this._canvas;

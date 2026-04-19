@@ -81,7 +81,9 @@ export class ElectronFileSystemService implements IFileSystemService {
     // accept either, but the interface promises ArrayBuffer).
     if (raw instanceof ArrayBuffer) return raw;
     if (raw instanceof Uint8Array) {
-      return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+      // .buffer is typed ArrayBufferLike in newer TS lib defs (covers Shared too).
+      // We only ever serve plain ArrayBuffers through IPC, so narrow explicitly.
+      return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
     }
     if ('buffer' in raw && raw.buffer instanceof ArrayBuffer) return raw.buffer;
     throw new Error(`readFileBuffer: unexpected payload shape for "${filePath}".`);

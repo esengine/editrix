@@ -245,12 +245,12 @@ export class TreeWidget extends BaseWidget {
     // last row resolve to "after the last row" — the one position the
     // per-row 25/50/25 zones can't reach.
     if (this._options.enableDrag !== false) {
-      this._listEl.addEventListener('dragover', (e) => this._handleListDragover(e));
+      this._listEl.addEventListener('dragover', (e) => { this._handleListDragover(e); });
       this._listEl.addEventListener('dragleave', (e) => {
         if (this._listEl?.contains(e.relatedTarget as Node | null)) return;
         this._clearDropIndicator();
       });
-      this._listEl.addEventListener('drop', (e) => this._handleListDrop(e));
+      this._listEl.addEventListener('drop', (e) => { this._handleListDrop(e); });
     }
 
     this._render();
@@ -259,10 +259,10 @@ export class TreeWidget extends BaseWidget {
   private _handleListDragover(e: DragEvent): void {
     const sources = this._dragSourceIds;
     if (!sources || sources.length === 0) return;
-    if ((e.target as HTMLElement | null)?.closest?.('.editrix-tree-row')) return;
+    if ((e.target as HTMLElement | null)?.closest('.editrix-tree-row')) return;
 
     const lastRow = this._listEl?.lastElementChild as HTMLElement | null;
-    if (!lastRow || !lastRow.classList.contains('editrix-tree-row')) return;
+    if (!lastRow?.classList.contains('editrix-tree-row')) return;
     const lastId = lastRow.dataset['nodeId'];
     if (!lastId || sources.includes(lastId)) return;
     if (this._options.canDrop && !this._options.canDrop(sources, lastId, 'after')) return;
@@ -273,7 +273,7 @@ export class TreeWidget extends BaseWidget {
   }
 
   private _handleListDrop(e: DragEvent): void {
-    if ((e.target as HTMLElement | null)?.closest?.('.editrix-tree-row')) return;
+    if ((e.target as HTMLElement | null)?.closest('.editrix-tree-row')) return;
     const raw = e.dataTransfer?.getData('text/x-editrix-tree-node');
     this._clearDropIndicator();
     if (!raw) return;
@@ -281,7 +281,7 @@ export class TreeWidget extends BaseWidget {
     try { sources = JSON.parse(raw) as string[]; } catch { return; }
     if (!Array.isArray(sources) || sources.length === 0) return;
     const lastRow = this._listEl?.lastElementChild as HTMLElement | null;
-    if (!lastRow || !lastRow.classList.contains('editrix-tree-row')) return;
+    if (!lastRow?.classList.contains('editrix-tree-row')) return;
     const lastId = lastRow.dataset['nodeId'];
     if (!lastId || sources.includes(lastId)) return;
     if (this._options.canDrop && !this._options.canDrop(sources, lastId, 'after')) return;
