@@ -4,6 +4,7 @@ import type {
     EntityEvent, ComponentEvent, PropertyEvent,
 } from './ecs-scene-service.js';
 import type { ESEngineModule, CppRegistry, VectorString } from './estella-service.js';
+import { assetFieldSubtype } from './index.js';
 
 /** Convert Emscripten VectorString to JS array and delete the vector. */
 function vecToArray(vec: VectorString): string[] {
@@ -84,14 +85,18 @@ export class ECSSceneService implements IECSSceneService {
             const json = this._module.editor_getComponentSchema(name);
             try {
                 const raw = JSON.parse(json) as { key: string; type: string; group: string; values?: string[] }[];
-                const fields: ComponentFieldSchema[] = raw.map((f) => ({
-                    key: f.key,
-                    label: this._humanize(f.key),
-                    type: f.type as ComponentFieldSchema['type'],
-                    defaultValue: this._defaultForType(f.type),
-                    group: f.group,
-                    ...(f.values ? { enumValues: f.values } : {}),
-                }));
+                const fields: ComponentFieldSchema[] = raw.map((f) => {
+                    const subtype = f.type === 'asset' ? assetFieldSubtype(name, f.key) : undefined;
+                    return {
+                        key: f.key,
+                        label: this._humanize(f.key),
+                        type: f.type as ComponentFieldSchema['type'],
+                        defaultValue: this._defaultForType(f.type),
+                        group: f.group,
+                        ...(f.values ? { enumValues: f.values } : {}),
+                        ...(subtype ? { assetType: subtype } : {}),
+                    };
+                });
                 this._schemas.set(name, fields);
             } catch {
                 this._schemas.set(name, []);

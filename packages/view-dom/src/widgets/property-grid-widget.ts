@@ -757,6 +757,7 @@ export class PropertyGridWidget extends BaseWidget {
         fieldKey: prop.key,
         anchor: chip,
         currentRef,
+        assetType: prop.assetType,
         setValue: (next) => { this._fireChange(prop.key, next); this._renderGrid(); },
       });
     });
@@ -1568,6 +1569,13 @@ export interface AssetPickerBinding {
     readonly fieldKey: string;
     readonly anchor: HTMLElement;
     readonly currentRef: string | undefined;
+    /**
+     * Asset subtype the field expects, lifted from
+     * {@link PropertyDescriptor.assetType}. Hosts filter the picker list
+     * by this — `'texture'` shows images, `'anim-clip'` shows `.esanim`
+     * files, and so on. Undefined = show every asset in the catalog.
+     */
+    readonly assetType: string | undefined;
     setValue(next: string): void;
   }): void;
 }

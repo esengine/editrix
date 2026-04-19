@@ -57,6 +57,30 @@ function resolveAssetPreview(catalog: IAssetCatalogServiceShape, ref: string): A
   };
 }
 
+/**
+ * Translate an SDK asset-field subtype (from the component schema) into
+ * the editor's catalog asset-type tag. Subtypes the editor doesn't track
+ * yet (material) return undefined so the picker falls back to "show all
+ * assets" — better than silently dropping to an empty list.
+ */
+function pickerAssetType(subtype: string | undefined): string | undefined {
+  // 'material' / 'tilemap' / 'timeline' aren't catalog-classified yet —
+  // undefined falls back to "show all assets" rather than an empty list.
+  if (subtype === 'texture') return 'image';
+  if (subtype === 'anim-clip') return 'anim-clip';
+  if (subtype === 'audio') return 'audio';
+  if (subtype === 'font') return 'font';
+  return undefined;
+}
+
+function pickerPlaceholder(wanted: string | undefined): string {
+  if (wanted === 'image') return 'Search images...';
+  if (wanted === 'anim-clip') return 'Search animation clips...';
+  if (wanted === 'audio') return 'Search audio...';
+  if (wanted === 'font') return 'Search fonts...';
+  return 'Search assets...';
+}
+
 // ─── ECS field-type → Inspector PropertyType ──────────────
 
 /** Short, human-friendly print of a prefab source value for tooltips. */
@@ -190,6 +214,7 @@ function ecsToPropertyGroups(
         ...(f.max !== undefined ? { max: f.max } : {}),
         ...(f.step !== undefined ? { step: f.step } : {}),
         ...(f.enumValues !== undefined ? { enumValues: f.enumValues } : {}),
+        ...(f.assetType !== undefined ? { assetType: f.assetType } : {}),
       })),
     });
 
@@ -431,17 +456,22 @@ export const InspectorPlugin: IPlugin = {
         const assetPicker: AssetPickerBinding = {
           resolve: (ref) => resolveAssetPreview(catalog, ref),
           requestPicker: (args) => {
-            const images = catalog.getAll()
-              .filter((a) => a.type === 'image')
+            // `assetType` (from the property descriptor) scopes the picker
+            // to the kind the field expects — textures for Sprite.texture,
+            // anim-clips for SpriteAnimator.clip, etc. Undefined = no
+            // field-kind info, show every asset.
+            const wanted = pickerAssetType(args.assetType);
+            const items = catalog.getAll()
+              .filter((a) => wanted === undefined || a.type === wanted)
               .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
             showQuickPick({
               anchor: args.anchor,
-              placeholder: 'Search images...',
-              items: images.map((a) => ({
+              placeholder: pickerPlaceholder(wanted),
+              items: items.map((a) => ({
                 id: a.uuid,
                 label: assetFilename(a.relativePath),
                 description: assetFolder(a.relativePath),
-                iconUrl: assetUrl(a.relativePath),
+                ...(a.type === 'image' ? { iconUrl: assetUrl(a.relativePath) } : {}),
                 ...(args.currentRef === a.uuid ? { disabled: true } : {}),
               })),
               onSelect: (item) => { args.setValue(item.id); },

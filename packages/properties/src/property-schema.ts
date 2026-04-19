@@ -62,6 +62,12 @@ export interface PropertyDescriptor {
   readonly children?: readonly PropertyDescriptor[];
   /** For `'array'` type: schema for each array element. */
   readonly itemSchema?: PropertyDescriptor;
+  /**
+   * For `'asset'` type: the asset-kind the field expects (e.g.
+   * `'texture'`, `'anim-clip'`). When set, the host's asset picker
+   * filters its list by this kind. Undefined = show all assets.
+   */
+  readonly assetType?: string;
   /** Validation function. Returns an error message or undefined. */
   readonly validate?: (value: unknown) => string | undefined;
 }

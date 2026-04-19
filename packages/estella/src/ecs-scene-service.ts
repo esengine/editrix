@@ -4,6 +4,16 @@ import { createServiceId, type IDisposable, type Event } from '@editrix/common';
 
 export type FieldType = 'float' | 'int' | 'bool' | 'string' | 'color' | 'enum' | 'asset' | 'entity';
 
+/**
+ * Asset subtype for `type: 'asset'` fields. Surfaced so the Inspector's
+ * picker can filter to just the asset kind a component expects — Sprite
+ * wants `texture`, SpriteAnimator wants `anim-clip`, and so on. Omitted
+ * on non-asset fields or when the component isn't in the builtin map.
+ */
+export type AssetFieldSubtype =
+    | 'texture' | 'material' | 'font'
+    | 'anim-clip' | 'audio' | 'tilemap' | 'timeline';
+
 export interface ComponentFieldSchema {
     readonly key: string;
     readonly label: string;
@@ -14,6 +24,8 @@ export interface ComponentFieldSchema {
     readonly max?: number;
     readonly step?: number;
     readonly enumValues?: readonly string[];
+    /** Asset subtype for `type: 'asset'` fields. Undefined when unknown. */
+    readonly assetType?: AssetFieldSubtype;
 }
 
 // ─── Scene Data (serialization) ────────────────────────────
