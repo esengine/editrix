@@ -5,6 +5,7 @@ import {
   entityRef,
   IAssetCatalogService,
   IECSScenePresence,
+  IPrefabService,
   IProjectService,
   ISharedRenderContext,
 } from '../services.js';
@@ -25,7 +26,7 @@ export const ViewportPlugin: IPlugin = {
   descriptor: {
     id: 'app.viewport',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'app.render-context', 'app.ecs-scene', 'app.asset-catalog', 'app.project', 'app.document-sync'],
+    dependencies: ['editrix.layout', 'editrix.view', 'app.render-context', 'app.ecs-scene', 'app.asset-catalog', 'app.project', 'app.document-sync', 'app.prefab'],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
@@ -38,6 +39,7 @@ export const ViewportPlugin: IPlugin = {
     const catalog = ctx.services.get(IAssetCatalogService);
     const project = ctx.services.get(IProjectService);
     const documentService = ctx.services.get(IDocumentService);
+    const prefabService = ctx.services.get(IPrefabService);
 
     let widget: ViewportWidget | undefined;
 
@@ -61,6 +63,26 @@ export const ViewportPlugin: IPlugin = {
         ctx.subscriptions.add(sub);
       }
 
+      // Prefab Mode banner: bind to the active document. When a `.esprefab`
+      // tab is focused, the viewport shows an "Editing Prefab: X" banner
+      // with an Exit button that simply closes that tab (restoring the
+      // previous scene via the snapshot-swap layer).
+      const refreshPrefabBanner = (): void => {
+        const activePath = documentService.activeDocument;
+        if (activePath?.endsWith('.esprefab') === true) {
+          const leaf = activePath.split('/').pop() ?? 'Prefab';
+          widget?.setPrefabBanner({
+            title: `Editing Prefab: ${leaf}`,
+            onExit: () => { documentService.close(activePath); },
+          });
+        } else {
+          widget?.setPrefabBanner(undefined);
+        }
+      };
+      ctx.subscriptions.add(documentService.onDidChangeActive(refreshPrefabBanner));
+      ctx.subscriptions.add(documentService.onDidChangeDocuments(refreshPrefabBanner));
+      refreshPrefabBanner();
+
       ctx.subscriptions.add(widget.onDidDropAsset(({ absolutePath, worldX, worldY, hitEntityId }) => {
         const rel = toProjectRelative(absolutePath, project.path);
         if (rel === undefined) return;
@@ -69,6 +91,31 @@ export const ViewportPlugin: IPlugin = {
 
         if (entry.type === 'scene') {
           documentService.open(absolutePath).catch(() => { /* doc-sync surfaces failure */ });
+          return;
+        }
+        if (entry.type === 'prefab') {
+          // Instantiate the prefab at the drop world position. Selection
+          // flips to the instance root so the user can immediately keep
+          // editing. Errors surface via the service's warn path (console).
+          void (async (): Promise<void> => {
+            try {
+              const rootEntityId = await prefabService.instantiate(entry.uuid, { position: { x: worldX, y: worldY } });
+              selection.select([entityRef(rootEntityId)]);
+              const ecs = presence.current;
+              if (!ecs) return;
+              undoRedo.push({
+                label: `Instantiate ${entry.relativePath.split('/').pop() ?? 'Prefab'}`,
+                undo: () => { ecs.destroyEntity(rootEntityId); selection.clearSelection(); },
+                // Redo instantiates a fresh copy (new entity ids). Select that
+                // copy so the user stays oriented. Fire-and-forget — if it
+                // fails the console will show it.
+                redo: () => {
+                  void prefabService.instantiate(entry.uuid, { position: { x: worldX, y: worldY } })
+                    .then((newRootId) => { selection.select([entityRef(newRootId)]); });
+                },
+              });
+            } catch { /* prefab-plugin already logged */ }
+          })();
           return;
         }
         if (entry.type !== 'image') return;

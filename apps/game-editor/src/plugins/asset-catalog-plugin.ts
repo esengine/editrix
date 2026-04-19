@@ -231,6 +231,7 @@ class AssetCatalog implements IAssetCatalogService, IDisposable {
 function classify(extension: string): AssetType {
   const ext = extension.toLowerCase();
   if (ext === '.png' || ext === '.jpg' || ext === '.jpeg' || ext === '.webp' || ext === '.gif') return 'image';
+  if (ext === '.esprefab') return 'prefab';
   if (ext === '.scene.json' || ext === '.json') return 'scene';
   if (ext === '.mp3' || ext === '.wav' || ext === '.ogg') return 'audio';
   if (ext === '.ttf' || ext === '.otf' || ext === '.woff' || ext === '.woff2') return 'font';

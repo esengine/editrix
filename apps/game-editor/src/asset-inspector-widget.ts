@@ -297,16 +297,18 @@ function glyphFor(type: AssetEntry['type']): string {
     case 'audio':   return '\u266B';
     case 'font':    return '\u0041';
     case 'image':   return '\u25A0';
+    case 'prefab':  return '\u25C6';
     case 'unknown': return '?';
   }
 }
 
 function importPlaceholderFor(type: AssetEntry['type']): string {
   switch (type) {
-    case 'image': return 'Filter / wrap / compression settings coming soon.';
-    case 'audio': return 'Compression / loop settings coming soon.';
-    case 'font':  return 'Atlas size / glyph range settings coming soon.';
-    case 'scene': return 'No import settings for scenes.';
+    case 'image':  return 'Filter / wrap / compression settings coming soon.';
+    case 'audio':  return 'Compression / loop settings coming soon.';
+    case 'font':   return 'Atlas size / glyph range settings coming soon.';
+    case 'scene':  return 'No import settings for scenes.';
+    case 'prefab': return 'No import settings for prefabs.';
     case 'unknown': return 'No import settings available.';
   }
 }

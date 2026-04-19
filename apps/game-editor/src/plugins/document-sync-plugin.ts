@@ -4,7 +4,7 @@ import { IConsoleService } from '@editrix/plugin-console';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { DocumentService, ICommandRegistry, IDocumentService, ISelectionService } from '@editrix/shell';
 import { showConfirmDialog } from '../dialogs.js';
-import { IECSScenePresence, IPlayModeService, IProjectService } from '../services.js';
+import { IECSScenePresence, IPlayModeService, IPrefabService, IProjectService } from '../services.js';
 
 interface ElectronFileApi {
   selectFile(options?: {
@@ -42,6 +42,14 @@ export const DocumentSyncPlugin: IPlugin = {
 
     let pendingScene: SceneData | undefined;
 
+    // Lazy lookup — IPrefabService is registered by a plugin that depends
+    // on us, so at `activate` time it doesn't exist yet. By handler-call
+    // time (user action) it does. Returns undefined if something's off;
+    // callers silently degrade to the old "no tab swap" behaviour.
+    const tryPrefabService = (): IPrefabService | undefined => {
+      try { return ctx.services.get(IPrefabService); } catch { return undefined; }
+    };
+
     ctx.subscriptions.add(
       documentService.registerHandler({
         extensions: ['.scene.json'],
@@ -62,11 +70,16 @@ export const DocumentSyncPlugin: IPlugin = {
           }
 
           const data = parseSceneData(content, filePath);
+          // Snapshot whatever doc's ECS state we're about to replace, so
+          // switching back restores it. adoptEcsDoc ties the ECS content
+          // to this scene for the tab-swap layer.
+          tryPrefabService()?.snapshotCurrentEcsDoc();
           if (presence.current) {
             applyScene(presence.current, data);
           } else {
             pendingScene = data;
           }
+          tryPrefabService()?.adoptEcsDoc(filePath);
         },
         serialize(_filePath): Promise<string> {
           if (!presence.current) {
@@ -86,14 +99,18 @@ export const DocumentSyncPlugin: IPlugin = {
       })();
     }));
 
-    // Last scene doc closed → tear down play + selection + ECS together.
-    // Stop must precede clear so the snapshot restore writes into live state.
+    // Last ECS-occupying doc closed → tear down play + selection + ECS
+    // together. Stop must precede clear so the snapshot restore writes into
+    // live state. Both `.scene.json` and `.esprefab` are "ECS-occupying"
+    // because prefab mode (app.prefab) also commandeers the live ECS.
+    const isEcsOccupying = (path: string): boolean =>
+      path.endsWith('.scene.json') || path.endsWith('.esprefab');
     ctx.subscriptions.add(
       documentService.onDidChangeDocuments(() => {
-        const hasSceneDoc = documentService
+        const hasEcsDoc = documentService
           .getOpenDocuments()
-          .some((d) => d.extension === '.scene.json' || d.filePath.endsWith('.scene.json'));
-        if (hasSceneDoc) return;
+          .some((d) => isEcsOccupying(d.filePath));
+        if (hasEcsDoc) return;
 
         pendingScene = undefined;
         if (playMode.isInPlay) playMode.stop();
@@ -250,6 +267,10 @@ function seedDefaultScene(ecs: IECSSceneService): void {
 
   const shapeId = ecs.createEntity('Test Shape');
   ecs.addComponent(shapeId, 'ShapeRenderer');
+  // Honoured by PlayModePlugin's demo orbit system — seeded on the test
+  // shape only so a freshly-created project visibly animates on Play.
+  // Round-tripped via SerializedEntity.metadata.
+  ecs.setEntityMetadata(shapeId, 'debug:autoSpin', true);
 }
 
 function emptySceneJson(): string {

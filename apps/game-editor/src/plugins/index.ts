@@ -24,6 +24,7 @@ export { InspectorFiltersPlugin } from './inspector-filters-plugin.js';
 export { InspectorPlugin } from './inspector-plugin.js';
 export { OSDropImportPlugin } from './os-drop-import-plugin.js';
 export { PlayModePlugin } from './play-mode-plugin.js';
+export { PrefabPlugin } from './prefab-plugin.js';
 export { ProjectPanelsPlugin } from './project-panels-plugin.js';
 export { ProjectPlugin } from './project-plugin.js';
 export { RenderContextPlugin } from './render-context-plugin.js';

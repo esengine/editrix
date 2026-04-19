@@ -1,10 +1,56 @@
+import { IFileSystemService } from '@editrix/core';
 import type { IECSSceneService } from '@editrix/estella';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { IDocumentService, ILayoutService, ISelectionService, IUndoRedoService, IViewService } from '@editrix/shell';
 import type { TreeNode } from '@editrix/view-dom';
-import { showContextMenu, TreeWidget } from '@editrix/view-dom';
-import { showInputDialog } from '../dialogs.js';
-import { entityRef, IECSScenePresence, parseSelectionRef } from '../services.js';
+import { registerIcon, showContextMenu, TreeWidget } from '@editrix/view-dom';
+import { showConfirmDialog, showInputDialog } from '../dialogs.js';
+import {
+  entityRef,
+  IAssetCatalogService,
+  IECSScenePresence,
+  IPrefabService,
+  IProjectService,
+  parseSelectionRef,
+  PREFAB_METADATA_KEYS,
+} from '../services.js';
+
+// One-shot registrations — safe to call during module eval because the
+// default icon registry is a singleton. `editrix-prefab-label` carries the
+// blue color via CSS injected once below.
+registerIcon(
+  'prefab-instance',
+  // Isometric-ish cube silhouette, hardcoded blue so the icon stays distinctive
+  // regardless of the row's selection/hover text color.
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5aa4ff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
+  + '<path d="M12 3 3 7.5v9L12 21l9-4.5v-9L12 3Z"/>'
+  + '<path d="M3 7.5 12 12l9-4.5"/>'
+  + '<path d="M12 12v9"/>'
+  + '</svg>',
+);
+
+// Blue label color for prefab instance roots — one-time stylesheet injection
+// so the hierarchy plugin owns its own styling without pulling it into the
+// framework's tree-widget CSS.
+if (typeof document !== 'undefined' && !document.getElementById('editrix-hierarchy-prefab-style')) {
+  const style = document.createElement('style');
+  style.id = 'editrix-hierarchy-prefab-style';
+  style.textContent = `
+    .editrix-tree-label.editrix-prefab-label {
+      color: #5aa4ff;
+    }
+    .editrix-tree-row--selected .editrix-tree-label.editrix-prefab-label {
+      /* keep contrast against the selected-row background */
+      color: #b7d6ff;
+    }
+    /* External-MIME drop target (e.g. prefab drag from Content Browser). */
+    .editrix-tree-row--external-drop {
+      outline: 1px solid #5aa4ff;
+      background: rgba(90,164,255,0.12);
+    }
+  `;
+  document.head.appendChild(style);
+}
 
 interface EntitySnapshot {
   readonly name: string;
@@ -17,9 +63,12 @@ interface EntitySnapshot {
 function ecsToTreeNodes(ecs: IECSSceneService, entityIds: readonly number[]): TreeNode[] {
   return entityIds.map((id) => {
     const children = ecs.getChildren(id);
+    const isInstanceRoot = typeof ecs.getEntityMetadata(id, PREFAB_METADATA_KEYS.SOURCE) === 'string';
+    const label = ecs.getName(id) || `Entity ${String(id)}`;
     return {
       id: entityRef(id),
-      label: ecs.getName(id) || `Entity ${String(id)}`,
+      label,
+      ...(isInstanceRoot ? { icon: 'prefab-instance', labelClassName: 'editrix-prefab-label' } : {}),
       ...(children.length > 0 ? { children: ecsToTreeNodes(ecs, children) } : {}),
     };
   });
@@ -74,7 +123,7 @@ export const HierarchyPlugin: IPlugin = {
   descriptor: {
     id: 'app.hierarchy',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties', 'app.ecs-scene', 'app.document-sync'],
+    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties', 'app.ecs-scene', 'app.document-sync', 'app.prefab', 'app.asset-catalog'],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
@@ -83,6 +132,10 @@ export const HierarchyPlugin: IPlugin = {
     const undoRedo = ctx.services.get(IUndoRedoService);
     const presence = ctx.services.get(IECSScenePresence);
     const documentService = ctx.services.get(IDocumentService);
+    const prefabService = ctx.services.get(IPrefabService);
+    const project = ctx.services.get(IProjectService);
+    const fileSystem = ctx.services.get(IFileSystemService);
+    const catalog = ctx.services.get(IAssetCatalogService);
 
     const hasActiveSceneDoc = (): boolean => {
       return documentService.activeDocument?.endsWith('.scene.json') === true;
@@ -98,8 +151,16 @@ export const HierarchyPlugin: IPlugin = {
 
     ctx.subscriptions.add(presence.onDidBind((ecs) => {
       ctx.subscriptions.add(ecs.onHierarchyChanged(refreshHierarchy));
+      // The prefab badge in the tree is derived from `prefab:source` metadata,
+      // so any time that key flips on/off (instantiate, hot-reload, undo of a
+      // create-prefab) we redraw the affected row by refreshing wholesale.
+      ctx.subscriptions.add(ecs.onMetadataChanged((ev) => {
+        if (ev.key === PREFAB_METADATA_KEYS.SOURCE) refreshHierarchy();
+      }));
       refreshHierarchy();
     }));
+    ctx.subscriptions.add(prefabService.onDidCreateInstance(refreshHierarchy));
+    ctx.subscriptions.add(prefabService.onDidHotReload(refreshHierarchy));
 
     ctx.subscriptions.add(layout.registerPanel({ id: 'hierarchy', title: 'Hierarchy', defaultRegion: 'left' }));
 
@@ -190,10 +251,27 @@ export const HierarchyPlugin: IPlugin = {
           if (entityIds.length === 0) return;
           // Filter to only root-level entities in the selection (skip children of selected parents).
           const entitySet = new Set(entityIds);
-          const toDelete = entityIds.filter((id) => {
+          let toDelete = entityIds.filter((id) => {
             const parentId = ecs.getParent(id);
             return parentId === null || !entitySet.has(parentId);
           });
+          // In Prefab Mode the ECS IS the prefab. Deleting the sole root
+          // would break the next save (`serialize` expects exactly one
+          // root). Silently filter it out and warn — the user still sees
+          // children deletion work normally.
+          if (documentService.activeDocument?.endsWith('.esprefab') === true) {
+            const rootsBeforeDelete = ecs.getRootEntities();
+            const deletingRoot = toDelete.filter(id => rootsBeforeDelete.includes(id));
+            const remainingRoots = rootsBeforeDelete.filter(id => !toDelete.includes(id));
+            if (deletingRoot.length > 0 && remainingRoots.length === 0) {
+              void showConfirmDialog(
+                'A prefab must have exactly one root entity. Delete its children instead, or exit Prefab Mode to edit a scene.',
+                { okLabel: 'OK' },
+              );
+              toDelete = toDelete.filter(id => !deletingRoot.includes(id));
+              if (toDelete.length === 0) return;
+            }
+          }
           const snapshots = toDelete.map((id) => captureEntitySnapshot(ecs, id));
           const previousSelection = [...selection.getSelection()];
           for (const id of toDelete) {
@@ -284,6 +362,43 @@ export const HierarchyPlugin: IPlugin = {
           });
         };
 
+        const createPrefabFromEntity = async (entityId: number): Promise<void> => {
+          const ecs = presence.current;
+          if (!ecs) return;
+          const entityName = ecs.getName(entityId) || 'Prefab';
+          const safeName = entityName.replace(/[^a-zA-Z0-9_-]+/g, '_') || 'Prefab';
+          const suggested = `${safeName}.esprefab`;
+          const filename = await showInputDialog('Create Prefab', {
+            initialValue: suggested,
+            placeholder: 'filename.esprefab',
+            okLabel: 'Create',
+          });
+          if (!filename) return;
+
+          const trimmed = filename.trim();
+          const finalName = trimmed.endsWith('.esprefab') ? trimmed : `${trimmed}.esprefab`;
+          const prefabsDir = project.resolve('assets/prefabs');
+          const filePath = `${prefabsDir}/${finalName}`;
+
+          if (await fileSystem.exists(filePath)) {
+            const ok = await showConfirmDialog(
+              `${finalName} already exists. Overwrite?`,
+              { okLabel: 'Overwrite', destructive: true },
+            );
+            if (!ok) return;
+          }
+          await fileSystem.mkdir(prefabsDir);
+
+          try {
+            await prefabService.createPrefab(entityId, filePath);
+          } catch (err) {
+            await showConfirmDialog(
+              `Could not create prefab: ${err instanceof Error ? err.message : String(err)}`,
+              { okLabel: 'OK' },
+            );
+          }
+        };
+
         hierarchyTree.onDidRequestRename((id) => { renameEntity(id); });
         hierarchyTree.onDidRequestDuplicate((ids) => { duplicateEntities(ids); });
 
@@ -363,6 +478,14 @@ export const HierarchyPlugin: IPlugin = {
           if (!ecs) return;
           const tree = hierarchyTree;
           const singleId = ids[0];
+          const singleEntityId = singleId ? selectionToEntityId(singleId) : undefined;
+          // Eligible only when exactly one entity is selected, a project is
+          // open (we need a place to write the file), and the entity isn't
+          // already part of an instance (nested prefabs are a future phase).
+          const canCreatePrefab = ids.length === 1
+            && singleEntityId !== undefined
+            && project.isOpen
+            && !prefabService.isInsideInstance(singleEntityId);
           showContextMenu({
             x, y,
             items: [
@@ -391,11 +514,74 @@ export const HierarchyPlugin: IPlugin = {
               },
               { separator: true, label: '' },
               {
+                label: 'Create Prefab',
+                disabled: !canCreatePrefab,
+                onSelect: () => {
+                  if (singleEntityId === undefined) return;
+                  void createPrefabFromEntity(singleEntityId);
+                },
+              },
+              { separator: true, label: '' },
+              {
                 label: ids.length === 1 ? 'Delete' : `Delete (${String(ids.length)})`,
                 icon: 'x', shortcut: 'Del', destructive: true,
                 onSelect: () => { deleteEntities(ids); },
               },
             ],
+          });
+        });
+
+        // External-MIME drop layer: accept `.esprefab` drags from the
+        // Content Browser onto any entity row. Mounting runs after the
+        // factory returns so we defer with microtask so the tree's root
+        // DOM element exists.
+        void Promise.resolve().then(() => {
+          const rootEl = hierarchyTree?.getRootElement();
+          if (!rootEl) return;
+          rootEl.addEventListener('dragover', (e) => {
+            if (!e.dataTransfer?.types.includes('application/x-editrix-asset-path')) return;
+            const rowEl = (e.target as HTMLElement | null)?.closest('.editrix-tree-row') as HTMLElement | null;
+            if (!rowEl) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            rowEl.classList.add('editrix-tree-row--external-drop');
+          });
+          rootEl.addEventListener('dragleave', (e) => {
+            const rowEl = (e.target as HTMLElement | null)?.closest('.editrix-tree-row') as HTMLElement | null;
+            rowEl?.classList.remove('editrix-tree-row--external-drop');
+          });
+          rootEl.addEventListener('drop', (e) => {
+            const path = e.dataTransfer?.getData('application/x-editrix-asset-path');
+            if (path?.endsWith('.esprefab') !== true) return;
+            const rowEl = (e.target as HTMLElement | null)?.closest('.editrix-tree-row') as HTMLElement | null;
+            if (!rowEl) return;
+            const raw = rowEl.dataset['nodeId'];
+            if (raw === undefined) return;
+            const parentId = selectionToEntityId(raw);
+            if (parentId === undefined) return;
+            e.preventDefault();
+            e.stopPropagation();
+            rowEl.classList.remove('editrix-tree-row--external-drop');
+
+            const rel = path.startsWith(project.path + '/') ? path.slice(project.path.length + 1) : path;
+            const catalogEntry = catalog.getByPath(rel);
+            if (!catalogEntry) return;
+            void (async (): Promise<void> => {
+              try {
+                const rootEntityId = await prefabService.instantiate(catalogEntry.uuid, { parent: parentId });
+                selection.select([entityRef(rootEntityId)]);
+                const ecs = presence.current;
+                if (!ecs) return;
+                undoRedo.push({
+                  label: `Instantiate ${catalogEntry.relativePath.split('/').pop() ?? 'Prefab'}`,
+                  undo: () => { ecs.destroyEntity(rootEntityId); selection.clearSelection(); },
+                  redo: () => {
+                    void prefabService.instantiate(catalogEntry.uuid, { parent: parentId })
+                      .then((newRootId) => { selection.select([entityRef(newRootId)]); });
+                  },
+                });
+              } catch { /* prefab-plugin already logged */ }
+            })();
           });
         });
 

@@ -28,6 +28,17 @@ export class EditorCamera {
   get zoom(): number { return this._zoom; }
   set zoom(v: number) { this._zoom = Math.max(this._minZoom, Math.min(this._maxZoom, v)); }
 
+  /**
+   * Center the camera on {@link wx},{@link wy} and optionally reset zoom.
+   * "Frame selection" (F key) calls this with the entity's world position
+   * and a zoom that makes the target comfortably visible.
+   */
+  focusOn(wx: number, wy: number, zoom?: number): void {
+    this.x = wx;
+    this.y = wy;
+    if (zoom !== undefined) this.zoom = zoom;
+  }
+
   /** Allocate WASM heap memory for the matrix. Call once after module is ready. */
   init(module: ESEngineModule): void {
     this._module = module;

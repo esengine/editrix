@@ -34,6 +34,7 @@ import {
   InspectorPlugin,
   OSDropImportPlugin,
   PlayModePlugin,
+  PrefabPlugin,
   ProjectPanelsPlugin,
   ProjectPlugin,
   RenderContextPlugin,
@@ -110,6 +111,7 @@ async function main(): Promise<void> {
       RenderContextPlugin,
       ECSScenePlugin,
       PlayModePlugin,
+      PrefabPlugin,
       ImageImporterPlugin,
       DocumentSyncPlugin,
       DocumentTabsPlugin,
@@ -362,20 +364,35 @@ async function main(): Promise<void> {
     stepBtn.addEventListener('click', () => { playMode.step(); });
     rightSection.appendChild(stepBtn);
 
+    // Play is meaningful only for `.scene.json` docs. When the user has a
+    // `.esprefab` tab active the Scene View holds a prefab source, not a
+    // scene — ticking it would run whatever systems happen to match the
+    // prefab's components, which is almost never what the user intended.
+    const isPrefabDoc = (): boolean => documentService.activeDocument?.endsWith('.esprefab') === true;
+
     const updatePlayButtons = (mode: typeof playMode.mode): void => {
       // Swap the play button between Play and Pause icons.
       playBtn.replaceChildren(createIconElement(mode === 'playing' ? 'pause' : 'play', 16));
-      playBtn.title = mode === 'playing' ? 'Pause (F5)' : mode === 'paused' ? 'Resume (F5)' : 'Play (F5)';
+      const inPrefab = isPrefabDoc();
+      playBtn.disabled = inPrefab;
+      playBtn.title = inPrefab
+        ? 'Play is disabled while editing a prefab'
+        : mode === 'playing' ? 'Pause (F5)' : mode === 'paused' ? 'Resume (F5)' : 'Play (F5)';
       stopBtn.style.display = mode === 'edit' ? 'none' : '';
       stepBtn.style.display = mode === 'paused' ? '' : 'none';
     };
     updatePlayButtons(playMode.mode);
     playMode.onDidChangeMode(({ current }) => { updatePlayButtons(current); });
+    // Repaint on document switch so the Play button's disabled state
+    // tracks whatever tab is active.
+    documentService.onDidChangeActive(() => { updatePlayButtons(playMode.mode); });
+    documentService.onDidChangeDocuments(() => { updatePlayButtons(playMode.mode); });
 
     // Keyboard: F5 toggles play/pause, Shift+F5 stops, F6 steps.
     document.addEventListener('keydown', (e) => {
       if (e.key === 'F5') {
         e.preventDefault();
+        if (isPrefabDoc()) return; // silently ignore — tooltip + disabled button already communicate why
         if (e.shiftKey) {
           playMode.stop();
         } else {

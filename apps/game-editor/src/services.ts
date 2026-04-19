@@ -190,7 +190,7 @@ export interface IInspectorComponentFilter {
 
 export const IInspectorComponentFilter = createServiceId<IInspectorComponentFilter>('IInspectorComponentFilter');
 
-export type AssetType = 'image' | 'scene' | 'audio' | 'font' | 'unknown';
+export type AssetType = 'image' | 'scene' | 'audio' | 'font' | 'prefab' | 'unknown';
 
 export interface AssetEntry {
   readonly uuid: string;
@@ -269,3 +269,213 @@ export interface IRuntimeAppPresence {
 }
 
 export const IRuntimeAppPresence = createServiceId<IRuntimeAppPresence>('IRuntimeAppPresence');
+
+// ─── Prefab authoring ───────────────────────────────────────────────────────
+
+/** Lightweight summary of an instance root entity for UI consumption. */
+export interface PrefabInstanceInfo {
+  /** ECS entity id of the instance root in the current scene. */
+  readonly entityId: number;
+  /** UUID of the source `.esprefab` in the asset catalog. */
+  readonly sourceUuid: string;
+  /** `.esprefab` filename (without path) — cached for Hierarchy display. */
+  readonly sourceName: string;
+  /** Current override count — cheap signal for Inspector badges. */
+  readonly overrideCount: number;
+}
+
+export interface PrefabEvent {
+  readonly entityId: number;
+}
+
+/**
+ * Editor-side Prefab authoring service.
+ *
+ * Owns the "instance ↔ source" relationship for prefab-derived entities in the
+ * open scene. An entity qualifies as a prefab instance root iff it carries the
+ * `prefab:source` metadata key. Non-root instance children are tagged with
+ * `prefab:entityId` (the stable `PrefabEntityId` from the source file) so the
+ * diff engine can match them across reloads.
+ *
+ * Mutations on instance subtrees are watched and the override list is
+ * recomputed on a 100ms debounce (flushed on scene save / play transitions).
+ * Source `.esprefab` edits trigger a structural hot reload that preserves
+ * entity ids for unchanged nodes — selections and undo history survive.
+ */
+export interface IPrefabService {
+  /**
+   * Serialise the entity subtree rooted at {@link entityId} as a `.esprefab`
+   * file at {@link filePath} (absolute). The original entity is converted in
+   * place to an instance of the newly-created prefab (no overrides). Returns
+   * the UUID the catalog assigned to the new prefab.
+   */
+  createPrefab(entityId: number, filePath: string): Promise<string>;
+
+  /**
+   * Instantiate the prefab identified by {@link sourceUuid} into the current
+   * scene. Optional {@link parent} attaches the instance root as a child.
+   * Returns the instance root entity id.
+   */
+  instantiate(sourceUuid: string, options?: {
+    parent?: number;
+    position?: { x: number; y: number };
+  }): Promise<number>;
+
+  /** True when {@link entityId} is the root of a prefab instance subtree. */
+  isInstanceRoot(entityId: number): boolean;
+  /** True when {@link entityId} is anywhere inside a prefab instance subtree. */
+  isInsideInstance(entityId: number): boolean;
+  /** Info for the instance root of {@link entityId}, or undefined if not in one. */
+  getInstanceInfo(entityId: number): PrefabInstanceInfo | undefined;
+
+  /**
+   * Force the debounced override recompute to run synchronously. Called
+   * before scene save and before entering Play so the serialised form is
+   * consistent with the live ECS state.
+   */
+  flushPendingOverrides(): void;
+
+  /**
+   * Field keys (`"Component.field"`) currently overridden on {@link entityId}.
+   * Only returns entries matching the entity's own `prefab:entityId`; the
+   * caller is expected to query per-entity. Empty if not inside an instance.
+   */
+  getOverriddenFieldKeys(entityId: number): ReadonlySet<string>;
+
+  /**
+   * Whether the entity has a `component_added`, `component_replaced`, or
+   * `component_removed` override for the given component type. Used by the
+   * Inspector to badge component headers.
+   */
+  isComponentOverridden(entityId: number, componentType: string): boolean;
+
+  /** Whether the entity has a `metadata_set` / `metadata_removed` override for the key. */
+  isMetadataOverridden(entityId: number, metadataKey: string): boolean;
+
+  /**
+   * Read the authored source value for {@link fieldPath} of the entity
+   * corresponding to {@link entityId}'s `prefab:entityId`. Returns
+   * `undefined` when the entity isn't in a prefab instance, the source
+   * can't be resolved, or the component/field isn't in the source.
+   * Editor uses this for "Source: X" tooltips on overridden Inspector
+   * rows.
+   */
+  getSourceFieldValue(entityId: number, componentType: string, fieldPath: string): unknown;
+
+  /**
+   * Revert a single property override. Removes the matching `property`
+   * override from the instance root's `prefab:overrides` and re-runs the
+   * structural reconciler so the field snaps back to its source value.
+   */
+  revertPropertyOverride(entityId: number, componentType: string, fieldPath: string): void;
+
+  /** Revert an entire component override (added/replaced/removed). */
+  revertComponentOverride(entityId: number, componentType: string): void;
+
+  /** Revert a metadata override. */
+  revertMetadataOverride(entityId: number, metadataKey: string): void;
+
+  /**
+   * Revert every override on the entire instance subtree — returns the
+   * instance root to pristine source state.
+   */
+  revertAll(entityId: number): void;
+
+  /**
+   * Bake overrides permanently into the source `.esprefab`. If
+   * {@link selectedOverrides} is omitted, every override on this instance
+   * is applied. The matching overrides are removed from this instance's
+   * `prefab:overrides`; catalog change → other instances of the same
+   * source hot-reload and may prune now-redundant overrides on their own.
+   *
+   * Returns the number of other instances that will be affected — the
+   * caller can display this in the confirmation dialog.
+   */
+  applyToSource(entityId: number, selectedOverrides?: readonly PrefabOverrideRef[]): Promise<{ affectedOtherInstances: number }>;
+
+  /** Cheap "how many instances of this prefab exist in the current scene". */
+  countInstancesOf(sourceUuid: string): number;
+
+  /**
+   * Classify an override as "placement" (root Transform pos/rot/scale).
+   * The Apply-to-Source dialog uses this to group placement overrides
+   * separately and default them unchecked — baking one instance's
+   * placement into the source would rewrite the prefab's origin point,
+   * which is rarely what the user wants.
+   */
+  isPlacementOverride(override: PrefabOverrideRef): boolean;
+
+  /**
+   * Enumerate placement overrides separately. Supplied to the Apply
+   * dialog so it can render "Placement" as a distinct group.
+   */
+  getPlacementOverrides(entityId: number): readonly PrefabOverrideRef[];
+
+  /**
+   * ECS-tab-swap hook for document handlers.
+   *
+   * Handlers that mutate the live ECS (scene, prefab) call
+   * {@link snapshotCurrentEcsDoc} **before** overwriting its contents so
+   * the prior tab's state can be restored later, then call
+   * {@link adoptEcsDoc} **after** loading so the snapshot layer knows
+   * which doc's state currently lives in the ECS. Without this wiring
+   * opening one doc silently loses the other's state — the editor has
+   * exactly one live ECS but we present tabs as if each owned its own.
+   */
+  snapshotCurrentEcsDoc(): void;
+  adoptEcsDoc(filePath: string): void;
+
+  /**
+   * Create a new `.esprefab` that inherits from {@link baseUuid}. The
+   * emitted file references the base via `@uuid:` so moves or renames of
+   * the base survive. The variant starts empty — its `entities` list is
+   * `[]` and its `rootEntityId` mirrors the base's — so flatten produces
+   * the base's state verbatim until the author adds overrides or
+   * additions.
+   *
+   * Returns the UUID assigned to the new variant file.
+   */
+  createVariant(baseUuid: string, filePath: string): Promise<string>;
+
+  readonly onDidCreateInstance: Event<PrefabEvent>;
+  readonly onDidHotReload: Event<{ sourceUuid: string; affectedRoots: readonly number[] }>;
+}
+
+/**
+ * Stable reference to a single override within an instance. Passed to
+ * {@link IPrefabService.applyToSource} so the Apply dialog can pick
+ * individual overrides to bake without reproducing their full payloads.
+ */
+export interface PrefabOverrideRef {
+  readonly prefabEntityId: string;
+  readonly type: 'property' | 'component_added' | 'component_replaced' | 'component_removed'
+    | 'name' | 'visibility' | 'metadata_set' | 'metadata_removed';
+  readonly componentType?: string;
+  readonly propertyName?: string;
+  readonly metadataKey?: string;
+}
+
+export const IPrefabService = createServiceId<IPrefabService>('IPrefabService');
+
+/**
+ * "Select this asset in the Content Browser" action. Registered by
+ * `ProjectPanelsPlugin` (owner of the Content Browser) and consumed by
+ * any plugin that wants a "show where this file lives" button —
+ * Inspector "Select Source" on prefab instances is the flagship caller.
+ */
+export interface IAssetRevealService {
+  /** Navigate the Content Browser to the asset identified by {@link uuid} and highlight it. */
+  revealByUuid(uuid: string): void;
+}
+
+export const IAssetRevealService = createServiceId<IAssetRevealService>('IAssetRevealService');
+
+/** Per-entity metadata keys owned by the Prefab service. */
+export const PREFAB_METADATA_KEYS = {
+  /** Present only on instance roots. Value is the source prefab UUID. */
+  SOURCE: 'prefab:source',
+  /** Present only on instance roots. Value is serialised `PrefabOverride[]`. */
+  OVERRIDES: 'prefab:overrides',
+  /** Present on every node inside an instance subtree (root and children). */
+  ENTITY_ID: 'prefab:entityId',
+} as const;

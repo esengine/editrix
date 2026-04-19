@@ -35,6 +35,9 @@ export class ViewportWidget extends BaseWidget {
   private readonly _modeButtons = new Map<ViewportMode, HTMLElement>();
   private _sceneContainer: HTMLElement | undefined;
   private _gameContainer: HTMLElement | undefined;
+  private _prefabBannerEl: HTMLElement | undefined;
+  private _prefabBannerTitleEl: HTMLElement | undefined;
+  private _prefabBannerExitHandler: (() => void) | undefined;
 
   private readonly _sceneWidget: SceneViewWidget;
   private readonly _gameWidget: GameViewWidget;
@@ -69,6 +72,23 @@ export class ViewportWidget extends BaseWidget {
     this._sceneWidget.initCamera(module);
   }
 
+  /**
+   * Show a "Editing Prefab: X" banner above the viewport, with an Exit
+   * button that fires {@link onExit}. Pass `undefined` to hide the banner.
+   * Called by the viewport plugin when the active document switches
+   * between a scene and a `.esprefab`.
+   */
+  setPrefabBanner(info: { title: string; onExit: () => void } | undefined): void {
+    this._prefabBannerExitHandler = info?.onExit;
+    if (!this._prefabBannerEl || !this._prefabBannerTitleEl) return;
+    if (!info) {
+      this._prefabBannerEl.style.display = 'none';
+      return;
+    }
+    this._prefabBannerEl.style.display = '';
+    this._prefabBannerTitleEl.textContent = info.title;
+  }
+
   /** Programmatically switch which view is active. */
   setMode(mode: ViewportMode): void {
     if (this._mode === mode) return;
@@ -78,6 +98,20 @@ export class ViewportWidget extends BaseWidget {
 
   protected override buildContent(root: HTMLElement): void {
     this._injectStyles();
+
+    // Prefab Mode banner — sits above the header, hidden by default.
+    // Shown by ViewportPlugin whenever the active doc is `.esprefab`, so
+    // the user always knows whether they're editing a live instance or
+    // the canonical source.
+    this._prefabBannerEl = this.appendElement(root, 'div', 'editrix-prefab-mode-banner');
+    this._prefabBannerEl.style.display = 'none';
+    const bannerIcon = this.appendElement(this._prefabBannerEl, 'span', 'editrix-prefab-mode-banner__icon');
+    bannerIcon.textContent = '\u25C6'; // ◆
+    this._prefabBannerTitleEl = this.appendElement(this._prefabBannerEl, 'span', 'editrix-prefab-mode-banner__title');
+    this._prefabBannerTitleEl.textContent = '';
+    const bannerExitBtn = this.appendElement(this._prefabBannerEl, 'button', 'editrix-prefab-mode-banner__exit');
+    bannerExitBtn.textContent = 'Exit Prefab Mode';
+    bannerExitBtn.addEventListener('click', () => { this._prefabBannerExitHandler?.(); });
 
     // Header: segmented control. Future: tool buttons can sit on the right.
     const header = this.appendElement(root, 'div', 'editrix-viewport-header');
@@ -155,6 +189,26 @@ export class ViewportWidget extends BaseWidget {
   border-bottom: 1px solid var(--editrix-border, #303034);
   flex-shrink: 0;
 }
+.editrix-prefab-mode-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: linear-gradient(90deg, #1a3a5f 0%, #1f4872 100%);
+  border-bottom: 1px solid rgba(90,164,255,0.5);
+  color: #dde9fb;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.editrix-prefab-mode-banner__icon { color: #9cc2ff; font-size: 12px; }
+.editrix-prefab-mode-banner__title { flex: 1; font-weight: 600; }
+.editrix-prefab-mode-banner__exit {
+  background: rgba(255,255,255,0.1); color: #fff;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 4px; padding: 3px 10px;
+  font-family: inherit; font-size: 11px; cursor: pointer;
+}
+.editrix-prefab-mode-banner__exit:hover { background: rgba(255,255,255,0.18); }
 .editrix-viewport-segment {
   display: inline-flex;
   background: var(--editrix-bg-deep, #1c1c20);

@@ -4,8 +4,10 @@ import type { ESEngineModule } from '@editrix/estella';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { IECSScenePresence, IInspectorComponentFilter, ISharedRenderContext } from '../services.js';
 
-// Hierarchy-plumbing components — edited via the Hierarchy panel, not Inspector.
-const ESTELLA_STRUCTURAL_COMPONENTS = new Set<string>(['Parent', 'Children']);
+// Components edited indirectly through other UI surfaces, not the Inspector
+// "Add Component" picker. Parent/Children are hierarchy-plumbing; Disabled
+// is the wire form for the visibility toggle (set via setVisible).
+const ESTELLA_STRUCTURAL_COMPONENTS = new Set<string>(['Parent', 'Children', 'Disabled']);
 
 export const ECSScenePlugin: IPlugin = {
   descriptor: {

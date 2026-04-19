@@ -1,6 +1,7 @@
 import type { Event } from '@editrix/common';
 import { Emitter, isMac } from '@editrix/common';
 import type { FileEntry, IFileSystemService } from '@editrix/core';
+import type { ContextMenuItem } from '@editrix/view-dom';
 import { BaseWidget, createIconElement, ListWidget, showContextMenu } from '@editrix/view-dom';
 import type { IProjectService } from './services.js';
 
@@ -8,6 +9,9 @@ const REVEAL_LABEL = isMac() ? 'Reveal in Finder' : 'Show in Explorer';
 
 /** MIME type used by internal editor drags — distinct from OS file drops. */
 export const ASSET_PATH_MIME = 'application/x-editrix-asset-path';
+
+/** MIME emitted by TreeWidget drags (e.g. Hierarchy → Content Browser). */
+const TREE_NODE_MIME = 'text/x-editrix-tree-node';
 
 interface ElectronRevealApi {
   revealInFinder(path: string): Promise<{ success: boolean; error?: string }>;
@@ -36,11 +40,12 @@ const LEVEL_CLASSES: Record<LogLevel, string> = {
 function extToIcon(ext: string, isDir: boolean): string {
   if (isDir) return 'folder';
   switch (ext) {
+    case '.esprefab': return 'prefab-instance'; // blue cube, matches hierarchy badge
     case '.json': return 'file';
     case '.ts': case '.js': return 'file';
     case '.png': case '.jpg': case '.jpeg': case '.webp': return 'grid';
     case '.gltf': case '.glb': case '.fbx': case '.obj': return 'box';
-    case '.editrix-scene': return 'layers';
+    case '.editrix-scene': case '.scene': return 'layers';
     default: return 'file';
   }
 }
@@ -83,10 +88,37 @@ export class ContentBrowserWidget extends BaseWidget {
   private readonly _onDidSelectAsset = new Emitter<string>();
   readonly onDidSelectAsset: Event<string> = this._onDidSelectAsset.event;
 
-  constructor(id: string, fileSystem: IFileSystemService, project: IProjectService) {
+  private readonly _onDidDropTreeNodes = new Emitter<{ nodeIds: readonly string[]; targetDirPath: string }>();
+  /**
+   * Fired when the user drags nodes out of the Hierarchy (or any other
+   * widget that speaks `text/x-editrix-tree-node`) onto a folder card or
+   * the empty area of the asset grid. `targetDirPath` is the absolute
+   * path of the directory that should receive the drop.
+   */
+  readonly onDidDropTreeNodes: Event<{ nodeIds: readonly string[]; targetDirPath: string }> = this._onDidDropTreeNodes.event;
+
+  /**
+   * Optional per-asset context menu extender. Called when the user
+   * right-clicks a card; the returned items get prepended to the widget's
+   * default entries (currently "Reveal in Finder"). The path is the
+   * absolute filesystem path of the clicked asset.
+   *
+   * Kept as an injected builder instead of an event so the plugin that
+   * knows asset types can synthesise items without the widget needing to
+   * pull in IAssetCatalogService / IPrefabService as deps.
+   */
+  private readonly _buildCardMenu: ((path: string) => readonly ContextMenuItem[]) | undefined;
+
+  constructor(
+    id: string,
+    fileSystem: IFileSystemService,
+    project: IProjectService,
+    options?: { buildCardMenu?: (path: string) => readonly ContextMenuItem[] },
+  ) {
     super(id, 'content-browser');
     this._fileSystem = fileSystem;
     this._project = project;
+    this._buildCardMenu = options?.buildCardMenu;
   }
 
   /** Navigate asset browser to a real directory path. */
@@ -96,6 +128,35 @@ export class ContentBrowserWidget extends BaseWidget {
     if (this._searchInput) this._searchInput.value = '';
     this._renderBreadcrumbs();
     void this._loadAndRenderGrid();
+  }
+
+  /**
+   * Navigate to the folder containing {@link absolutePath}, switch to the
+   * assets view, and highlight the target card. If the grid is still
+   * loading, the selection is retried on the next animation frame so the
+   * card exists by the time we try to match it.
+   */
+  revealAsset(absolutePath: string): void {
+    const slash = absolutePath.lastIndexOf('/');
+    const dir = slash >= 0 ? absolutePath.slice(0, slash) : absolutePath;
+    this.showView('assets');
+    this.navigateTo(dir);
+    // Wait for the async grid load to finish; retry a few times before
+    // giving up so a user clicking the button on first project open still
+    // sees the highlight without us having to plumb the load-completion
+    // event through.
+    let attempts = 0;
+    const trySelect = (): void => {
+      if (!this._gridEl) return;
+      const card = this._gridEl.querySelector(`[data-id="${CSS.escape(absolutePath)}"]`);
+      if (card) {
+        this._selectCard(absolutePath);
+        card.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (attempts++ < 10) requestAnimationFrame(trySelect);
+    };
+    requestAnimationFrame(trySelect);
   }
 
   /** Add a log entry to the console view. */
@@ -197,9 +258,40 @@ export class ContentBrowserWidget extends BaseWidget {
     searchIcon.appendChild(createIconElement('search', 14));
 
     this._gridEl = this.appendElement(container, 'div', 'editrix-cb-grid');
+    // Accept entity-drops on the empty area — the drop lands in the
+    // currently-browsed directory. Cards intercept dragover with their own
+    // listeners for folder-targeted drops; this handler is the fallback.
+    this._gridEl.addEventListener('dragover', (e) => {
+      if (!e.dataTransfer?.types.includes(TREE_NODE_MIME)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      this._gridEl?.classList.add('editrix-cb-grid--drop-target');
+    });
+    this._gridEl.addEventListener('dragleave', (e) => {
+      if ((e.target as HTMLElement | null) === this._gridEl) {
+        this._gridEl.classList.remove('editrix-cb-grid--drop-target');
+      }
+    });
+    this._gridEl.addEventListener('drop', (e) => {
+      const raw = e.dataTransfer?.getData(TREE_NODE_MIME);
+      this._gridEl?.classList.remove('editrix-cb-grid--drop-target');
+      if (!raw) return;
+      e.preventDefault();
+      const parsed = this._parseTreeNodeIds(raw);
+      if (parsed.length === 0) return;
+      this._onDidDropTreeNodes.fire({ nodeIds: parsed, targetDirPath: this._currentDirPath });
+    });
 
     this._renderBreadcrumbs();
     void this._loadAndRenderGrid();
+  }
+
+  private _parseTreeNodeIds(raw: string): string[] {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === 'string');
+    } catch { /* fall through */ }
+    return [];
   }
 
   private _renderBreadcrumbs(): void {
@@ -291,6 +383,28 @@ export class ContentBrowserWidget extends BaseWidget {
         card.addEventListener('dragend', () => {
           card.classList.remove('editrix-cb-card--dragging');
         });
+      } else {
+        // Folder cards accept entity drops → create prefab inside them.
+        card.addEventListener('dragover', (e) => {
+          if (!e.dataTransfer?.types.includes(TREE_NODE_MIME)) return;
+          e.preventDefault();
+          e.stopPropagation(); // claim the event before the grid fallback
+          e.dataTransfer.dropEffect = 'copy';
+          card.classList.add('editrix-cb-card--drop-target');
+        });
+        card.addEventListener('dragleave', () => {
+          card.classList.remove('editrix-cb-card--drop-target');
+        });
+        card.addEventListener('drop', (e) => {
+          card.classList.remove('editrix-cb-card--drop-target');
+          const raw = e.dataTransfer?.getData(TREE_NODE_MIME);
+          if (!raw) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const nodeIds = this._parseTreeNodeIds(raw);
+          if (nodeIds.length === 0) return;
+          this._onDidDropTreeNodes.fire({ nodeIds, targetDirPath: item.path });
+        });
       }
 
       const iconWrap = document.createElement('div');
@@ -318,15 +432,23 @@ export class ContentBrowserWidget extends BaseWidget {
       card.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         this._selectCard(item.path);
-        showContextMenu({
-          x: e.clientX, y: e.clientY,
-          items: [
-            {
-              label: REVEAL_LABEL, icon: 'folder',
-              onSelect: () => { void revealApi()?.revealInFinder(item.path); },
-            },
-          ],
-        });
+        const extra = this._buildCardMenu ? this._buildCardMenu(item.path) : [];
+        const items: ContextMenuItem[] = extra.length > 0
+          ? [
+              ...extra,
+              { separator: true, label: '' },
+              {
+                label: REVEAL_LABEL, icon: 'folder',
+                onSelect: () => { void revealApi()?.revealInFinder(item.path); },
+              },
+            ]
+          : [
+              {
+                label: REVEAL_LABEL, icon: 'folder',
+                onSelect: () => { void revealApi()?.revealInFinder(item.path); },
+              },
+            ];
+        showContextMenu({ x: e.clientX, y: e.clientY, items });
       });
 
       el.appendChild(card);
@@ -571,6 +693,14 @@ export class ContentBrowserWidget extends BaseWidget {
 .editrix-cb-card--dragging {
   opacity: 0.45;
 }
+.editrix-cb-card--drop-target {
+  border-color: #5aa4ff;
+  background: rgba(90, 164, 255, 0.18);
+}
+.editrix-cb-grid--drop-target {
+  outline: 2px dashed rgba(90, 164, 255, 0.5);
+  outline-offset: -6px;
+}
 .editrix-cb-card-icon {
   width: 44px; height: 44px;
   display: flex; align-items: center; justify-content: center;
@@ -632,6 +762,7 @@ export class ContentBrowserWidget extends BaseWidget {
   override dispose(): void {
     this._onDidOpenFile.dispose();
     this._onDidSelectAsset.dispose();
+    this._onDidDropTreeNodes.dispose();
     super.dispose();
   }
 }

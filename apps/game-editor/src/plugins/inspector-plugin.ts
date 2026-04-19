@@ -6,11 +6,18 @@ import { ILayoutService, ISelectionService, IUndoRedoService, IViewService } fro
 import type { AssetPickerBinding, AssetRefPreview } from '@editrix/view-dom';
 import { PropertyGridWidget, showContextMenu, showQuickPick } from '@editrix/view-dom';
 import { AssetInspectorWidget } from '../asset-inspector-widget.js';
-import type { AssetEntry, IAssetCatalogService as IAssetCatalogServiceShape } from '../services.js';
+import { showApplyPrefabDialog } from '../prefab-apply-dialog.js';
+import type {
+  AssetEntry,
+  IAssetCatalogService as IAssetCatalogServiceShape,
+  PrefabInstanceInfo,
+} from '../services.js';
 import {
   IAssetCatalogService,
+  IAssetRevealService,
   IECSScenePresence,
   IInspectorComponentFilter,
+  IPrefabService,
   ISharedRenderContext,
   parseSelectionRef,
 } from '../services.js';
@@ -51,6 +58,20 @@ function resolveAssetPreview(catalog: IAssetCatalogServiceShape, ref: string): A
 }
 
 // ─── ECS field-type → Inspector PropertyType ──────────────
+
+/** Short, human-friendly print of a prefab source value for tooltips. */
+function formatSourceValue(v: unknown): string {
+  if (v === null || v === undefined) return 'empty';
+  if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(3);
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (typeof v === 'string') return v.length > 48 ? `"${v.slice(0, 45)}…"` : `"${v}"`;
+  try {
+    const json = JSON.stringify(v);
+    return json.length > 64 ? `${json.slice(0, 61)}…` : json;
+  } catch {
+    return '[unprintable]';
+  }
+}
 
 function fieldTypeToPropertyType(type: ComponentFieldSchema['type']): PropertyType {
   switch (type) {
@@ -198,7 +219,7 @@ export const InspectorPlugin: IPlugin = {
   descriptor: {
     id: 'app.inspector',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties', 'app.ecs-scene', 'app.inspector-filters', 'app.asset-catalog'],
+    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties', 'app.ecs-scene', 'app.inspector-filters', 'app.asset-catalog', 'app.prefab'],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
@@ -209,6 +230,13 @@ export const InspectorPlugin: IPlugin = {
     const renderContextSvc = ctx.services.get(ISharedRenderContext);
     const componentFilter = ctx.services.get(IInspectorComponentFilter);
     const catalog: IAssetCatalogServiceShape = ctx.services.get(IAssetCatalogService);
+    const prefabService = ctx.services.get(IPrefabService);
+    // Lazy — IAssetRevealService is registered by ProjectPanelsPlugin,
+    // which activates after us. Resolved on demand inside the click
+    // handler (by which point it exists).
+    const tryReveal = (): IAssetRevealService | undefined => {
+      try { return ctx.services.get(IAssetRevealService); } catch { return undefined; }
+    };
 
     // Resolved lazily — IConsoleService is registered by ProjectPanelsPlugin
     // which may activate later in the dependency graph.
@@ -226,6 +254,10 @@ export const InspectorPlugin: IPlugin = {
     let assetInspector: AssetInspectorWidget | undefined;
     let entityContainer: HTMLElement | undefined;
     let assetContainer: HTMLElement | undefined;
+    let prefabHeaderEl: HTMLElement | undefined;
+    let prefabHeaderTitleEl: HTMLElement | undefined;
+    let prefabHeaderRevertBtn: HTMLButtonElement | undefined;
+    let prefabHeaderApplyBtn: HTMLButtonElement | undefined;
 
     const INSPECTOR_ORDER_KEY = 'inspectorComponentOrder';
 
@@ -269,6 +301,21 @@ export const InspectorPlugin: IPlugin = {
       assetContainer?.classList.remove('editrix-inspector-view--hidden');
     };
 
+    const updatePrefabHeader = (info: PrefabInstanceInfo | undefined): void => {
+      if (!prefabHeaderEl || !prefabHeaderTitleEl || !prefabHeaderRevertBtn || !prefabHeaderApplyBtn) return;
+      if (!info) {
+        prefabHeaderEl.style.display = 'none';
+        return;
+      }
+      prefabHeaderEl.style.display = 'flex';
+      prefabHeaderTitleEl.textContent =
+        `Prefab: ${info.sourceName} · ${String(info.overrideCount)} override${info.overrideCount === 1 ? '' : 's'}`;
+      // Disable Apply / Revert when there's nothing to apply or revert.
+      const hasOverrides = info.overrideCount > 0;
+      prefabHeaderRevertBtn.disabled = !hasOverrides;
+      prefabHeaderApplyBtn.disabled = !hasOverrides;
+    };
+
     const refreshInspector = (): void => {
       if (!inspectorGrid) return;
       const selectedIds = selection.getSelection();
@@ -278,6 +325,7 @@ export const InspectorPlugin: IPlugin = {
       // Asset selection → hand off to the AssetInspectorWidget.
       if (parsed?.kind === 'asset') {
         showAsset(catalog.getByUuid(parsed.uuid));
+        updatePrefabHeader(undefined);
         return;
       }
 
@@ -286,11 +334,13 @@ export const InspectorPlugin: IPlugin = {
       const ecs = presence.current;
       if (!ecs) {
         inspectorGrid.setData([], {});
+        updatePrefabHeader(undefined);
         return;
       }
       const entityId = parsed?.kind === 'entity' ? parsed.id : undefined;
       if (entityId === undefined) {
         inspectorGrid.setData([], {});
+        updatePrefabHeader(undefined);
         return;
       }
       let tracked = getInspectorOrder(entityId);
@@ -299,13 +349,36 @@ export const InspectorPlugin: IPlugin = {
         setInspectorOrder(entityId, tracked);
       }
       const { groups, values } = ecsToPropertyGroups(ecs, entityId, componentFilter, tracked);
-      inspectorGrid.setData(groups, values);
+
+      // Compute prefab override decorations for this entity.
+      const overriddenKeys = prefabService.getOverriddenFieldKeys(entityId);
+      const overriddenComponentIds = new Set<string>();
+      for (const group of groups) {
+        if (prefabService.isComponentOverridden(entityId, group.id)) {
+          overriddenComponentIds.add(group.id);
+        }
+      }
+      // Build source-value tooltips for every overridden key so the
+      // Inspector can reveal the authored value on hover.
+      const sourceValueTooltips = new Map<string, string>();
+      for (const key of overriddenKeys) {
+        const dot = key.indexOf('.');
+        if (dot <= 0) continue;
+        const compType = key.substring(0, dot);
+        const fieldPath = key.substring(dot + 1);
+        const sourceValue = prefabService.getSourceFieldValue(entityId, compType, fieldPath);
+        if (sourceValue === undefined) continue;
+        sourceValueTooltips.set(key, `Source: ${formatSourceValue(sourceValue)}`);
+      }
+      inspectorGrid.setData(groups, values, { overriddenKeys, overriddenComponentIds, sourceValueTooltips });
+      updatePrefabHeader(prefabService.getInstanceInfo(entityId));
     };
 
     ctx.subscriptions.add(presence.onDidBind((ecs) => {
       ctx.subscriptions.add(ecs.onPropertyChanged(refreshInspector));
       ctx.subscriptions.add(ecs.onComponentAdded(refreshInspector));
       ctx.subscriptions.add(ecs.onComponentRemoved(refreshInspector));
+      ctx.subscriptions.add(ecs.onMetadataChanged(() => { refreshInspector(); }));
       refreshInspector();
     }));
 
@@ -316,6 +389,8 @@ export const InspectorPlugin: IPlugin = {
 
     ctx.subscriptions.add(catalog.onDidChange(() => { refreshInspector(); }));
     ctx.subscriptions.add(catalog.onDidChangeImporter(() => { refreshInspector(); }));
+    ctx.subscriptions.add(prefabService.onDidHotReload(() => { refreshInspector(); }));
+    ctx.subscriptions.add(prefabService.onDidCreateInstance(() => { refreshInspector(); }));
 
     ctx.subscriptions.add(layout.registerPanel({ id: 'inspector', title: 'Inspector', defaultRegion: 'right' }));
     ctx.subscriptions.add(
@@ -328,6 +403,27 @@ export const InspectorPlugin: IPlugin = {
 .editrix-inspector-host { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; position: relative; }
 .editrix-inspector-view { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
 .editrix-inspector-view--hidden { display: none !important; }
+.editrix-prefab-grid-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.editrix-prefab-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px; gap: 8px;
+  background: linear-gradient(180deg, rgba(90,164,255,0.12) 0%, rgba(90,164,255,0.04) 100%);
+  border-bottom: 1px solid rgba(90,164,255,0.25);
+  font-size: 11px; color: var(--editrix-text);
+  flex-shrink: 0;
+}
+.editrix-prefab-header__title { font-weight: 600; }
+.editrix-prefab-header__actions { display: flex; gap: 6px; }
+.editrix-prefab-header__btn {
+  background: #3a3b40; color: #ccc;
+  border: 1px solid #4a4b50; border-radius: 4px;
+  padding: 3px 9px; font-size: 11px; cursor: pointer;
+  font-family: inherit;
+}
+.editrix-prefab-header__btn:hover:not(:disabled) { background: #46474C; color: #fff; }
+.editrix-prefab-header__btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.editrix-prefab-header__btn--primary { background: #4a8fff; color: #fff; border-color: transparent; }
+.editrix-prefab-header__btn--primary:hover:not(:disabled) { background: #5aa4ff; }
 `;
           document.head.appendChild(style);
         }
@@ -373,6 +469,64 @@ export const InspectorPlugin: IPlugin = {
             }
             ecs.setProperty(entityId, comp, field, value);
           },
+        });
+
+        // ── Field-level revert menu (prefab override UI) ──
+        // The grid emits this on every right-click. We only show a menu
+        // when the field is currently overridden — otherwise we'd be
+        // hijacking right-click for no reason.
+        inspectorGrid.onDidRequestFieldMenu(({ fieldKey, isOverridden, x, y }) => {
+          if (!isOverridden) return;
+          const ecs = presence.current;
+          const selectedId = selection.getSelection()[0];
+          const entityId = selectedId !== undefined ? selectionToEntityId(selectedId) : undefined;
+          if (entityId === undefined || !ecs) return;
+          const dotIdx = fieldKey.indexOf('.');
+          if (dotIdx <= 0) return;
+          const comp = fieldKey.substring(0, dotIdx);
+          const fieldPath = fieldKey.substring(dotIdx + 1);
+          // Strip the trailing .x/.y/.z/.w/.r/.g/.b/.a sub-axis when the
+          // field is part of a vec/color row — the override is on the
+          // composite leaf, not the sub-component.
+          const parentField = /\.[xyzwrgba]$/.test(fieldPath)
+            ? fieldPath.replace(/\.[xyzwrgba]$/, '')
+            : fieldPath;
+          // Sub-keys the user is reverting/applying as a unit — axes of a
+          // vec/color composite plus the primary key. Dedup via Set.
+          const affectedKeys = [...new Set([
+            fieldPath,
+            ...['x', 'y', 'z', 'w', 'r', 'g', 'b', 'a'].map(s => `${parentField}.${s}`),
+          ])];
+          showContextMenu({
+            x, y,
+            items: [
+              {
+                label: `Apply "${parentField}" to Source`,
+                icon: 'save',
+                onSelect: () => {
+                  const refs = affectedKeys.map(k => ({
+                    prefabEntityId: ecs.getEntityMetadata(entityId, 'prefab:entityId') as string,
+                    type: 'property' as const,
+                    componentType: comp,
+                    propertyName: k,
+                  }));
+                  prefabService.applyToSource(entityId, refs).catch((err: unknown) => {
+                    logError(`Apply ${parentField}: ${err instanceof Error ? err.message : String(err)}`,
+                      'prefab');
+                  });
+                },
+              },
+              {
+                label: `Revert "${parentField}" to Source`,
+                icon: 'refresh',
+                onSelect: () => {
+                  for (const k of affectedKeys) {
+                    prefabService.revertPropertyOverride(entityId, comp, k);
+                  }
+                },
+              },
+            ],
+          });
         });
 
         // ── Add Component ──
@@ -562,7 +716,72 @@ export const InspectorPlugin: IPlugin = {
             entityContainer = document.createElement('div');
             entityContainer.className = 'editrix-inspector-view';
             root.appendChild(entityContainer);
-            hostGrid.mount(entityContainer);
+
+            // Prefab instance strip — sits above the property grid inside
+            // the entity view, hidden when the selected entity isn't part
+            // of an instance. Held visible by `updatePrefabHeader`.
+            prefabHeaderEl = document.createElement('div');
+            prefabHeaderEl.className = 'editrix-prefab-header';
+            prefabHeaderEl.style.display = 'none';
+            prefabHeaderTitleEl = document.createElement('span');
+            prefabHeaderTitleEl.className = 'editrix-prefab-header__title';
+            prefabHeaderEl.appendChild(prefabHeaderTitleEl);
+            const headerActions = document.createElement('div');
+            headerActions.className = 'editrix-prefab-header__actions';
+            const revealBtn = document.createElement('button');
+            revealBtn.className = 'editrix-prefab-header__btn';
+            revealBtn.title = 'Reveal source in Content Browser';
+            revealBtn.textContent = 'Select Source';
+            revealBtn.addEventListener('click', () => {
+              const sel = selection.getSelection()[0];
+              const entityId = sel !== undefined ? selectionToEntityId(sel) : undefined;
+              if (entityId === undefined) return;
+              const info = prefabService.getInstanceInfo(entityId);
+              if (!info) return;
+              tryReveal()?.revealByUuid(info.sourceUuid);
+            });
+            headerActions.appendChild(revealBtn);
+            prefabHeaderRevertBtn = document.createElement('button');
+            prefabHeaderRevertBtn.className = 'editrix-prefab-header__btn';
+            prefabHeaderRevertBtn.textContent = 'Revert All';
+            prefabHeaderRevertBtn.addEventListener('click', () => {
+              const sel = selection.getSelection()[0];
+              const entityId = sel !== undefined ? selectionToEntityId(sel) : undefined;
+              if (entityId !== undefined) prefabService.revertAll(entityId);
+            });
+            prefabHeaderApplyBtn = document.createElement('button');
+            prefabHeaderApplyBtn.className = 'editrix-prefab-header__btn editrix-prefab-header__btn--primary';
+            prefabHeaderApplyBtn.textContent = 'Apply...';
+            prefabHeaderApplyBtn.addEventListener('click', () => {
+              const sel = selection.getSelection()[0];
+              const entityId = sel !== undefined ? selectionToEntityId(sel) : undefined;
+              if (entityId === undefined) return;
+              const ecs = presence.current;
+              if (!ecs) return;
+              showApplyPrefabDialog({
+                entityId,
+                ecs,
+                prefabService,
+                onConfirm: async (selected) => {
+                  try {
+                    await prefabService.applyToSource(entityId, selected);
+                  } catch (err) {
+                    logError(`Apply to source: ${err instanceof Error ? err.message : String(err)}`,
+                      'prefab');
+                  }
+                },
+              });
+            });
+            headerActions.appendChild(prefabHeaderRevertBtn);
+            headerActions.appendChild(prefabHeaderApplyBtn);
+            prefabHeaderEl.appendChild(headerActions);
+            entityContainer.appendChild(prefabHeaderEl);
+
+            // Property grid mounts INSIDE the entity view, after the strip.
+            const gridHost = document.createElement('div');
+            gridHost.className = 'editrix-prefab-grid-host';
+            entityContainer.appendChild(gridHost);
+            hostGrid.mount(gridHost);
 
             assetContainer = document.createElement('div');
             assetContainer.className = 'editrix-inspector-view editrix-inspector-view--hidden';

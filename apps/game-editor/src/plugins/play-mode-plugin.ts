@@ -1,5 +1,5 @@
 import { Emitter } from '@editrix/common';
-import type { SceneData } from '@editrix/estella';
+import type { IECSSceneService, SceneData } from '@editrix/estella';
 import { IEstellaService } from '@editrix/estella';
 import { IConsoleService } from '@editrix/plugin-console';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
@@ -21,7 +21,17 @@ interface EstellaApp {
   tick: (delta: number) => Promise<void>;
   setPaused?: (paused: boolean) => void;
   addPlugin?: (plugin: unknown) => unknown;
+  addSystemToSchedule?: (
+    schedule: number,
+    system: unknown,
+    options?: { runIf?: () => boolean; runBefore?: string[]; runAfter?: string[] },
+  ) => unknown;
 }
+
+// Per-entity metadata flag the demo system honours. Authored on the seeded
+// Test Shape so the default project visibly animates on Play; survives scene
+// round-trip via SerializedEntity.metadata.
+const DEMO_ORBIT_METADATA_KEY = 'debug:autoSpin';
 
 export const PlayModePlugin: IPlugin = {
   descriptor: {
@@ -50,6 +60,8 @@ export const PlayModePlugin: IPlugin = {
     let lastTickMs: number | undefined;
     let frameCount = 0;
     let avgDtMs = 0;
+    let setEnginePlayMode: ((active: boolean) => void) | undefined;
+    let resetDemoOrbitState: (() => void) | undefined;
 
     const runtimePresence: IRuntimeAppPresenceShape = {
       get current() { return runtimeApp; },
@@ -138,7 +150,11 @@ export const PlayModePlugin: IPlugin = {
           snapshot = ecs.serialize();
           if (app?.setPaused) app.setPaused(false);
           if (!app) warn('Play started before runtime App was ready — will be render-only this session.');
+          // Fresh entity ids after the snapshot is taken — drop any stale
+          // demo-orbit baselines so the next session captures from current.
+          resetDemoOrbitState?.();
         }
+        setEnginePlayMode?.(true);
         transition('playing');
         startLoop();
       },
@@ -147,12 +163,14 @@ export const PlayModePlugin: IPlugin = {
         if (mode !== 'playing') return;
         stopLoop();
         try { app?.setPaused?.(true); } catch { /* empty */ }
+        setEnginePlayMode?.(false);
         transition('paused');
       },
 
       resume(): void {
         if (mode !== 'paused') return;
         try { app?.setPaused?.(false); } catch { /* empty */ }
+        setEnginePlayMode?.(true);
         transition('playing');
         startLoop();
       },
@@ -168,6 +186,7 @@ export const PlayModePlugin: IPlugin = {
         // Keep the App alive across play/stop — the resolver and bound texture
         // handles stay valid for edit mode. Just pause ticking.
         try { app?.setPaused?.(true); } catch (err) { warn('setPaused threw', err); }
+        setEnginePlayMode?.(false);
         const ecs = presence.current;
         if (ecs && snapshot) {
           // Entity ids change on deserialize; stale selection would point
@@ -175,6 +194,8 @@ export const PlayModePlugin: IPlugin = {
           selection.clearSelection();
           ecs.deserialize(snapshot);
         }
+        // Drop demo-orbit baselines keyed by the now-destroyed entity ids.
+        resetDemoOrbitState?.();
         snapshot = undefined;
         frameCount = 0;
         avgDtMs = 0;
@@ -205,6 +226,24 @@ export const PlayModePlugin: IPlugin = {
         created.setPaused?.(true);
         app = created;
         runtimeApp = { instance: created, sdk: sdkRec };
+
+        // Engine-mode flags: editorMode permanently true; playMode toggles
+        // with our PlayMode transitions. AnimationPlugin + similar systems
+        // gate on `playModeOnly` so without these toggles nothing animates.
+        const setEditorModeFn = sdkRec['setEditorMode'];
+        if (typeof setEditorModeFn === 'function') {
+          (setEditorModeFn as (b: boolean) => void)(true);
+        }
+        const setPlayModeFn = sdkRec['setPlayMode'];
+        if (typeof setPlayModeFn === 'function') {
+          setEnginePlayMode = setPlayModeFn as (b: boolean) => void;
+          setEnginePlayMode(false);
+        }
+
+        installDemoOrbitSystem(created, sdkRec, ecs, warn, (reset) => {
+          resetDemoOrbitState = reset;
+        });
+
         onDidBindApp.fire(runtimeApp);
       } catch (err) {
         warn('Failed to construct runtime App — textures will not load', err);
@@ -230,6 +269,7 @@ export const PlayModePlugin: IPlugin = {
     ctx.subscriptions.add({
       dispose(): void {
         stopLoop();
+        setEnginePlayMode?.(false);
         if (app) {
           if (runtimeApp) {
             onDidUnbindApp.fire();
@@ -249,3 +289,106 @@ export const PlayModePlugin: IPlugin = {
     });
   },
 };
+
+// Tiny JS system that orbits any entity flagged with editor metadata
+// `debug:autoSpin`. The seeded Test Shape is flagged so the default scene
+// visibly animates on Play; user-created entities are untouched. Position
+// baseline is captured the first frame the entity is seen, then the position
+// is driven relative to that baseline so user-set positions are preserved.
+interface DemoOrbitDeps {
+  defineSystem: (params: unknown[], fn: (...args: unknown[]) => void, opts?: { name?: string }) => unknown;
+  Schedule: { Update: number };
+  playModeOnly: () => boolean;
+  Res: (resource: unknown) => unknown;
+  GetWorld: () => unknown;
+  Time: unknown;
+  Transform: unknown;
+}
+
+function readDemoOrbitDeps(sdkRec: Record<string, unknown>): DemoOrbitDeps | undefined {
+  const defineSystem = sdkRec['defineSystem'];
+  const Schedule = sdkRec['Schedule'];
+  const playModeOnly = sdkRec['playModeOnly'];
+  const Res = sdkRec['Res'];
+  const GetWorld = sdkRec['GetWorld'];
+  const Time = sdkRec['Time'];
+  const Transform = sdkRec['Transform'];
+  if (
+    typeof defineSystem !== 'function' || typeof Schedule !== 'object' || Schedule === null
+    || typeof playModeOnly !== 'function' || typeof Res !== 'function'
+    || typeof GetWorld !== 'function' || Time === undefined || Transform === undefined
+  ) return undefined;
+  const sched = Schedule as { Update?: number };
+  if (typeof sched.Update !== 'number') return undefined;
+  return {
+    defineSystem: defineSystem as DemoOrbitDeps['defineSystem'],
+    Schedule: { Update: sched.Update },
+    playModeOnly: playModeOnly as () => boolean,
+    Res: Res as (r: unknown) => unknown,
+    GetWorld: GetWorld as () => unknown,
+    Time, Transform,
+  };
+}
+
+function installDemoOrbitSystem(
+  app: EstellaApp,
+  sdkRec: Record<string, unknown>,
+  ecs: IECSSceneService,
+  warn: (msg: string, err?: unknown) => void,
+  registerReset: (reset: () => void) => void,
+): void {
+  if (typeof app.addSystemToSchedule !== 'function') return;
+  const deps = readDemoOrbitDeps(sdkRec);
+  if (!deps) {
+    warn('Demo orbit system skipped — SDK missing expected exports.');
+    return;
+  }
+
+  const baselines = new Map<number, { x: number; y: number; z: number }>();
+  registerReset(() => { baselines.clear(); });
+
+  interface WorldLike {
+    getEntitiesWithComponents: (defs: unknown[]) => number[];
+    get: (entity: number, def: unknown) => unknown;
+    insert: (entity: number, def: unknown, data: unknown) => void;
+  }
+  interface TransformLike { position: { x: number; y: number; z: number } }
+  interface TimeLike { elapsed: number; delta: number }
+
+  const sysDef = deps.defineSystem(
+    [deps.Res(deps.Time), deps.GetWorld()],
+    (...args: unknown[]) => {
+      const time = args[0] as TimeLike;
+      const world = args[1] as WorldLike;
+      const entities = world.getEntitiesWithComponents([deps.Transform]);
+      if (entities.length === 0) return;
+      const RADIUS = 80;
+      const SPEED = 1.6;
+      for (const entity of entities) {
+        if (ecs.getEntityMetadata(entity, DEMO_ORBIT_METADATA_KEY) !== true) continue;
+        const transform = world.get(entity, deps.Transform) as TransformLike | undefined;
+        if (!transform) continue;
+        let baseline = baselines.get(entity);
+        if (!baseline) {
+          baseline = {
+            x: transform.position.x,
+            y: transform.position.y,
+            z: transform.position.z,
+          };
+          baselines.set(entity, baseline);
+        }
+        const angle = time.elapsed * SPEED;
+        transform.position.x = baseline.x + Math.cos(angle) * RADIUS;
+        transform.position.y = baseline.y + Math.sin(angle) * RADIUS;
+        world.insert(entity, deps.Transform, transform);
+      }
+    },
+    { name: 'EditorDemoOrbitSystem' },
+  );
+
+  try {
+    app.addSystemToSchedule(deps.Schedule.Update, sysDef, { runIf: deps.playModeOnly });
+  } catch (err) {
+    warn('Failed to install demo orbit system', err);
+  }
+}

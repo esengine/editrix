@@ -40,6 +40,7 @@ export class SceneViewWidget extends BaseWidget {
   private _activeTool: ToolId = 'select';
   private readonly _toolButtons = new Map<ToolId, HTMLElement>();
   private _snapInput: HTMLInputElement | undefined;
+  private _zoomIndicatorEl: HTMLElement | undefined;
   private _canvas: HTMLCanvasElement | undefined;
   private readonly _renderContext: SharedRenderContext;
   private readonly _editorCamera = new EditorCamera();
@@ -87,9 +88,14 @@ export class SceneViewWidget extends BaseWidget {
     // Viewport
     const viewport = this.appendElement(root, 'div', 'editrix-sv-viewport');
 
-    // 2D canvas for drawImage rendering
+    // 2D canvas for drawImage rendering. `tabIndex=0` lets the viewport
+    // participate in keyboard focus so camera shortcuts (F to frame the
+    // current selection) work without swallowing keys meant for text
+    // inputs elsewhere in the editor.
     this._canvas = document.createElement('canvas');
     this._canvas.className = 'editrix-sv-canvas';
+    this._canvas.tabIndex = 0;
+    this._canvas.style.outline = 'none';
     viewport.appendChild(this._canvas);
     const ctx2d = this._canvas.getContext('2d');
     if (!ctx2d) {
@@ -103,6 +109,9 @@ export class SceneViewWidget extends BaseWidget {
       render: (module: ESEngineModule, registry: CppRegistry, w: number, h: number): void => {
         const ptr = cam.computeMatrix(w, h);
         if (ptr !== 0) module.renderFrameWithMatrix(registry, w, h, ptr);
+        // Cheap: repaint the zoom label on each render. Camera mutates
+        // (zoomAt / focusOn / wheel) always trigger a render anyway.
+        this._updateZoomIndicator();
       },
       postDraw: (ctx: CanvasRenderingContext2D, w: number, h: number): void => {
         this._drawGrid(ctx, w, h);
@@ -174,9 +183,30 @@ export class SceneViewWidget extends BaseWidget {
     const spacer = this.appendElement(toolbar, 'div');
     spacer.style.flex = '1';
 
+    // Right: zoom indicator. Click resets to 100%. The value is driven by
+    // the editor camera's zoom property — we register a short poll via
+    // requestAnimationFrame-on-render since the camera itself has no
+    // event. Scene View renders on camera change, so painting the label
+    // from within the render view (above) keeps the label in sync
+    // without plumbing a new event through.
+    this._zoomIndicatorEl = this.appendElement(toolbar, 'button', 'editrix-sv-zoom-indicator');
+    this._zoomIndicatorEl.type = 'button';
+    this._zoomIndicatorEl.title = 'Reset zoom to 100%';
+    this._zoomIndicatorEl.textContent = '100%';
+    this._zoomIndicatorEl.addEventListener('click', () => {
+      this._editorCamera.zoom = 1.0;
+      this._updateZoomIndicator();
+      this._renderContext.requestRender();
+    });
+
     // Gizmo
     const gizmo = this.appendElement(viewport, 'div', 'editrix-sv-gizmo');
     this._buildGizmo(gizmo);
+  }
+
+  private _updateZoomIndicator(): void {
+    if (!this._zoomIndicatorEl) return;
+    this._zoomIndicatorEl.textContent = `${String(Math.round(this._editorCamera.zoom * 100))}%`;
   }
 
   private _setActiveTool(id: ToolId): void {
@@ -485,6 +515,27 @@ export class SceneViewWidget extends BaseWidget {
       );
     };
 
+    // F: frame selection. Only active when the Scene View canvas has
+    // keyboard focus so a user editing a text input somewhere else in
+    // the app can still type an "f" without jumping the camera.
+    canvas.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key !== 'f' && e.key !== 'F') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return; // leave cmd-F etc. alone
+      const ecs = this._ecsScene;
+      if (!ecs) return;
+      const selectedRaw = this._selection.getSelection()[0];
+      const parsed = selectedRaw !== undefined ? parseSelectionRef(selectedRaw) : undefined;
+      if (parsed?.kind !== 'entity') return;
+      e.preventDefault();
+      const px = Number(ecs.getProperty(parsed.id, 'Transform', 'position.x') ?? 0);
+      const py = Number(ecs.getProperty(parsed.id, 'Transform', 'position.y') ?? 0);
+      this._editorCamera.focusOn(px, py, 1.0);
+      this._renderContext.requestRender();
+    });
+    // Focus the canvas when the user clicks it — so F works immediately
+    // after a click without needing a separate focus step.
+    canvas.addEventListener('mousedown', () => { canvas.focus(); });
+
     // Left-click: select or start transform drag
     canvas.addEventListener('mousedown', (e: MouseEvent) => {
       if (e.button !== 0) return;
@@ -724,6 +775,18 @@ export class SceneViewWidget extends BaseWidget {
   font-size: 12px; text-align: center; outline: none;
 }
 .editrix-sv-snap-input:focus { box-shadow: 0 0 0 1px var(--editrix-accent); }
+
+.editrix-sv-zoom-indicator {
+  margin-left: 4px; padding: 3px 9px; border-radius: 4px;
+  background: transparent; color: var(--editrix-text-dim);
+  border: 1px solid transparent;
+  font-family: var(--editrix-mono-font, Consolas, monospace);
+  font-size: 12px; cursor: pointer; min-width: 48px; text-align: center;
+}
+.editrix-sv-zoom-indicator:hover {
+  background: rgba(255,255,255,0.06); color: var(--editrix-text);
+  border-color: rgba(255,255,255,0.12);
+}
 
 .editrix-sv-gizmo { position: absolute; top: 50px; right: 12px; opacity: 0.85; pointer-events: none; }
 `;

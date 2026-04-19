@@ -126,6 +126,10 @@ export const DocumentTabsPlugin: IPlugin = {
 /** Pick a tab icon based on file extension. Falls back to generic 'file'. */
 function iconForExtension(ext: string): string {
   switch (ext) {
+    case '.esprefab':
+      // Blue cube icon, registered by HierarchyPlugin — distinguishes
+      // prefab-source tabs from scene tabs at a glance.
+      return 'prefab-instance';
     case '.json':
       return 'layers';
     case '.ts':
