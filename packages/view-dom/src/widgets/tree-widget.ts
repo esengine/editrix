@@ -14,6 +14,12 @@ export interface TreeNode {
   readonly label: string;
   /** Icon name from the icon registry. */
   readonly icon?: string;
+  /**
+   * Extra CSS class applied to the label span. Callers can use this to
+   * theme specific rows (e.g. blue for prefab instance roots) without
+   * injecting arbitrary markup into the label text.
+   */
+  readonly labelClassName?: string;
   /** Child nodes. Empty/undefined = leaf node. */
   readonly children?: readonly TreeNode[];
 }
@@ -402,6 +408,7 @@ export class TreeWidget extends BaseWidget {
 
       // Label
       const label = createElement('span', 'editrix-tree-label');
+      if (node.labelClassName) label.classList.add(node.labelClassName);
       label.textContent = node.label;
       row.appendChild(label);
 
@@ -474,7 +481,11 @@ export class TreeWidget extends BaseWidget {
           }
 
           e.dataTransfer?.setData('text/x-editrix-tree-node', JSON.stringify(sources));
-          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+          // `copyMove` so drop targets outside the tree (e.g. Content
+          // Browser folder cards creating prefabs) can use dropEffect='copy'
+          // while internal tree reparenting still uses 'move'. Without this
+          // a copy-typed drop is silently rejected by the browser.
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove';
           this._dragSourceIds = sources;
 
           const sourceSet = new Set(sources);
@@ -670,6 +681,7 @@ export class TreeWidget extends BaseWidget {
         const newNode: TreeNode = Object.assign(
           { id: node.id, label: node.label },
           node.icon !== undefined ? { icon: node.icon } : {},
+          node.labelClassName !== undefined ? { labelClassName: node.labelClassName } : {},
           filteredChildren.length > 0 ? { children: filteredChildren } : node.children !== undefined ? { children: node.children } : {},
         );
         result.push(newNode);

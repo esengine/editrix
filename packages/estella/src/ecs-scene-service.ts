@@ -24,6 +24,13 @@ export interface SerializedEntity {
     readonly components: Record<string, Record<string, unknown>>;
     readonly children: number[];
     /**
+     * Visibility intent. `false` is persisted and the editor mirrors it to
+     * the engine `Disabled` tag so renderers/systems see consistent state.
+     * Omitted in serialised form when the entity is visible (the default)
+     * to keep scene files clean.
+     */
+    readonly visible?: boolean;
+    /**
      * Per-entity editor/tooling metadata that survives scene round-trip.
      * Not interpreted by the ECS — callers namespace their own keys
      * (e.g. 'inspectorComponentOrder').
@@ -77,6 +84,11 @@ export interface IECSSceneService extends IDisposable {
     getName(entityId: number): string;
     setName(entityId: number, name: string): void;
 
+    // Visibility — synchronised with the engine's `Disabled` tag so renderers
+    // honour it. Default true on create.
+    getVisible(entityId: number): boolean;
+    setVisible(entityId: number, visible: boolean): void;
+
     // Components
     addComponent(entityId: number, componentName: string): void;
     removeComponent(entityId: number, componentName: string): void;
@@ -95,6 +107,8 @@ export interface IECSSceneService extends IDisposable {
     // Per-entity metadata (editor/tooling state, round-tripped via SerializedEntity.metadata)
     getEntityMetadata(entityId: number, key: string): unknown;
     setEntityMetadata(entityId: number, key: string, value: unknown): void;
+    /** Snapshot of the metadata keys currently set on {@link entityId}. Empty if none. */
+    getEntityMetadataKeys(entityId: number): readonly string[];
 
     // Events
     readonly onEntityCreated: Event<EntityEvent>;
@@ -104,6 +118,7 @@ export interface IECSSceneService extends IDisposable {
     readonly onPropertyChanged: Event<PropertyEvent>;
     readonly onHierarchyChanged: Event<void>;
     readonly onMetadataChanged: Event<{ entityId: number; key: string; value: unknown }>;
+    readonly onVisibilityChanged: Event<{ entityId: number; visible: boolean }>;
 
     // Serialization
     serialize(): SceneData;

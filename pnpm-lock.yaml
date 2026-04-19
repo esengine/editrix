@@ -95,6 +95,9 @@ importers:
       '@editrix/core':
         specifier: workspace:*
         version: link:../core
+      esengine:
+        specifier: file:../../vendor/estella/sdk
+        version: file:vendor/estella/sdk
 
   packages/layout:
     dependencies:
@@ -983,6 +986,9 @@ packages:
   escape-string-regexp@4.0.0:
     resolution: {integrity: sha512-TtpcNJ3XAzx3Gq8sWRzJaVajRs0uVxA2YAkdb1jm2YkPz4G6egUFAyA3n5vtEIZefPk5Wa4UXbKuS5fKkJWdgA==}
     engines: {node: '>=10'}
+
+  esengine@file:vendor/estella/sdk:
+    resolution: {directory: vendor/estella/sdk, type: directory}
 
   eslint-import-context@0.1.9:
     resolution: {integrity: sha512-K9Hb+yRaGAGUbwjhFNHvSmmkZs9+zbuoe3kFQ4V1wYjrepUFYM2dZAfNtjbbj3qsPfUfsA68Bx/ICWQMi+C8Eg==}
@@ -2207,6 +2213,8 @@ snapshots:
       '@esbuild/win32-x64': 0.27.7
 
   escape-string-regexp@4.0.0: {}
+
+  esengine@file:vendor/estella/sdk: {}
 
   eslint-import-context@0.1.9(unrs-resolver@1.11.1):
     dependencies:

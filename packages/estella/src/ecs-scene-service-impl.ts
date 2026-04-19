@@ -21,9 +21,17 @@ interface EntityMeta {
     name: string;
     parentId: number | null;
     childIds: number[];
+    /**
+     * Authoritative visibility state on the editor side. Mirrored to the
+     * engine's `Disabled` tag (visible=false ↔ Disabled present) so runtime
+     * systems and the renderer see consistent state.
+     */
+    visible: boolean;
     /** Namespaced bag for editor/tooling state (e.g. inspectorComponentOrder). */
     extras: Record<string, unknown>;
 }
+
+const DISABLED_COMPONENT = 'Disabled';
 
 /**
  * ECS Scene Service — wraps estella WASM editor API.
@@ -49,6 +57,7 @@ export class ECSSceneService implements IECSSceneService {
     private readonly _onPropertyChanged = new Emitter<PropertyEvent>();
     private readonly _onHierarchyChanged = new Emitter<void>();
     private readonly _onMetadataChanged = new Emitter<{ entityId: number; key: string; value: unknown }>();
+    private readonly _onVisibilityChanged = new Emitter<{ entityId: number; visible: boolean }>();
 
     readonly onEntityCreated = this._onEntityCreated.event;
     readonly onEntityDestroyed = this._onEntityDestroyed.event;
@@ -57,6 +66,7 @@ export class ECSSceneService implements IECSSceneService {
     readonly onPropertyChanged = this._onPropertyChanged.event;
     readonly onHierarchyChanged = this._onHierarchyChanged.event;
     readonly onMetadataChanged = this._onMetadataChanged.event;
+    readonly onVisibilityChanged = this._onVisibilityChanged.event;
 
     constructor(module: ESEngineModule, registry: CppRegistry, renderCallback?: () => void) {
         this._module = module;
@@ -139,6 +149,11 @@ export class ECSSceneService implements IECSSceneService {
         this._onMetadataChanged.fire({ entityId, key, value });
     }
 
+    getEntityMetadataKeys(entityId: number): readonly string[] {
+        const meta = this._entities.get(entityId);
+        return meta ? Object.keys(meta.extras) : [];
+    }
+
     // ── Entity Lifecycle ────────────────────────────────────
 
     createEntity(name: string, parentId?: number): number {
@@ -151,6 +166,7 @@ export class ECSSceneService implements IECSSceneService {
             name,
             parentId: parentId ?? null,
             childIds: [],
+            visible: true,
             extras: {},
         };
         this._entities.set(entityId, meta);
@@ -343,6 +359,26 @@ export class ECSSceneService implements IECSSceneService {
         }
     }
 
+    getVisible(entityId: number): boolean {
+        return this._entities.get(entityId)?.visible ?? true;
+    }
+
+    setVisible(entityId: number, visible: boolean): void {
+        const meta = this._entities.get(entityId);
+        if (!meta) return;
+        if (meta.visible === visible) return;
+        meta.visible = visible;
+        // Mirror to engine Disabled tag so renderer/systems honour the
+        // intent. Tag add/remove is idempotent on the engine side.
+        if (visible) {
+            this._module.editor_removeComponent(this._registry, entityId, DISABLED_COMPONENT);
+        } else {
+            this._module.editor_addComponent(this._registry, entityId, DISABLED_COMPONENT);
+        }
+        this._onVisibilityChanged.fire({ entityId, visible });
+        this.requestRender();
+    }
+
     // ── Components ──────────────────────────────────────────
 
     addComponent(entityId: number, componentName: string): void {
@@ -449,6 +485,10 @@ export class ECSSceneService implements IECSSceneService {
 
             const components: Record<string, Record<string, unknown>> = {};
             for (const compName of this.getComponents(entityId)) {
+                // Disabled is the wire form for visible=false; carried via the
+                // top-level `visible` field instead so consumers can read it
+                // without component-set inspection.
+                if (compName === DISABLED_COMPONENT) continue;
                 components[compName] = this.getComponentData(entityId, compName);
             }
 
@@ -458,6 +498,7 @@ export class ECSSceneService implements IECSSceneService {
                 name: meta.name,
                 components,
                 children: [...meta.childIds],
+                ...(!meta.visible ? { visible: false } : {}),
                 ...(hasExtras ? { metadata: { ...meta.extras } } : {}),
             });
 
@@ -479,7 +520,11 @@ export class ECSSceneService implements IECSSceneService {
             this.destroyEntity(rootId);
         }
 
-        // ID remapping: serialized ID → runtime Entity
+        // ID remapping: serialized ID → runtime Entity. The serialised id is
+        // whatever runtime id the previous session happened to assign, so any
+        // entity-typed component field whose value still references that id
+        // must be rewritten through this map before being set on the new
+        // entity, or cross-references silently break across save/load.
         const idMap = new Map<number, number>();
 
         // Phase 1: create all entities
@@ -490,6 +535,7 @@ export class ECSSceneService implements IECSSceneService {
                 name: entityData.name,
                 parentId: null,
                 childIds: [],
+                visible: entityData.visible !== false,
                 extras: entityData.metadata ? { ...entityData.metadata } : {},
             });
         }
@@ -522,20 +568,50 @@ export class ECSSceneService implements IECSSceneService {
             }
         }
 
-        // Phase 3: add components and set properties
+        // Phase 3: add components and set properties (with entity-ref remap)
         for (const entityData of data.entities) {
             const entityId = idMap.get(entityData.id);
             if (entityId === undefined) continue;
             for (const [compName, compData] of Object.entries(entityData.components)) {
                 this._module.editor_addComponent(this._registry, entityId, compName);
+                const schema = this._schemas.get(compName);
                 for (const [field, value] of Object.entries(compData)) {
-                    this.setProperty(entityId, compName, field, value);
+                    const resolved = schema
+                        ? this._remapEntityRefValue(schema, field, value, idMap)
+                        : value;
+                    this.setProperty(entityId, compName, field, resolved);
                 }
+            }
+            // Visibility wire form: Disabled tag presence ↔ visible=false.
+            const meta = this._entities.get(entityId);
+            if (meta && !meta.visible) {
+                this._module.editor_addComponent(this._registry, entityId, DISABLED_COMPONENT);
             }
         }
 
         this._onHierarchyChanged.fire();
         this.requestRender();
+    }
+
+    /**
+     * If a component field is entity-typed, look up its serialised value in
+     * `idMap` and return the new runtime id. A reference to an entity that
+     * isn't in the loaded scene resolves to INVALID_ENTITY (0) — we'd rather
+     * the field read as "no entity" than point at an unrelated runtime id
+     * that happened to land in the recycled slot.
+     *
+     * Mirrors `remapEntityFields` from the engine SDK's runtime scene loader.
+     */
+    private _remapEntityRefValue(
+        schema: readonly ComponentFieldSchema[],
+        field: string,
+        value: unknown,
+        idMap: ReadonlyMap<number, number>,
+    ): unknown {
+        const fieldSchema = schema.find((f) => f.key === field);
+        if (fieldSchema?.type !== 'entity') return value;
+        if (typeof value !== 'number' || value === 0) return value;
+        return idMap.get(value) ?? 0;
     }
 
     // ── Rendering ───────────────────────────────────────────
@@ -557,5 +633,7 @@ export class ECSSceneService implements IECSSceneService {
         this._onComponentRemoved.dispose();
         this._onPropertyChanged.dispose();
         this._onHierarchyChanged.dispose();
+        this._onMetadataChanged.dispose();
+        this._onVisibilityChanged.dispose();
     }
 }

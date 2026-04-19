@@ -61,6 +61,9 @@ export type {
   AssetRefPreview,
   PropertyChangeHandler,
   PropertyGridOptions,
+  PropertyGridDataOptions,
+  FieldMenuEvent,
+  ComponentReorderEvent,
 } from './widgets/property-grid-widget.js';
 export { PropertyGridWidget } from './widgets/property-grid-widget.js';
 export type { ToolbarAction } from './widgets/toolbar-widget.js';

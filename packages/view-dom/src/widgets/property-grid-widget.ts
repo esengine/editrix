@@ -29,6 +29,18 @@ export class PropertyGridWidget extends BaseWidget {
   private _contentEl: HTMLElement | undefined;
   private _addBtnEl: HTMLElement | undefined;
   /**
+   * Field keys ("Component.field") currently considered overridden — the
+   * grid renders a blue left bar and fires
+   * {@link onDidRequestFieldMenu} on right-click so the host can offer a
+   * "Revert" option. Ownership of override semantics stays with the host
+   * (IPrefabService); this widget just shows and dispatches.
+   */
+  private _overriddenKeys: ReadonlySet<string> = new Set();
+  /** Overridden component group ids — header gets a left bar badge. */
+  private _overriddenComponentIds: ReadonlySet<string> = new Set();
+  /** Tooltip strings shown on overridden rows (fieldKey → "Source: X"). */
+  private _sourceValueTooltips: ReadonlyMap<string, string> = new Map();
+  /**
    * Which component card is currently being dragged, or null if no
    * drag is in progress. Set in `dragstart`, cleared in `dragend`.
    * Needed because `DataTransfer.getData()` only returns values
@@ -40,6 +52,7 @@ export class PropertyGridWidget extends BaseWidget {
   private readonly _onDidRequestAddComponent = new Emitter<void>();
   private readonly _onDidRequestComponentMenu = new Emitter<{ componentId: string; anchor: HTMLElement }>();
   private readonly _onDidReorderComponent = new Emitter<ComponentReorderEvent>();
+  private readonly _onDidRequestFieldMenu = new Emitter<FieldMenuEvent>();
 
   /** Fired when the "Add Component" button is clicked. */
   readonly onDidRequestAddComponent: Event<void> = this._onDidRequestAddComponent.event;
@@ -47,6 +60,14 @@ export class PropertyGridWidget extends BaseWidget {
   /** Fired when a component card's menu button (⋯) is clicked. */
   readonly onDidRequestComponentMenu: Event<{ componentId: string; anchor: HTMLElement }> =
     this._onDidRequestComponentMenu.event;
+
+  /**
+   * Fired when the user right-clicks a property row. The host decides what
+   * to offer (typically a "Revert to Source" menu when
+   * `isOverridden === true`). Fires for every row; the consumer is
+   * expected to gate on `isOverridden` if it only cares about overrides.
+   */
+  readonly onDidRequestFieldMenu: Event<FieldMenuEvent> = this._onDidRequestFieldMenu.event;
 
   /**
    * Fired when the user drags a component card and drops it on another.
@@ -63,9 +84,16 @@ export class PropertyGridWidget extends BaseWidget {
     this._assetPicker = options?.assetPicker;
   }
 
-  setData(groups: readonly PropertyGroup[], values: Record<string, unknown>): void {
+  setData(
+    groups: readonly PropertyGroup[],
+    values: Record<string, unknown>,
+    options?: PropertyGridDataOptions,
+  ): void {
     this._groups = groups;
     this._values = { ...values };
+    this._overriddenKeys = options?.overriddenKeys ?? new Set();
+    this._overriddenComponentIds = options?.overriddenComponentIds ?? new Set();
+    this._sourceValueTooltips = options?.sourceValueTooltips ?? new Map();
     this._renderGrid();
   }
 
@@ -136,6 +164,9 @@ export class PropertyGridWidget extends BaseWidget {
 
     const card = createElement('div', 'editrix-inspector-card');
     const isCollapsed = this._collapsed.has(group.id);
+    if (this._overriddenComponentIds.has(group.id)) {
+      card.classList.add('editrix-inspector-card--overridden');
+    }
 
     // Header — dark bar with chevron + icon + title + more
     const header = createElement('div', 'editrix-inspector-card-header');
@@ -310,6 +341,7 @@ export class PropertyGridWidget extends BaseWidget {
       row.appendChild(fields);
     }
 
+    this._decorateOverrideRow(row, props.map(p => p.key));
     return row;
   }
 
@@ -420,7 +452,51 @@ export class PropertyGridWidget extends BaseWidget {
 
     container.appendChild(grid);
     row.appendChild(container);
+    this._decorateOverrideRow(row, props.map(p => p.key));
     return row;
+  }
+
+  /**
+   * Paint the prefab-override indicator on a row if any of its backing keys
+   * are overridden. Adds a CSS class (the style rule draws a blue left
+   * border) and wires right-click to emit `onDidRequestFieldMenu`, letting
+   * the host show a revert menu. The first key in `fieldKeys` is used as
+   * the canonical "fieldKey" in the emitted event — callers pass either a
+   * single-key list (scalar rows) or the flattened sub-keys (vec/color),
+   * and the host is expected to strip any `.x`/`.r` suffix if it wants
+   * the parent field name.
+   */
+  private _decorateOverrideRow(row: HTMLElement, fieldKeys: readonly string[]): void {
+    const overridden = fieldKeys.some(k => this._overriddenKeys.has(k));
+    if (overridden) {
+      row.classList.add('editrix-inspector-row--overridden');
+      // Tooltip pulls from whichever sub-key has a source value
+      // registered; for vec/color rows the whole composite gets the same
+      // tooltip, which is what the user wants (they're reverting as a unit).
+      for (const key of fieldKeys) {
+        const tooltip = this._sourceValueTooltips.get(key);
+        if (tooltip !== undefined) { row.title = tooltip; break; }
+      }
+    }
+
+    // Fire a menu request on right-click regardless of override status —
+    // the host decides what to offer.
+    row.addEventListener('contextmenu', (e) => {
+      const mouseEvent = e as MouseEvent;
+      mouseEvent.preventDefault();
+      mouseEvent.stopPropagation();
+      const anchor = row;
+      const primaryKey = fieldKeys[0];
+      if (primaryKey === undefined) return;
+      this._onDidRequestFieldMenu.fire({
+        fieldKey: primaryKey,
+        relatedKeys: [...fieldKeys],
+        isOverridden: overridden,
+        anchor,
+        x: mouseEvent.clientX,
+        y: mouseEvent.clientY,
+      });
+    });
   }
 
   /** Render a single property. Bool uses inline row; others use stacked layout. */
@@ -434,6 +510,7 @@ export class PropertyGridWidget extends BaseWidget {
       row.appendChild(label);
       const control = this._createControl(prop);
       row.appendChild(control);
+      this._decorateOverrideRow(row, [prop.key]);
       return row;
     }
 
@@ -453,6 +530,7 @@ export class PropertyGridWidget extends BaseWidget {
 
     const control = this._createControl(prop);
     row.appendChild(control);
+    this._decorateOverrideRow(row, [prop.key]);
 
     return row;
   }
@@ -1143,6 +1221,25 @@ export class PropertyGridWidget extends BaseWidget {
       }
       .editrix-inspector-stacked-row:last-child { margin-bottom: 0; }
 
+      /* ── Prefab override indicator ── */
+      .editrix-inspector-row--overridden {
+        position: relative;
+        padding-left: 6px;
+      }
+      .editrix-inspector-row--overridden::before {
+        content: '';
+        position: absolute;
+        left: -2px; top: 2px; bottom: 2px;
+        width: 3px; border-radius: 2px;
+        background: #5aa4ff;
+      }
+      .editrix-inspector-row--overridden .editrix-inspector-label {
+        font-weight: 600; color: var(--editrix-text);
+      }
+      .editrix-inspector-card--overridden > .editrix-inspector-card-header {
+        box-shadow: inset 3px 0 0 #5aa4ff;
+      }
+
       /* Inline row: label left, control right (for booleans etc) */
       .editrix-inspector-inline-row {
         display: flex; align-items: center;
@@ -1480,6 +1577,49 @@ export interface PropertyGridOptions {
   readonly onChange?: PropertyChangeHandler;
   /** If omitted, `'asset'` fields fall back to the read-only display. */
   readonly assetPicker?: AssetPickerBinding;
+}
+
+/** Extra data accepted by {@link PropertyGridWidget.setData}. */
+export interface PropertyGridDataOptions {
+  /**
+   * Field keys currently overridden relative to some source. The widget
+   * renders a blue left-bar + bold label on matching rows and fires
+   * {@link PropertyGridWidget.onDidRequestFieldMenu} on right-click.
+   * Ownership of "what overridden means" stays with the host (typically
+   * IPrefabService for prefab instances); the widget is display only.
+   */
+  readonly overriddenKeys?: ReadonlySet<string>;
+  /** Component card ids to render with an override badge on the header. */
+  readonly overriddenComponentIds?: ReadonlySet<string>;
+  /**
+   * Per-overridden-field source values, formatted for display. Used as
+   * the `title` attribute on the overridden row so hover reveals "Source:
+   * <value>". Optional — widget shows no tooltip when unset.
+   */
+  readonly sourceValueTooltips?: ReadonlyMap<string, string>;
+}
+
+/**
+ * Payload for {@link PropertyGridWidget.onDidRequestFieldMenu}.
+ *
+ * - `fieldKey`        — the primary field the user right-clicked on;
+ *                       for vec/color rows this is the first sub-key
+ *                       (caller strips `.x`/`.r` if they need the
+ *                       parent).
+ * - `relatedKeys`     — every backing key that participates in the row
+ *                       (for vec/color, all four axes/channels).
+ * - `isOverridden`    — true when any related key is in the grid's
+ *                       `overriddenKeys` set at render time.
+ * - `anchor`          — the row element, handy for positioning menus.
+ * - `x` / `y`         — mouse client coords, for menu placement.
+ */
+export interface FieldMenuEvent {
+  readonly fieldKey: string;
+  readonly relatedKeys: readonly string[];
+  readonly isOverridden: boolean;
+  readonly anchor: HTMLElement;
+  readonly x: number;
+  readonly y: number;
 }
 
 /**

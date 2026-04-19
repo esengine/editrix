@@ -12,11 +12,14 @@
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
     "@editrix/common": "workspace:*",
-    "@editrix/core": "workspace:*"
+    "@editrix/core": "workspace:*",
+    "esengine": "file:../../vendor/estella/sdk"
   },
   "sideEffects": false
 }
