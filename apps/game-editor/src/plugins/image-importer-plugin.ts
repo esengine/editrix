@@ -30,6 +30,7 @@ interface RuntimeAssets {
   setTextureImportSettingsResolver?(resolver: RuntimeTextureSettingsResolver | null): void;
   invalidate(ref: string): boolean;
   loadTexture(ref: string): Promise<RuntimeTextureResult>;
+  loadAnimClip(ref: string): Promise<{ clipId: string }>;
 }
 
 const INVALID_TEXTURE_HANDLE = 0;
@@ -64,8 +65,33 @@ export const ImageImporterPlugin: IPlugin = {
 
     let bound: { assets: RuntimeAssets; sub: IDisposable; metaSub: IDisposable | undefined; importerSub: IDisposable } | undefined;
 
+    /**
+     * Dispatch an asset-field load by its {@link ComponentFieldSchema.assetType}
+     * subtype. Texture fields get their int handle written into the ECS;
+     * anim-clip fields get their runtime path written as a string (which
+     * is how the SDK's `SpriteAnimatorSystem` looks them up).
+     */
     const loadAndBind = (ecs: IECSSceneService, assets: RuntimeAssets, entityId: number, comp: string, field: string, uuid: string): void => {
       const ref = `${UUID_PREFIX}${uuid}`;
+      const fieldSchema = ecs.getComponentSchema(comp).find((f) => f.key === field);
+      const subtype = fieldSchema?.assetType;
+
+      if (subtype === 'anim-clip') {
+        const entry = catalog.getByUuid(uuid);
+        if (!entry) return;
+        const clipPath = entry.relativePath;
+        assets.loadAnimClip(ref).then(() => {
+          if (!ecs.hasComponent(entityId, comp)) return;
+          ecs.setProperty(entityId, comp, field, clipPath);
+        }).catch((err: unknown) => {
+          warn(`loadAnimClip ${ref}`, err);
+        });
+        return;
+      }
+
+      // Default: texture path. Covers explicit `texture` subtype plus
+      // legacy WASM components whose schema doesn't yet carry subtype
+      // info — keeping the old behaviour as the safe default.
       assets.loadTexture(ref).then((result) => {
         if (!ecs.hasComponent(entityId, comp)) return;
         ecs.setProperty(entityId, comp, field, result.handle);
@@ -105,7 +131,14 @@ export const ImageImporterPlugin: IPlugin = {
           for (const f of ecs.getComponentSchema(comp)) {
             if (f.type !== 'asset') continue;
             const ref = ecs.getEntityMetadata(entityId, `${ASSET_METADATA_PREFIX}${comp}.${f.key}`);
-            if (ref === uuid) ecs.setProperty(entityId, comp, f.key, INVALID_TEXTURE_HANDLE);
+            if (ref !== uuid) continue;
+            // String-backed asset fields (anim-clip, audio, font) reset
+            // to '' rather than 0 so the runtime doesn't try to look up
+            // clip name "0" in its registry.
+            const empty = f.assetType === 'anim-clip' || f.assetType === 'audio' || f.assetType === 'font'
+              ? ''
+              : INVALID_TEXTURE_HANDLE;
+            ecs.setProperty(entityId, comp, f.key, empty);
           }
         }
         for (const child of ecs.getChildren(entityId)) visit(child);
@@ -148,7 +181,11 @@ export const ImageImporterPlugin: IPlugin = {
         const field = fieldPath.slice(dot + 1);
         if (typeof value !== 'string' || value === '') {
           if (ecs.hasComponent(entityId, comp)) {
-            ecs.setProperty(entityId, comp, field, INVALID_TEXTURE_HANDLE);
+            const fieldSchema = ecs.getComponentSchema(comp).find((f) => f.key === field);
+            const empty = fieldSchema?.assetType === 'anim-clip' || fieldSchema?.assetType === 'audio' || fieldSchema?.assetType === 'font'
+              ? ''
+              : INVALID_TEXTURE_HANDLE;
+            ecs.setProperty(entityId, comp, field, empty);
           }
           return;
         }

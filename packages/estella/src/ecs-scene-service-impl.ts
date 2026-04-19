@@ -3,6 +3,7 @@ import type {
     IECSSceneService, ComponentFieldSchema, SceneData, SerializedEntity,
     EntityEvent, ComponentEvent, PropertyEvent,
 } from './ecs-scene-service.js';
+import type { IEcsSdkAdapter } from './ecs-sdk-adapter.js';
 import type { ESEngineModule, CppRegistry, VectorString } from './estella-service.js';
 import { assetFieldSubtype } from './index.js';
 
@@ -49,6 +50,13 @@ export class ECSSceneService implements IECSSceneService {
     private readonly _schemas = new Map<string, ComponentFieldSchema[]>();
     private _availableComponents: string[] = [];
     private readonly _renderCallback: (() => void) | undefined;
+    private _sdkAdapter: IEcsSdkAdapter | undefined;
+    /**
+     * Components in an incoming scene that the WASM schema doesn't know
+     * about but an adapter (not yet attached) might. Flushed when an
+     * adapter attaches. Keyed by live entity id, then by component name.
+     */
+    private readonly _pendingSdkComponents = new Map<number, Map<string, Record<string, unknown>>>();
 
     // Events
     private readonly _onEntityCreated = new Emitter<EntityEvent>();
@@ -128,11 +136,44 @@ export class ECSSceneService implements IECSSceneService {
     }
 
     getComponentSchema(componentName: string): readonly ComponentFieldSchema[] {
-        return this._schemas.get(componentName) ?? [];
+        const wasm = this._schemas.get(componentName);
+        if (wasm) return wasm;
+        return this._sdkAdapter?.getSchema(componentName) ?? [];
     }
 
     getAvailableComponents(): readonly string[] {
-        return this._availableComponents;
+        if (!this._sdkAdapter) return this._availableComponents;
+        // Merge WASM + SDK names, dedup. Order: WASM first (stable schema
+        // ordering), SDK appended alphabetically for predictable UI.
+        const seen = new Set(this._availableComponents);
+        const extra = this._sdkAdapter.list().filter((n) => !seen.has(n)).sort();
+        return [...this._availableComponents, ...extra];
+    }
+
+    attachSdkAdapter(adapter: IEcsSdkAdapter | undefined): void {
+        this._sdkAdapter = adapter;
+        if (!adapter || this._pendingSdkComponents.size === 0) return;
+        // Flush any deserialized components the adapter now recognises.
+        // Keep entries whose names are still unknown in case a later
+        // adapter extension picks them up; most "unknowns" are stable
+        // typos and will stay here harmlessly until the entity is
+        // destroyed or the service is disposed.
+        for (const [entityId, byName] of this._pendingSdkComponents) {
+            for (const [name, data] of [...byName]) {
+                if (!adapter.has(name)) continue;
+                adapter.insert(entityId, name, data);
+                byName.delete(name);
+                this._onComponentAdded.fire({ entityId, component: name });
+            }
+            if (byName.size === 0) this._pendingSdkComponents.delete(entityId);
+        }
+        this.requestRender();
+    }
+
+    /** True iff {@link name} is known to the SDK adapter (and not WASM). */
+    private _isSdkComponent(name: string): boolean {
+        if (this._schemas.has(name)) return false;
+        return this._sdkAdapter?.has(name) === true;
     }
 
     // ── Per-entity Metadata ─────────────────────────────────
@@ -210,6 +251,13 @@ export class ECSSceneService implements IECSSceneService {
         } else {
             this._rootIds = this._rootIds.filter((id) => id !== entityId);
         }
+
+        // SDK components first: we still own the entity id, the adapter
+        // just strips its per-component storage. Must happen before
+        // CppRegistry.destroy so the entity id is still recognised as
+        // valid by the SDK-side world.
+        this._sdkAdapter?.cleanupEntity(entityId);
+        this._pendingSdkComponents.delete(entityId);
 
         this._registry.destroy(entityId);
         this._entities.delete(entityId);
@@ -387,6 +435,13 @@ export class ECSSceneService implements IECSSceneService {
     // ── Components ──────────────────────────────────────────
 
     addComponent(entityId: number, componentName: string): void {
+        if (this._isSdkComponent(componentName)) {
+            if (this._sdkAdapter?.insert(entityId, componentName) === true) {
+                this._onComponentAdded.fire({ entityId, component: componentName });
+                this.requestRender();
+            }
+            return;
+        }
         if (this._module.editor_addComponent(this._registry, entityId, componentName)) {
             this._onComponentAdded.fire({ entityId, component: componentName });
             this.requestRender();
@@ -394,6 +449,13 @@ export class ECSSceneService implements IECSSceneService {
     }
 
     removeComponent(entityId: number, componentName: string): void {
+        if (this._isSdkComponent(componentName)) {
+            if (this._sdkAdapter?.remove(entityId, componentName) === true) {
+                this._onComponentRemoved.fire({ entityId, component: componentName });
+                this.requestRender();
+            }
+            return;
+        }
         if (this._module.editor_removeComponent(this._registry, entityId, componentName)) {
             this._onComponentRemoved.fire({ entityId, component: componentName });
             this.requestRender();
@@ -401,16 +463,29 @@ export class ECSSceneService implements IECSSceneService {
     }
 
     hasComponent(entityId: number, componentName: string): boolean {
+        if (this._isSdkComponent(componentName)) {
+            return this._sdkAdapter?.entityHas(entityId, componentName) === true;
+        }
         return this._module.editor_hasComponent(this._registry, entityId, componentName);
     }
 
     getComponents(entityId: number): readonly string[] {
-        return vecToArray(this._module.editor_getComponents(this._registry, entityId));
+        const wasm = vecToArray(this._module.editor_getComponents(this._registry, entityId));
+        if (!this._sdkAdapter) return wasm;
+        const sdk = this._sdkAdapter.entityComponents(entityId);
+        if (sdk.length === 0) return wasm;
+        return [...wasm, ...sdk];
     }
 
     // ── Properties ──────────────────────────────────────────
 
     getProperty(entityId: number, componentName: string, fieldPath: string): unknown {
+        if (this._isSdkComponent(componentName)) {
+            const data = this._sdkAdapter?.getData(entityId, componentName);
+            if (!data) return undefined;
+            return readNestedField(data, fieldPath);
+        }
+
         const schema = this._schemas.get(componentName);
         if (!schema) return undefined;
 
@@ -436,6 +511,14 @@ export class ECSSceneService implements IECSSceneService {
     }
 
     setProperty(entityId: number, componentName: string, fieldPath: string, value: unknown): void {
+        if (this._isSdkComponent(componentName)) {
+            if (this._sdkAdapter?.setField(entityId, componentName, fieldPath, value) === true) {
+                this._onPropertyChanged.fire({ entityId, component: componentName, field: fieldPath, value });
+                this.requestRender();
+            }
+            return;
+        }
+
         const schema = this._schemas.get(componentName);
         if (!schema) return;
 
@@ -469,6 +552,10 @@ export class ECSSceneService implements IECSSceneService {
     }
 
     getComponentData(entityId: number, componentName: string): Record<string, unknown> {
+        if (this._isSdkComponent(componentName)) {
+            return this._sdkAdapter?.getData(entityId, componentName) ?? {};
+        }
+
         const schema = this._schemas.get(componentName);
         if (!schema) return {};
 
@@ -495,6 +582,15 @@ export class ECSSceneService implements IECSSceneService {
                 // without component-set inspection.
                 if (compName === DISABLED_COMPONENT) continue;
                 components[compName] = this.getComponentData(entityId, compName);
+            }
+            // Include any SDK components that arrived in the scene but
+            // whose adapter hasn't surfaced yet — round-trip preserves
+            // them bytes-for-bytes so reloading doesn't drop state.
+            const pending = this._pendingSdkComponents.get(entityId);
+            if (pending) {
+                for (const [name, data] of pending) {
+                    components[name] = { ...data };
+                }
             }
 
             const hasExtras = Object.keys(meta.extras).length > 0;
@@ -524,6 +620,9 @@ export class ECSSceneService implements IECSSceneService {
         for (const rootId of [...this._rootIds]) {
             this.destroyEntity(rootId);
         }
+        // destroyEntity clears its own pending-SDK entries, but stragglers
+        // can linger if the previous tree's topology wasn't consistent.
+        this._pendingSdkComponents.clear();
 
         // ID remapping: serialized ID → runtime Entity. The serialised id is
         // whatever runtime id the previous session happened to assign, so any
@@ -578,6 +677,37 @@ export class ECSSceneService implements IECSSceneService {
             const entityId = idMap.get(entityData.id);
             if (entityId === undefined) continue;
             for (const [compName, compData] of Object.entries(entityData.components)) {
+                if (this._isSdkComponent(compName)) {
+                    // SDK + adapter already attached: build final data with
+                    // entity refs remapped, insert in one shot. ScriptStorage
+                    // uses `component.create(data)` internally so the first
+                    // insert carries final values.
+                    const sdkSchema = this._sdkAdapter?.getSchema(compName) ?? [];
+                    const remapped: Record<string, unknown> = {};
+                    for (const [field, value] of Object.entries(compData)) {
+                        remapped[field] = this._remapEntityRefValue(sdkSchema, field, value, idMap);
+                    }
+                    this._sdkAdapter?.insert(entityId, compName, remapped);
+                    continue;
+                }
+                if (!this._schemas.has(compName)) {
+                    // Not in the WASM schema and adapter hasn't surfaced it
+                    // yet either — buffer so `attachSdkAdapter` can flush it
+                    // when the runtime App finishes building. Remap entity
+                    // refs here; the schema may arrive with the adapter
+                    // itself so we snapshot a conservative best-effort view.
+                    const remapped: Record<string, unknown> = {};
+                    for (const [field, value] of Object.entries(compData)) {
+                        remapped[field] = value;
+                    }
+                    let byName = this._pendingSdkComponents.get(entityId);
+                    if (!byName) {
+                        byName = new Map();
+                        this._pendingSdkComponents.set(entityId, byName);
+                    }
+                    byName.set(compName, remapped);
+                    continue;
+                }
                 this._module.editor_addComponent(this._registry, entityId, compName);
                 const schema = this._schemas.get(compName);
                 for (const [field, value] of Object.entries(compData)) {
@@ -632,6 +762,7 @@ export class ECSSceneService implements IECSSceneService {
     // ── Dispose ─────────────────────────────────────────────
 
     dispose(): void {
+        this._sdkAdapter = undefined;
         this._onEntityCreated.dispose();
         this._onEntityDestroyed.dispose();
         this._onComponentAdded.dispose();
@@ -641,4 +772,20 @@ export class ECSSceneService implements IECSSceneService {
         this._onMetadataChanged.dispose();
         this._onVisibilityChanged.dispose();
     }
+}
+
+/**
+ * Dot-path getter against a nested SDK component data record. Used by
+ * `getProperty` / schema-driven reads for SDK components whose field
+ * paths (e.g. `position.x`) traverse Vec2/Vec3/Color leaves.
+ */
+function readNestedField(data: Record<string, unknown>, fieldPath: string): unknown {
+    if (!fieldPath.includes('.')) return data[fieldPath];
+    const parts = fieldPath.split('.');
+    let cursor: unknown = data;
+    for (const part of parts) {
+        if (cursor === null || typeof cursor !== 'object') return undefined;
+        cursor = (cursor as Record<string, unknown>)[part];
+    }
+    return cursor;
 }

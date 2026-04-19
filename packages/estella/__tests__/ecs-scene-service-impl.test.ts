@@ -16,6 +16,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
+import type { IEcsSdkAdapter } from '../src/ecs-sdk-adapter';
+import type { ComponentFieldSchema } from '../src/ecs-scene-service';
 import { ECSSceneService } from '../src/ecs-scene-service-impl';
 import type {
     ESEngineModule,
@@ -329,6 +331,198 @@ describe('ECSSceneService — editor metadata round-trip', () => {
 
         expect(svc.getEntityMetadata(restored, 'asset:Sprite.texture')).toBe('uuid-abc');
         expect(svc.getEntityMetadata(restored, 'debug:autoSpin')).toBe(true);
+    });
+});
+
+// ── SDK adapter fake ─────────────────────────────────────────
+
+/**
+ * Mimics the runtime App's ScriptStorage well enough to exercise the
+ * service's SDK routing: components live in a per-entity Map, schema is
+ * pulled from a fixed table, cleanup loops attached components.
+ */
+function makeFakeAdapter(schemas: Record<string, ComponentFieldSchema[]>): IEcsSdkAdapter & {
+    readonly _storage: Map<string, Map<number, Record<string, unknown>>>;
+} {
+    const storage = new Map<string, Map<number, Record<string, unknown>>>();
+    const names = Object.keys(schemas);
+    for (const n of names) storage.set(n, new Map());
+
+    const adapter: IEcsSdkAdapter & { readonly _storage: typeof storage } = {
+        _storage: storage,
+        list: () => names,
+        has: (n) => storage.has(n),
+        getSchema: (n) => schemas[n] ?? [],
+        getDefaults: (n) => schemas[n] ? Object.fromEntries(schemas[n].map((f) => [f.key, f.defaultValue])) : undefined,
+        entityHas: (id, n) => storage.get(n)?.has(id) === true,
+        entityComponents: (id) => {
+            const out: string[] = [];
+            for (const [name, bag] of storage) if (bag.has(id)) out.push(name);
+            return out;
+        },
+        insert: (id, n, data) => {
+            const bag = storage.get(n);
+            if (!bag) return false;
+            const defaults = Object.fromEntries((schemas[n] ?? []).map((f) => [f.key, f.defaultValue]));
+            bag.set(id, { ...defaults, ...(data ?? {}) });
+            return true;
+        },
+        remove: (id, n) => storage.get(n)?.delete(id) === true,
+        getData: (id, n) => {
+            const bag = storage.get(n);
+            const v = bag?.get(id);
+            return v ? { ...v } : undefined;
+        },
+        setField: (id, n, fieldPath, value) => {
+            const bag = storage.get(n);
+            const data = bag?.get(id);
+            if (!data) return false;
+            if (fieldPath.includes('.')) {
+                const [head, rest] = [fieldPath.slice(0, fieldPath.indexOf('.')), fieldPath.slice(fieldPath.indexOf('.') + 1)];
+                const inner = data[head];
+                if (inner === null || typeof inner !== 'object') return false;
+                (inner as Record<string, unknown>)[rest] = value;
+                return true;
+            }
+            data[fieldPath] = value;
+            return true;
+        },
+        cleanupEntity: (id) => {
+            for (const bag of storage.values()) bag.delete(id);
+        },
+    };
+    return adapter;
+}
+
+describe('ECSSceneService — SDK component routing', () => {
+    const SDK_SCHEMAS: Record<string, ComponentFieldSchema[]> = {
+        SpriteAnimator: [
+            { key: 'clip', label: 'Clip', type: 'asset', defaultValue: '', group: 'SpriteAnimator', assetType: 'anim-clip' },
+            { key: 'speed', label: 'Speed', type: 'float', defaultValue: 1.0, group: 'SpriteAnimator' },
+            { key: 'playing', label: 'Playing', type: 'bool', defaultValue: true, group: 'SpriteAnimator' },
+        ],
+    };
+
+    it('merges WASM + SDK names in getAvailableComponents, sorted predictably', () => {
+        const svc = makeService();
+        expect(svc.getAvailableComponents()).toEqual(['Transform', 'ScrollView', 'Sprite', 'Disabled']);
+        svc.attachSdkAdapter(makeFakeAdapter(SDK_SCHEMAS));
+        // SDK entries are appended after WASM, in alphabetical order.
+        expect(svc.getAvailableComponents()).toEqual(['Transform', 'ScrollView', 'Sprite', 'Disabled', 'SpriteAnimator']);
+    });
+
+    it('routes add / has / getComponents / remove through the adapter', () => {
+        const svc = makeService();
+        const adapter = makeFakeAdapter(SDK_SCHEMAS);
+        svc.attachSdkAdapter(adapter);
+        const e = svc.createEntity('E');
+
+        svc.addComponent(e, 'SpriteAnimator');
+        expect(svc.hasComponent(e, 'SpriteAnimator')).toBe(true);
+        expect(svc.getComponents(e)).toContain('SpriteAnimator');
+
+        svc.removeComponent(e, 'SpriteAnimator');
+        expect(svc.hasComponent(e, 'SpriteAnimator')).toBe(false);
+        expect(svc.getComponents(e)).not.toContain('SpriteAnimator');
+    });
+
+    it('getProperty / setProperty route to adapter for SDK fields, including dot-paths', () => {
+        const svc = makeService();
+        const adapter = makeFakeAdapter({
+            MyComp: [
+                { key: 'scalar', label: 'Scalar', type: 'float', defaultValue: 0, group: 'MyComp' },
+                { key: 'vec.x', label: 'Vec X', type: 'float', defaultValue: 0, group: 'MyComp' },
+                { key: 'vec.y', label: 'Vec Y', type: 'float', defaultValue: 0, group: 'MyComp' },
+            ],
+        });
+        svc.attachSdkAdapter(adapter);
+        const e = svc.createEntity('E');
+
+        // Seed nested data — adapter doesn't build shape from schema alone.
+        adapter.insert(e, 'MyComp', { scalar: 0, vec: { x: 0, y: 0 } });
+
+        svc.setProperty(e, 'MyComp', 'scalar', 3);
+        svc.setProperty(e, 'MyComp', 'vec.x', 7);
+
+        expect(svc.getProperty(e, 'MyComp', 'scalar')).toBe(3);
+        expect(svc.getProperty(e, 'MyComp', 'vec.x')).toBe(7);
+        expect(svc.getProperty(e, 'MyComp', 'vec.y')).toBe(0);
+    });
+
+    it('serializes + deserializes SDK components alongside WASM', () => {
+        const svc = makeService();
+        const adapter = makeFakeAdapter(SDK_SCHEMAS);
+        svc.attachSdkAdapter(adapter);
+
+        const e = svc.createEntity('E');
+        svc.addComponent(e, 'SpriteAnimator');
+        svc.setProperty(e, 'SpriteAnimator', 'speed', 2.5);
+
+        const data = svc.serialize();
+        expect(data.entities[0]?.components['SpriteAnimator']).toBeDefined();
+        expect(data.entities[0]?.components['SpriteAnimator']).toMatchObject({ speed: 2.5, playing: true });
+
+        svc.deserialize(data);
+        const restored = svc.getRootEntities()[0];
+        expect(restored).toBeDefined();
+        if (restored === undefined) return;
+        expect(svc.hasComponent(restored, 'SpriteAnimator')).toBe(true);
+        expect(svc.getProperty(restored, 'SpriteAnimator', 'speed')).toBe(2.5);
+    });
+
+    it('destroyEntity cleans up the adapter storage', () => {
+        const svc = makeService();
+        const adapter = makeFakeAdapter(SDK_SCHEMAS);
+        svc.attachSdkAdapter(adapter);
+
+        const e = svc.createEntity('E');
+        svc.addComponent(e, 'SpriteAnimator');
+        expect(adapter.entityHas(e, 'SpriteAnimator')).toBe(true);
+
+        svc.destroyEntity(e);
+        expect(adapter.entityHas(e, 'SpriteAnimator')).toBe(false);
+    });
+
+    it('buffers unknown components at deserialize time and flushes on attach', () => {
+        const svc = makeService();
+        // NB: no adapter attached yet. Scene names an unknown component.
+        svc.deserialize({
+            version: 1,
+            name: 'S',
+            entities: [{
+                id: 1,
+                name: 'E',
+                components: { SpriteAnimator: { clip: '', speed: 3, playing: true } },
+                children: [],
+            }],
+        });
+        // Without an adapter, SpriteAnimator isn't visible yet.
+        const e = svc.getRootEntities()[0];
+        expect(e).toBeDefined();
+        if (e === undefined) return;
+        expect(svc.hasComponent(e, 'SpriteAnimator')).toBe(false);
+
+        // Attach the adapter. The pending component should flush in.
+        const adapter = makeFakeAdapter(SDK_SCHEMAS);
+        svc.attachSdkAdapter(adapter);
+        expect(svc.hasComponent(e, 'SpriteAnimator')).toBe(true);
+        expect(svc.getProperty(e, 'SpriteAnimator', 'speed')).toBe(3);
+    });
+
+    it('preserves pending components through serialize when adapter is absent', () => {
+        const svc = makeService();
+        svc.deserialize({
+            version: 1,
+            name: 'S',
+            entities: [{
+                id: 1,
+                name: 'E',
+                components: { MysteryComp: { x: 42 } },
+                children: [],
+            }],
+        });
+        const data = svc.serialize();
+        expect(data.entities[0]?.components['MysteryComp']).toEqual({ x: 42 });
     });
 });
 

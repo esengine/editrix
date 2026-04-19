@@ -41,6 +41,10 @@ export function assetFieldSubtype(componentName: string, fieldKey: string): Asse
 
 export { ECSSceneService } from './ecs-scene-service-impl.js';
 
+export { IComponentCatalog, ComponentCatalog } from './component-catalog.js';
+export type { SdkComponentInfo, SdkComponentDef } from './component-catalog.js';
+export type { IEcsSdkAdapter } from './ecs-sdk-adapter.js';
+
 // Re-export prefab authoring helpers from the engine SDK. These are pure
 // data-model utilities (no WASM dependency) and the editor consumes them
 // through the @editrix/estella gateway so the app surface has a single

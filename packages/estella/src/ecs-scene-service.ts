@@ -1,4 +1,5 @@
 import { createServiceId, type IDisposable, type Event } from '@editrix/common';
+import type { IEcsSdkAdapter } from './ecs-sdk-adapter.js';
 
 // ─── Field Schema ──────────────────────────────────────────
 
@@ -141,6 +142,15 @@ export interface IECSSceneService extends IDisposable {
 
     /** Handles for runtime App.connectCpp(registry, module). */
     getCppHandle(): { readonly module: unknown; readonly registry: unknown };
+
+    /**
+     * Install an SDK-component adapter. Pass `undefined` to detach. While
+     * attached, every component API method (add, remove, has, getters,
+     * setters, serialize, deserialize, destroyEntity) routes SDK-named
+     * components through the adapter. The editor app wires this after
+     * the runtime App has built — before that, the service is WASM-only.
+     */
+    attachSdkAdapter(adapter: IEcsSdkAdapter | undefined): void;
 }
 
 export const IECSSceneService = createServiceId<IECSSceneService>('IECSSceneService');

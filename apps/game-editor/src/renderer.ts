@@ -39,6 +39,8 @@ import {
   ProjectPanelsPlugin,
   ProjectPlugin,
   RenderContextPlugin,
+  SdkBridgePlugin,
+  SdkEcsAdapterPlugin,
   ViewportPlugin,
 } from './plugins/index.js';
 import { IPlayModeService, IProjectService } from './services.js';
@@ -109,9 +111,11 @@ async function main(): Promise<void> {
       OSDropImportPlugin,
       InspectorFiltersPlugin,
       EstellaPlugin,
+      SdkBridgePlugin,
       RenderContextPlugin,
       ECSScenePlugin,
       PlayModePlugin,
+      SdkEcsAdapterPlugin,
       PrefabPlugin,
       ImageImporterPlugin,
       DocumentSyncPlugin,
