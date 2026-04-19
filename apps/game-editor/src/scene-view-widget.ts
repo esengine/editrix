@@ -1,9 +1,20 @@
+import type { Event } from '@editrix/common';
+import { Emitter } from '@editrix/common';
 import type { ESEngineModule, CppRegistry, IECSSceneService } from '@editrix/estella';
 import type { ISelectionService, IUndoRedoService } from '@editrix/shell';
 import { BaseWidget, createIconElement, registerIcon } from '@editrix/view-dom';
+import { ASSET_PATH_MIME } from './content-browser-widget.js';
 import { EditorCamera } from './editor-camera.js';
 import type { SharedRenderContext, RenderView } from './render-context.js';
 import { entityRef, parseSelectionRef } from './services.js';
+
+export interface SceneAssetDropEvent {
+  readonly absolutePath: string;
+  readonly worldX: number;
+  readonly worldY: number;
+  /** Entity under the cursor, if any — receiver may choose to replace its sprite. */
+  readonly hitEntityId: number | undefined;
+}
 
 // ─── Register tool icons ────────────────────────────────
 
@@ -30,7 +41,6 @@ export class SceneViewWidget extends BaseWidget {
   private readonly _toolButtons = new Map<ToolId, HTMLElement>();
   private _snapInput: HTMLInputElement | undefined;
   private _canvas: HTMLCanvasElement | undefined;
-  private _ctx2d: CanvasRenderingContext2D | null = null;
   private readonly _renderContext: SharedRenderContext;
   private readonly _editorCamera = new EditorCamera();
   private readonly _selection: ISelectionService;
@@ -49,6 +59,9 @@ export class SceneViewWidget extends BaseWidget {
   private _dragStartWorldX = 0;
   private _dragStartWorldY = 0;
   private _dragStartValues = { px: 0, py: 0, rotation: 0, sx: 1, sy: 1 };
+
+  private readonly _onDidDropAsset = new Emitter<SceneAssetDropEvent>();
+  readonly onDidDropAsset: Event<SceneAssetDropEvent> = this._onDidDropAsset.event;
 
   constructor(id: string, renderContext: SharedRenderContext, selection: ISelectionService, undoRedo: IUndoRedoService) {
     super(id, 'scene-view');
@@ -82,7 +95,6 @@ export class SceneViewWidget extends BaseWidget {
     if (!ctx2d) {
       throw new Error('SceneViewWidget: 2D canvas context unavailable.');
     }
-    this._ctx2d = ctx2d;
 
     // Register as a render view
     const canvasRef = this._canvas;
@@ -117,8 +129,8 @@ export class SceneViewWidget extends BaseWidget {
     ro.observe(this._canvas);
     this.subscriptions.add({ dispose: () => { ro.disconnect(); } });
 
-    // Mouse handlers for pan/zoom
     this._setupMouseHandlers(this._canvas);
+    this._setupDropHandlers(viewport, this._canvas);
 
     // Floating toolbar
     const toolbar = this.appendElement(viewport, 'div', 'editrix-sv-toolbar');
@@ -422,6 +434,48 @@ export class SceneViewWidget extends BaseWidget {
     ctx.restore();
   }
 
+  private _setupDropHandlers(viewport: HTMLElement, canvas: HTMLCanvasElement): void {
+    const overlay = document.createElement('div');
+    overlay.className = 'editrix-sv-drop-overlay';
+    viewport.appendChild(overlay);
+
+    const hasAssetPayload = (e: DragEvent): boolean =>
+      Boolean(e.dataTransfer?.types.includes(ASSET_PATH_MIME));
+
+    viewport.addEventListener('dragenter', (e: DragEvent) => {
+      if (!hasAssetPayload(e)) return;
+      e.preventDefault();
+      overlay.classList.add('editrix-sv-drop-overlay--active');
+    });
+    viewport.addEventListener('dragover', (e: DragEvent) => {
+      if (!hasAssetPayload(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    });
+    viewport.addEventListener('dragleave', (e: DragEvent) => {
+      // Internal transitions fire dragleave on the child — keep the overlay
+      // up until the pointer truly leaves the viewport.
+      if (e.relatedTarget && viewport.contains(e.relatedTarget as Node)) return;
+      overlay.classList.remove('editrix-sv-drop-overlay--active');
+    });
+    viewport.addEventListener('drop', (e: DragEvent) => {
+      overlay.classList.remove('editrix-sv-drop-overlay--active');
+      if (!hasAssetPayload(e)) return;
+      e.preventDefault();
+      const absolutePath = e.dataTransfer?.getData(ASSET_PATH_MIME);
+      if (!absolutePath) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const [worldX, worldY] = this._editorCamera.screenToWorld(
+        e.clientX - rect.left, e.clientY - rect.top,
+        canvas.clientWidth, canvas.clientHeight,
+      );
+      this._onDidDropAsset.fire({
+        absolutePath, worldX, worldY, hitEntityId: this._pickEntity(worldX, worldY),
+      });
+    });
+  }
+
   private _setupMouseHandlers(canvas: HTMLCanvasElement): void {
     const getWorldPos = (e: MouseEvent): [number, number] => {
       const rect = canvas.getBoundingClientRect();
@@ -620,6 +674,20 @@ export class SceneViewWidget extends BaseWidget {
 .editrix-sv-viewport {
   position: relative; width: 100%; height: 100%;
   overflow: hidden;
+}
+
+.editrix-sv-drop-overlay {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  border: 2px dashed transparent;
+  border-radius: 4px;
+  background: transparent;
+  transition: border-color 0.08s, background 0.08s;
+  z-index: 50;
+}
+.editrix-sv-drop-overlay--active {
+  border-color: var(--editrix-accent);
+  background: rgba(74,158,255,0.06);
 }
 
 .editrix-sv-toolbar {

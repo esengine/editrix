@@ -1,7 +1,13 @@
-import { IEstellaService } from '@editrix/estella';
+import { IEstellaService, type IECSSceneService } from '@editrix/estella';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import { ILayoutService, ISelectionService, IUndoRedoService, IViewService } from '@editrix/shell';
-import { IECSScenePresence, ISharedRenderContext } from '../services.js';
+import { IDocumentService, ILayoutService, ISelectionService, IUndoRedoService, IViewService } from '@editrix/shell';
+import {
+  entityRef,
+  IAssetCatalogService,
+  IECSScenePresence,
+  IProjectService,
+  ISharedRenderContext,
+} from '../services.js';
 import { ViewportWidget } from '../viewport-widget.js';
 
 /**
@@ -19,7 +25,7 @@ export const ViewportPlugin: IPlugin = {
   descriptor: {
     id: 'app.viewport',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'app.render-context', 'app.ecs-scene'],
+    dependencies: ['editrix.layout', 'editrix.view', 'app.render-context', 'app.ecs-scene', 'app.asset-catalog', 'app.project', 'app.document-sync'],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
@@ -29,6 +35,9 @@ export const ViewportPlugin: IPlugin = {
     const estella = ctx.services.get(IEstellaService);
     const renderContextSvc = ctx.services.get(ISharedRenderContext);
     const presence = ctx.services.get(IECSScenePresence);
+    const catalog = ctx.services.get(IAssetCatalogService);
+    const project = ctx.services.get(IProjectService);
+    const documentService = ctx.services.get(IDocumentService);
 
     let widget: ViewportWidget | undefined;
 
@@ -51,7 +60,85 @@ export const ViewportPlugin: IPlugin = {
         });
         ctx.subscriptions.add(sub);
       }
+
+      ctx.subscriptions.add(widget.onDidDropAsset(({ absolutePath, worldX, worldY, hitEntityId }) => {
+        const rel = toProjectRelative(absolutePath, project.path);
+        if (rel === undefined) return;
+        const entry = catalog.getByPath(rel);
+        if (!entry) return;
+
+        if (entry.type === 'scene') {
+          documentService.open(absolutePath).catch(() => { /* doc-sync surfaces failure */ });
+          return;
+        }
+        if (entry.type !== 'image') return;
+
+        const ecs = presence.current;
+        if (!ecs) return;
+
+        if (hitEntityId !== undefined && ecs.hasComponent(hitEntityId, 'Sprite')) {
+          replaceSpriteTexture(ecs, undoRedo, hitEntityId, entry.uuid);
+          selection.select([entityRef(hitEntityId)]);
+        } else {
+          const newId = createSpriteEntity(ecs, undoRedo, entry.uuid, entry.relativePath, worldX, worldY);
+          if (newId !== undefined) selection.select([entityRef(newId)]);
+        }
+      }));
+
       return widget;
     }));
   },
 };
+
+function toProjectRelative(abs: string, projectPath: string): string | undefined {
+  if (!projectPath) return undefined;
+  const root = projectPath.endsWith('/') ? projectPath : projectPath + '/';
+  if (abs === projectPath) return '';
+  if (!abs.startsWith(root)) return undefined;
+  return abs.slice(root.length);
+}
+
+const ASSET_METADATA_KEY = 'asset:Sprite.texture';
+
+function replaceSpriteTexture(
+  ecs: IECSSceneService, undoRedo: IUndoRedoService, entityId: number, newUuid: string,
+): void {
+  const prev = ecs.getEntityMetadata(entityId, ASSET_METADATA_KEY);
+  const prevUuid = typeof prev === 'string' ? prev : undefined;
+  if (prevUuid === newUuid) return;
+  ecs.setEntityMetadata(entityId, ASSET_METADATA_KEY, newUuid);
+  undoRedo.push({
+    label: 'Replace Sprite Texture',
+    undo: () => { ecs.setEntityMetadata(entityId, ASSET_METADATA_KEY, prevUuid); },
+    redo: () => { ecs.setEntityMetadata(entityId, ASSET_METADATA_KEY, newUuid); },
+  });
+}
+
+function deriveEntityName(relativePath: string): string {
+  const slash = relativePath.lastIndexOf('/');
+  const file = slash >= 0 ? relativePath.slice(slash + 1) : relativePath;
+  const dot = file.lastIndexOf('.');
+  return dot > 0 ? file.slice(0, dot) : file;
+}
+
+function createSpriteEntity(
+  ecs: IECSSceneService, undoRedo: IUndoRedoService,
+  uuid: string, relativePath: string, worldX: number, worldY: number,
+): number | undefined {
+  const name = deriveEntityName(relativePath);
+  const id = ecs.createEntity(name);
+  ecs.setProperty(id, 'Transform', 'position.x', worldX);
+  ecs.setProperty(id, 'Transform', 'position.y', worldY);
+  ecs.addComponent(id, 'Sprite');
+  ecs.setEntityMetadata(id, ASSET_METADATA_KEY, uuid);
+
+  undoRedo.push({
+    label: 'Create Sprite from Asset',
+    undo: () => { ecs.destroyEntity(id); },
+    redo: () => {
+      createSpriteEntity(ecs, undoRedo, uuid, relativePath, worldX, worldY);
+    },
+  });
+
+  return id;
+}

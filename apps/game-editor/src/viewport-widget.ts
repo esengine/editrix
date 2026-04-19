@@ -1,8 +1,10 @@
+import type { Event } from '@editrix/common';
 import type { ESEngineModule, IECSSceneService } from '@editrix/estella';
 import type { ISelectionService, IUndoRedoService } from '@editrix/shell';
 import { BaseWidget, createIconElement } from '@editrix/view-dom';
 import { GameViewWidget } from './game-view-widget.js';
 import type { SharedRenderContext } from './render-context.js';
+import type { SceneAssetDropEvent } from './scene-view-widget.js';
 import { SceneViewWidget } from './scene-view-widget.js';
 
 type ViewportMode = 'scene' | 'game' | 'both';
@@ -34,8 +36,8 @@ export class ViewportWidget extends BaseWidget {
   private _sceneContainer: HTMLElement | undefined;
   private _gameContainer: HTMLElement | undefined;
 
-  private _sceneWidget: SceneViewWidget | undefined;
-  private _gameWidget: GameViewWidget | undefined;
+  private readonly _sceneWidget: SceneViewWidget;
+  private readonly _gameWidget: GameViewWidget;
 
   constructor(
     id: string,
@@ -47,14 +49,24 @@ export class ViewportWidget extends BaseWidget {
     this._renderContext = renderContext;
     this._selection = selection;
     this._undoRedo = undoRedo;
+    // Constructed up front so subscribers (e.g. ViewportPlugin wiring
+    // onDidDropAsset) can attach before mount runs.
+    this._sceneWidget = new SceneViewWidget(`${this.id}-scene`, this._renderContext, this._selection, this._undoRedo);
+    this._gameWidget  = new GameViewWidget(`${this.id}-game`, this._renderContext);
+    this.subscriptions.add(this._sceneWidget);
+    this.subscriptions.add(this._gameWidget);
   }
 
   setECSScene(ecs: IECSSceneService): void {
-    this._sceneWidget?.setECSScene(ecs);
+    this._sceneWidget.setECSScene(ecs);
+  }
+
+  get onDidDropAsset(): Event<SceneAssetDropEvent> {
+    return this._sceneWidget.onDidDropAsset;
   }
 
   initCamera(module: ESEngineModule): void {
-    this._sceneWidget?.initCamera(module);
+    this._sceneWidget.initCamera(module);
   }
 
   /** Programmatically switch which view is active. */
@@ -90,12 +102,7 @@ export class ViewportWidget extends BaseWidget {
     this._sceneContainer = this.appendElement(body, 'div', 'editrix-viewport-pane');
     this._gameContainer = this.appendElement(body, 'div', 'editrix-viewport-pane');
 
-    this._sceneWidget = new SceneViewWidget(`${this.id}-scene`, this._renderContext, this._selection, this._undoRedo);
-    this.subscriptions.add(this._sceneWidget);
     this._sceneWidget.mount(this._sceneContainer);
-
-    this._gameWidget = new GameViewWidget(`${this.id}-game`, this._renderContext);
-    this.subscriptions.add(this._gameWidget);
     this._gameWidget.mount(this._gameContainer);
 
     this._applyMode();
