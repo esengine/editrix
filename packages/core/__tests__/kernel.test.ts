@@ -483,4 +483,108 @@ describe('Kernel', () => {
       expect(themes[0]!.name).toBe('dark');
     });
   });
+
+  describe('fireActivationEvent', () => {
+    it('activates lazy plugins whose activationEvents exactly match', async () => {
+      const kernel = createKernel();
+      const lazy = vi.fn();
+      kernel.registerPlugin(
+        createPlugin('lazy', { activationEvents: ['onCommand:save'], activate: lazy }),
+      );
+      await kernel.start();
+      expect(lazy).not.toHaveBeenCalled();
+      await kernel.fireActivationEvent('onCommand:save');
+      expect(lazy).toHaveBeenCalledOnce();
+    });
+
+    it('does not re-activate an already-active plugin', async () => {
+      const kernel = createKernel();
+      const activate = vi.fn();
+      kernel.registerPlugin(
+        createPlugin('lazy', { activationEvents: ['onCommand:save'], activate }),
+      );
+      await kernel.start();
+      await kernel.fireActivationEvent('onCommand:save');
+      await kernel.fireActivationEvent('onCommand:save');
+      expect(activate).toHaveBeenCalledOnce();
+    });
+
+    it('matches suffix-glob patterns (onDocumentOpen:*.scene.json)', async () => {
+      const kernel = createKernel();
+      const sceneHandler = vi.fn();
+      kernel.registerPlugin(
+        createPlugin('scene-handler', {
+          activationEvents: ['onDocumentOpen:*.scene.json'],
+          activate: sceneHandler,
+        }),
+      );
+      await kernel.start();
+      await kernel.fireActivationEvent('onDocumentOpen:/abs/path/x.scene.json');
+      expect(sceneHandler).toHaveBeenCalledOnce();
+    });
+
+    it('does not match a glob when the suffix differs', async () => {
+      const kernel = createKernel();
+      const sceneHandler = vi.fn();
+      kernel.registerPlugin(
+        createPlugin('scene-handler', {
+          activationEvents: ['onDocumentOpen:*.scene.json'],
+          activate: sceneHandler,
+        }),
+      );
+      await kernel.start();
+      await kernel.fireActivationEvent('onDocumentOpen:/abs/path/x.esprefab');
+      expect(sceneHandler).not.toHaveBeenCalled();
+    });
+
+    it('matches a prefix-glob pattern (onCommand:app.*)', async () => {
+      const kernel = createKernel();
+      const handler = vi.fn();
+      kernel.registerPlugin(
+        createPlugin('app-cmds', {
+          activationEvents: ['onCommand:app.*'],
+          activate: handler,
+        }),
+      );
+      await kernel.start();
+      await kernel.fireActivationEvent('onCommand:app.save');
+      expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it('fires onStartup automatically after start completes', async () => {
+      const kernel = createKernel();
+      const onStartup = vi.fn();
+      kernel.registerPlugin(
+        createPlugin('startup', {
+          activationEvents: ['onStartup'],
+          activate: onStartup,
+        }),
+      );
+      await kernel.start();
+      expect(onStartup).toHaveBeenCalledOnce();
+    });
+
+    it('tolerates a failing plugin without blocking siblings', async () => {
+      const kernel = createKernel();
+      const failing = vi.fn(() => {
+        throw new Error('boom');
+      });
+      const sibling = vi.fn();
+      kernel.registerPlugin(
+        createPlugin('bad', { activationEvents: ['onCommand:x'], activate: failing }),
+      );
+      kernel.registerPlugin(
+        createPlugin('good', { activationEvents: ['onCommand:x'], activate: sibling }),
+      );
+      await kernel.start();
+      await kernel.fireActivationEvent('onCommand:x');
+      expect(sibling).toHaveBeenCalledOnce();
+    });
+
+    it('is a no-op when no plugin declares the event', async () => {
+      const kernel = createKernel();
+      await kernel.start();
+      await expect(kernel.fireActivationEvent('onCommand:unknown')).resolves.toBeUndefined();
+    });
+  });
 });

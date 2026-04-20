@@ -26,5 +26,8 @@
     "@editrix/properties": "workspace:*",
     "@editrix/view": "workspace:*"
   },
+  "devDependencies": {
+    "happy-dom": "^15.11.0"
+  },
   "sideEffects": false
 }
