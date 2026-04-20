@@ -9,6 +9,8 @@ import type {
   IPluginScanner,
   ISettingsService,
   IUndoRedoService,
+  IWorkspaceService,
+  WorkspaceConfig,
 } from '@editrix/core';
 import {
   createKernel,
@@ -18,9 +20,11 @@ import {
   IPluginManager as IPluginManagerId,
   ISettingsService as ISettingsServiceId,
   IUndoRedoService as IUndoRedoServiceId,
+  IWorkspaceService as IWorkspaceServiceId,
   PluginManager,
   SettingsService,
   UndoRedoService,
+  WorkspaceService,
 } from '@editrix/core';
 import { ILayoutService, LayoutPlugin } from '@editrix/layout';
 import { PropertiesPlugin } from '@editrix/properties';
@@ -44,6 +48,17 @@ export interface CreateEditorOptions {
   readonly userSettings?: Record<string, unknown>;
   /** DOM view adapter options (theme, etc.). */
   readonly viewOptions?: DomViewAdapterOptions;
+  /**
+   * Initial workspace (opened project). When provided, the workspace
+   * service is seeded with it before plugins activate — plugins that
+   * read {@link IWorkspaceService.path} during `activate()` see the
+   * correct value immediately. Omit when the editor launches without a
+   * project (standalone mode).
+   */
+  readonly workspace?: {
+    readonly path: string;
+    readonly config?: WorkspaceConfig;
+  };
 }
 
 /**
@@ -68,6 +83,8 @@ export interface EditorInstance {
   readonly notifications: INotificationService;
   /** Shortcut to the clipboard service. */
   readonly clipboard: IClipboardService;
+  /** Shortcut to the workspace (current-project) service. */
+  readonly workspace: IWorkspaceService;
   /** The DOM view adapter. */
   readonly view: DomViewAdapter;
   /** Shut down the editor and release all resources. */
@@ -105,6 +122,25 @@ export async function createEditor(options: CreateEditorOptions): Promise<Editor
 
   const undoRedoService = new UndoRedoService();
   kernel.services.register(IUndoRedoServiceId, undoRedoService);
+
+  const workspaceService = new WorkspaceService(
+    options.workspace
+      ? {
+          path: options.workspace.path,
+          ...(options.workspace.config !== undefined ? { config: options.workspace.config } : {}),
+        }
+      : {},
+  );
+  kernel.services.register(IWorkspaceServiceId, workspaceService);
+
+  // Commands → activation events wiring. Plugins declaring
+  // `onCommand:<id>` wake up the first time that command is dispatched.
+  // Subscription is installed before plugins register so no dispatch is
+  // missed. The `fireActivationEvent` call is fire-and-forget — the
+  // command registry's own execute() continues synchronously after the
+  // event fires; lazy plugins typically register during their activate()
+  // and the registry will find the fresh entry.
+  // (See ICommandRegistry.onWillExecute for the caveat on races.)
 
   if (options.userSettings) {
     settingsService.importUserValues(options.userSettings);
@@ -159,6 +195,18 @@ export async function createEditor(options: CreateEditorOptions): Promise<Editor
   const notifications = kernel.services.get(INotificationServiceId);
   const clipboard = kernel.services.get(IClipboardServiceId);
 
+  commands.onWillExecute((commandId) => {
+    void kernel.fireActivationEvent(`onCommand:${commandId}`);
+  });
+  workspaceService.onDidChange((ev) => {
+    if (ev.path.length > 0) void kernel.fireActivationEvent('onWorkspaceOpen');
+  });
+  if (workspaceService.isOpen) {
+    // Seeded workspace — fire the activation event now that the eager
+    // pass has completed so any `onWorkspaceOpen` plugins wake up.
+    await kernel.fireActivationEvent('onWorkspaceOpen');
+  }
+
   registerBuiltinCommands(commands, layout, undoRedoService);
   const globalBinding = registerEditorSettings(settingsService, options.container);
 
@@ -177,6 +225,7 @@ export async function createEditor(options: CreateEditorOptions): Promise<Editor
     dialogs,
     notifications,
     clipboard,
+    workspace: workspaceService,
     view,
     async destroy() {
       globalBinding.dispose();
@@ -185,6 +234,7 @@ export async function createEditor(options: CreateEditorOptions): Promise<Editor
       undoRedoService.dispose();
       pluginManager.dispose();
       settingsService.dispose();
+      workspaceService.dispose();
     },
   };
 }

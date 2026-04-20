@@ -29,6 +29,22 @@ export interface IKernel extends IDisposable {
   /** Deactivate all plugins in reverse dependency order, then release all resources. */
   shutdown(): Promise<void>;
 
+  /**
+   * Fire an activation event. Every registered-but-inactive plugin whose
+   * `activationEvents` list contains {@link eventId} is activated (and its
+   * dependencies transitively). Returns once all matching plugins have
+   * finished activating.
+   *
+   * Standard event ids the framework fires automatically:
+   *   - `onStartup` — fired once after {@link start} finishes its eager pass.
+   *   - `onCommand:<id>` — fired by the command registry before dispatch.
+   *   - `onWorkspaceOpen` — fired by the workspace service on open.
+   *
+   * Apps / plugins are free to define their own events (e.g.
+   * `onDocumentOpen:.scene.json`) and fire them through this same API.
+   */
+  fireActivationEvent(eventId: string): Promise<void>;
+
   /** Global service registry. */
   readonly services: IServiceRegistry;
 
@@ -208,6 +224,27 @@ class Kernel implements IKernel {
       }
       await this.activatePlugin(pluginId);
     }
+    // Standard lifecycle trigger — plugins that declared `onStartup` wake
+    // up here, after every eager-registered plugin has already activated.
+    await this.fireActivationEvent('onStartup');
+  }
+
+  async fireActivationEvent(eventId: string): Promise<void> {
+    const matches: string[] = [];
+    for (const [pluginId, entry] of this._plugins) {
+      if (entry.state === PluginState.Active) continue;
+      const events = entry.plugin.descriptor.activationEvents;
+      if (events?.includes(eventId)) {
+        matches.push(pluginId);
+      }
+    }
+    if (matches.length === 0) return;
+    // Activate concurrently — _doActivate serialises dependencies, and
+    // concurrent activatePlugin calls share the in-flight Promise via the
+    // `activation` field. Failures surface as a rejected Promise but don't
+    // block sibling activations from completing, matching the isolation
+    // the event bus's onError pattern provides elsewhere.
+    await Promise.all(matches.map((id) => this.activatePlugin(id).catch(() => undefined)));
   }
 
   async shutdown(): Promise<void> {

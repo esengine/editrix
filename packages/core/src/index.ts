@@ -82,16 +82,9 @@ export {
   normalizePath,
 } from './filesystem.js';
 
-// ── Project configuration: shape of a saved project + launcher state ───────
-export type {
-  AssetConfig,
-  LauncherConfig,
-  LauncherProjectEntry,
-  LayoutPreset,
-  PluginConfig,
-  ProjectConfig,
-} from './project.js';
-export { createDefaultProjectConfig } from './project.js';
+// ── Workspace service: current-project abstraction ─────────────────────────
+export type { WorkspaceChangeEvent, WorkspaceConfig } from './workspace.js';
+export { IWorkspaceService, WorkspaceService } from './workspace.js';
 
 // ── Undo/Redo service: app-level operation history ─────────────────────────
 export type { UndoRedoOperation, UndoRedoStateEvent } from './undo-redo.js';

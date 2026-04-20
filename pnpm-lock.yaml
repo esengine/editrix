@@ -180,6 +180,12 @@ importers:
         specifier: workspace:*
         version: link:../view-dom
 
+  packages/project:
+    dependencies:
+      '@editrix/common':
+        specifier: workspace:*
+        version: link:../common
+
   packages/properties:
     dependencies:
       '@editrix/common':

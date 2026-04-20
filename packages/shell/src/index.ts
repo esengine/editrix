@@ -22,6 +22,8 @@ export type {
   SettingDescriptor,
   SettingGroup,
   UndoRedoOperation,
+  WorkspaceChangeEvent,
+  WorkspaceConfig,
 } from '@editrix/core';
 export {
   createExtensionPointId,
@@ -34,6 +36,7 @@ export {
   IPluginManager,
   ISettingsService,
   IUndoRedoService,
+  IWorkspaceService,
 } from '@editrix/core';
 export type { Command, Keybinding } from '@editrix/commands';
 export {

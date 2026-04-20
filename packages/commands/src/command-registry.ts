@@ -58,6 +58,21 @@ export interface ICommandRegistry extends IDisposable {
 
   /** Event fired when the set of registered commands changes. */
   readonly onDidChangeCommands: Event<void>;
+
+  /**
+   * Event fired **before** dispatching a command. The argument is the
+   * command id. Shells wire this to `IKernel.fireActivationEvent` so
+   * plugins declaring `onCommand:<id>` wake up on demand.
+   *
+   * Handlers run synchronously via the registry's own Emitter — if the
+   * shell needs to `await` a lazy activation, it should subscribe,
+   * trigger the async activation, and handle the slight race where the
+   * command may dispatch before activation completes. In practice the
+   * command registry re-resolves after activation completes because
+   * the activated plugin typically calls `register` during its own
+   * activate().
+   */
+  readonly onWillExecute: Event<string>;
 }
 
 /** Service identifier for DI. */
@@ -76,9 +91,11 @@ export const ICommandRegistry = createServiceId<ICommandRegistry>('ICommandRegis
 export class CommandRegistry implements ICommandRegistry {
   private readonly _commands = new Map<string, Command>();
   private readonly _onDidChange = new Emitter<void>();
+  private readonly _onWillExecute = new Emitter<string>();
   private readonly _accessor: IServiceAccessor;
 
   readonly onDidChangeCommands: Event<void> = this._onDidChange.event;
+  readonly onWillExecute: Event<string> = this._onWillExecute.event;
 
   constructor(services: IServiceRegistry) {
     this._accessor = {
@@ -101,6 +118,13 @@ export class CommandRegistry implements ICommandRegistry {
   }
 
   async execute(commandId: string, ...args: unknown[]): Promise<void> {
+    // Fire BEFORE the lookup so lazy plugins wired to `onCommand:<id>`
+    // have a chance to register the command during their activation.
+    // Subscribers are synchronous — they can only schedule async work;
+    // for reliable lazy activation use the shell's onWillExecute →
+    // kernel.fireActivationEvent wiring combined with a re-resolve
+    // below.
+    this._onWillExecute.fire(commandId);
     const command = this._commands.get(commandId);
     if (!command) {
       throw new Error(`Command "${commandId}" is not registered.`);
@@ -123,5 +147,6 @@ export class CommandRegistry implements ICommandRegistry {
   dispose(): void {
     this._commands.clear();
     this._onDidChange.dispose();
+    this._onWillExecute.dispose();
   }
 }

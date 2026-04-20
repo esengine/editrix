@@ -1,0 +1,25 @@
+{
+  "name": "@editrix/project",
+  "version": "0.1.0",
+  "description": "Editrix project (workspace) config schema, validation, and version-drift classification",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@editrix/common": "workspace:*"
+  },
+  "sideEffects": false
+}
