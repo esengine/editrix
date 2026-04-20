@@ -101,6 +101,11 @@ export const PlayModePlugin: IPlugin = {
       onDidChangeMode.fire({ previous, current: next });
     };
 
+    // Set when a tick throws — `play()` / `resume()` force a `stop()`
+    // first so the next session restores from snapshot instead of
+    // ticking a broken app that's guaranteed to fail again.
+    let tickFailed = false;
+
     const startLoop = (): void => {
       if (rafHandle !== undefined) return;
       lastTickMs = undefined;
@@ -118,6 +123,7 @@ export const PlayModePlugin: IPlugin = {
         tickPromise
           .catch((err: unknown) => {
             warn('app.tick threw — pausing play', err);
+            tickFailed = true;
             stopLoop();
             transition('paused');
           })
@@ -153,6 +159,13 @@ export const PlayModePlugin: IPlugin = {
         const ecs = presence.current;
         if (!ecs) return;
         if (mode === 'playing') return;
+        // If the previous session threw inside tick, the app is in an
+        // unknown state — force a full stop (snapshot restore) before
+        // the new session starts so we're not resuming a broken app.
+        if (tickFailed) {
+          this.stop();
+          tickFailed = false;
+        }
         if (mode === 'edit') {
           snapshot = ecs.serialize();
           if (app?.setPaused) app.setPaused(false);
@@ -181,6 +194,14 @@ export const PlayModePlugin: IPlugin = {
 
       resume(): void {
         if (mode !== 'paused') return;
+        // Same guard as play(): a tick-throw during playing leaves the
+        // app state indeterminate; snapshot-restore is the only safe
+        // path back.
+        if (tickFailed) {
+          this.stop();
+          tickFailed = false;
+          return;
+        }
         try {
           app?.setPaused?.(false);
         } catch {

@@ -28,6 +28,8 @@ export class SharedRenderContext {
   private _registry: CppRegistry | undefined;
   private _views: RenderView[] = [];
   private _renderRequested = false;
+  private _pendingRafHandle: number | undefined;
+  private _disposed = false;
 
   constructor() {
     this._canvas = document.createElement('canvas');
@@ -94,10 +96,12 @@ export class SharedRenderContext {
 
   /** Request a render on the next animation frame (coalesced). */
   requestRender(): void {
-    if (this._renderRequested) return;
+    if (this._disposed || this._renderRequested) return;
     this._renderRequested = true;
-    requestAnimationFrame(() => {
+    this._pendingRafHandle = requestAnimationFrame(() => {
+      this._pendingRafHandle = undefined;
       this._renderRequested = false;
+      if (this._disposed) return;
       this._renderAllViews();
     });
   }
@@ -128,8 +132,41 @@ export class SharedRenderContext {
   }
 
   dispose(): void {
-    this._views = [];
+    if (this._disposed) return;
+    this._disposed = true;
+
+    if (this._pendingRafHandle !== undefined) {
+      cancelAnimationFrame(this._pendingRafHandle);
+      this._pendingRafHandle = undefined;
+    }
+    this._renderRequested = false;
+
+    // Drop the C++ registry holding scene handles first so nothing
+    // tries to draw through the context we're about to tear down.
+    const registry = this._registry as unknown as { delete?: () => void } | undefined;
     this._registry = undefined;
     this._module = undefined;
+    if (typeof registry?.delete === 'function') {
+      try {
+        registry.delete();
+      } catch {
+        /* ignore — registry lifecycle owned by WASM */
+      }
+    }
+
+    this._views = [];
+
+    // Hint the browser we're done with the GL context so driver
+    // resources are released. Wrapped — some browsers don't expose
+    // the extension and we shouldn't fail dispose over that.
+    if (this._glContext) {
+      try {
+        this._glContext.getExtension('WEBGL_lose_context')?.loseContext();
+      } catch {
+        /* ignore */
+      }
+      this._glContext = null;
+    }
+    this._glContextHandle = 0;
   }
 }

@@ -234,7 +234,8 @@ class Kernel implements IKernel {
     for (const [pluginId, entry] of this._plugins) {
       if (entry.state === PluginState.Active) continue;
       const events = entry.plugin.descriptor.activationEvents;
-      if (events?.includes(eventId)) {
+      if (!events) continue;
+      if (events.some((declared) => matchesActivationEvent(declared, eventId))) {
         matches.push(pluginId);
       }
     }
@@ -313,4 +314,33 @@ class Kernel implements IKernel {
 
     return result;
   }
+}
+
+/**
+ * Match a plugin's declared activation event against a fired event id.
+ *
+ * Supports two forms:
+ *   - **Exact** — `'onStartup'` matches `'onStartup'`.
+ *   - **Suffix-glob** — a trailing `*` after the final `:` matches any
+ *     fired suffix with the same prefix. `'onDocumentOpen:*.scene.json'`
+ *     matches `'onDocumentOpen:/x/y/a.scene.json'` because the fired
+ *     suffix ends with `.scene.json`; `'onCommand:app.*'` matches
+ *     `'onCommand:app.save'`.
+ *
+ * Globs are intentionally minimal — a single `*` glob per pattern, no
+ * character classes, no recursion. Plugins that need regex-level
+ * matching can subscribe to `IEventBus` directly and activate
+ * themselves.
+ */
+function matchesActivationEvent(declared: string, fired: string): boolean {
+  if (declared === fired) return true;
+  const star = declared.indexOf('*');
+  if (star === -1) return false;
+  const prefix = declared.slice(0, star);
+  const suffix = declared.slice(star + 1);
+  return (
+    fired.startsWith(prefix) &&
+    fired.endsWith(suffix) &&
+    fired.length >= prefix.length + suffix.length
+  );
 }
