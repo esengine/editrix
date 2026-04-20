@@ -7,6 +7,11 @@ import { ASSET_PATH_MIME } from './content-browser-widget.js';
 import { EditorCamera } from './editor-camera.js';
 import { GizmoController, type ToolId as GizmoToolId, type GizmoAxis } from './gizmo-controller.js';
 import type { SharedRenderContext, RenderView } from './render-context.js';
+import {
+  deleteSelectedEntities,
+  duplicateSelectedEntities,
+  nudgeSelectedEntities,
+} from './scene-ops.js';
 import { entityRef, parseSelectionRef } from './services.js';
 
 function cursorForAxis(axis: GizmoAxis, tool: GizmoToolId): string {
@@ -731,6 +736,69 @@ export class SceneViewWidget extends BaseWidget {
     ctx.restore();
   }
 
+  /**
+   * Recompute which gizmo handle (if any) the cursor is hovering and
+   * update both the gizmo's internal hover state and the canvas cursor.
+   * No-op while the select tool is active (no gizmo handles to hover).
+   *
+   * The pivot / ring radius math duplicates what the mousedown handler
+   * does — kept in sync by reading the same ECS properties, so there's
+   * no caching to invalidate on selection change.
+   */
+  private _updateHoverHandle(canvas: HTMLCanvasElement, e: MouseEvent): void {
+    if (this._gizmo.tool === 'select') {
+      if (this._gizmo.setHoverAxis(null)) {
+        canvas.style.cursor = '';
+        this._renderContext.requestRender();
+      }
+      return;
+    }
+
+    const ecs = this._ecsScene;
+    if (!ecs) return;
+
+    const entityIds: number[] = [];
+    for (const raw of this._selection.getSelection()) {
+      const ref = parseSelectionRef(raw);
+      if (ref?.kind !== 'entity') continue;
+      if (!ecs.hasComponent(ref.id, 'Transform')) continue;
+      entityIds.push(ref.id);
+    }
+    if (entityIds.length === 0) {
+      if (this._gizmo.setHoverAxis(null)) {
+        canvas.style.cursor = '';
+        this._renderContext.requestRender();
+      }
+      return;
+    }
+
+    let pivotWX = 0;
+    let pivotWY = 0;
+    for (const id of entityIds) {
+      pivotWX += ecs.getProperty(id, 'Transform', 'position.x') as number;
+      pivotWY += ecs.getProperty(id, 'Transform', 'position.y') as number;
+    }
+    pivotWX /= entityIds.length;
+    pivotWY /= entityIds.length;
+
+    const rect = canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const [pivotSX, pivotSY] = this._editorCamera.worldToScreen(pivotWX, pivotWY, w, h);
+    const screenRingRadius =
+      this._gizmo.tool === 'rotate'
+        ? this._computeSelectionScreenRingRadius(entityIds, pivotWX, pivotWY, pivotSY, w, h)
+        : 0;
+    const hit = this._gizmo.hitTestHandle(sx, sy, pivotSX, pivotSY, screenRingRadius);
+
+    if (this._gizmo.setHoverAxis(hit)) {
+      canvas.style.cursor = hit ? cursorForAxis(hit, this._gizmo.tool) : '';
+      this._renderContext.requestRender();
+    }
+  }
+
   private _setupDropHandlers(viewport: HTMLElement, canvas: HTMLCanvasElement): void {
     const overlay = document.createElement('div');
     overlay.className = 'editrix-sv-drop-overlay';
@@ -789,22 +857,78 @@ export class SceneViewWidget extends BaseWidget {
       );
     };
 
-    // F: frame selection. Only active when the Scene View canvas has
-    // keyboard focus so a user editing a text input somewhere else in
-    // the app can still type an "f" without jumping the camera.
+    // Keyboard shortcuts. Bound to the canvas (not document) so they only
+    // fire when the Scene View is focused — a user editing a text input or
+    // tree row elsewhere keeps the expected text-editing behaviour.
     canvas.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key !== 'f' && e.key !== 'F') return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return; // leave cmd-F etc. alone
       const ecs = this._ecsScene;
       if (!ecs) return;
-      const selectedRaw = this._selection.getSelection()[0];
-      const parsed = selectedRaw !== undefined ? parseSelectionRef(selectedRaw) : undefined;
-      if (parsed?.kind !== 'entity') return;
-      e.preventDefault();
-      const px = Number(ecs.getProperty(parsed.id, 'Transform', 'position.x') ?? 0);
-      const py = Number(ecs.getProperty(parsed.id, 'Transform', 'position.y') ?? 0);
-      this._editorCamera.focusOn(px, py, 1.0);
-      this._renderContext.requestRender();
+
+      // F: frame the first selected entity.
+      if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const selectedRaw = this._selection.getSelection()[0];
+        const parsed = selectedRaw !== undefined ? parseSelectionRef(selectedRaw) : undefined;
+        if (parsed?.kind !== 'entity') return;
+        e.preventDefault();
+        const px = Number(ecs.getProperty(parsed.id, 'Transform', 'position.x') ?? 0);
+        const py = Number(ecs.getProperty(parsed.id, 'Transform', 'position.y') ?? 0);
+        this._editorCamera.focusOn(px, py, 1.0);
+        this._renderContext.requestRender();
+        return;
+      }
+
+      // Delete / Backspace: remove selected entities.
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        deleteSelectedEntities(ecs, this._selection, this._undoRedo);
+        this._renderContext.requestRender();
+        return;
+      }
+
+      // Ctrl/Cmd+D: duplicate selected entities.
+      if (
+        (e.key === 'd' || e.key === 'D') &&
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        !e.shiftKey
+      ) {
+        e.preventDefault();
+        duplicateSelectedEntities(ecs, this._selection, this._undoRedo);
+        this._renderContext.requestRender();
+        return;
+      }
+
+      // Arrow keys: nudge selected entities. Shift multiplies the step by
+      // 10; the snap value (if any) becomes the step size so keyboard
+      // nudges stay aligned to whatever grid the user has set.
+      if (
+        (e.key === 'ArrowLeft' ||
+          e.key === 'ArrowRight' ||
+          e.key === 'ArrowUp' ||
+          e.key === 'ArrowDown') &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        const snap = parseFloat(this._snapInput?.value ?? '0') || 0;
+        const base = snap > 0 ? snap : 1;
+        const step = e.shiftKey ? base * 10 : base;
+        let dx = 0;
+        let dy = 0;
+        if (e.key === 'ArrowLeft') dx = -step;
+        else if (e.key === 'ArrowRight') dx = step;
+        // Canvas Y grows downward but world Y grows upward — ArrowUp
+        // should move the entity toward the top of the screen, so
+        // increase world-Y for Up.
+        else if (e.key === 'ArrowUp') dy = step;
+        else dy = -step; // ArrowDown
+        const moved = nudgeSelectedEntities(ecs, this._selection, dx, dy, this._undoRedo);
+        if (moved) {
+          e.preventDefault();
+          this._renderContext.requestRender();
+        }
+        return;
+      }
     });
     // Focus the canvas when the user clicks it — so F works immediately
     // after a click without needing a separate focus step.
@@ -947,10 +1071,18 @@ export class SceneViewWidget extends BaseWidget {
       }
 
       // Transform drag (left button)
-      if (!this._gizmo.isDragging || !this._ecsScene) return;
-      const [wx, wy] = getWorldPos(e);
-      const snap = parseFloat(this._snapInput?.value ?? '0') || 0;
-      this._gizmo.applyDrag(this._ecsScene, wx, wy, snap);
+      if (this._gizmo.isDragging && this._ecsScene) {
+        const [wx, wy] = getWorldPos(e);
+        const snap = parseFloat(this._snapInput?.value ?? '0') || 0;
+        this._gizmo.applyDrag(this._ecsScene, wx, wy, snap);
+        return;
+      }
+
+      // Idle hover: when no gesture is in progress and a transform tool is
+      // active, hit-test the gizmo handles so the user sees which axis is
+      // grabbable before pressing the mouse. Cheap: one vector math call
+      // per selected entity plus one hit-test.
+      this._updateHoverHandle(canvas, e);
     };
 
     const onMouseUp = (e: MouseEvent): void => {
@@ -1016,10 +1148,21 @@ export class SceneViewWidget extends BaseWidget {
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
+    const onMouseLeave = (): void => {
+      // Drop the gizmo hover highlight as the cursor exits the canvas so
+      // a leftover tint doesn't sit on a handle the user can no longer
+      // target.
+      if (!this._gizmo.isDragging && this._gizmo.setHoverAxis(null)) {
+        canvas.style.cursor = '';
+        this._renderContext.requestRender();
+      }
+    };
+    canvas.addEventListener('mouseleave', onMouseLeave);
     this.subscriptions.add({
       dispose: () => {
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
+        canvas.removeEventListener('mouseleave', onMouseLeave);
       },
     });
 
