@@ -40,28 +40,12 @@ export interface IECSScenePresence {
 
 export const IECSScenePresence = createServiceId<IECSScenePresence>('IECSScenePresence');
 
-/**
- * Resolved view of the open project. Owned by the ProjectPlugin; consumed by
- * any plugin that needs to know where on disk the user's project lives or
- * which subdirectories are configured for asset roots.
- *
- * `path` is empty when the editor was launched without a project (the launcher
- * itself, or a development run). Consumers should treat all I/O as no-op in
- * that case rather than throwing — the editor still has to render its empty
- * state cleanly.
- */
-export interface IProjectService {
-  /** Absolute project root path, or '' if no project is open. */
-  readonly path: string;
-  /** Configured asset root directories (relative to project root). */
-  readonly assetRoots: readonly string[];
-  /** True when a real project is open (path is non-empty). */
-  readonly isOpen: boolean;
-  /** Resolve a project-relative path to an absolute path. Returns '' if no project. */
-  resolve(relativePath: string): string;
-}
-
-export const IProjectService = createServiceId<IProjectService>('IProjectService');
+// Project / workspace concerns are served by the framework's
+// `IWorkspaceService` — consume it directly from `@editrix/shell`
+// (or `@editrix/core`). The previous app-local `IProjectService`
+// facade was removed in favour of the framework contract; callers
+// needing the "guess `assets/` when no config is declared" fallback
+// can inline `ws.assetRoots.length > 0 ? ws.assetRoots : ['assets']`.
 
 // ─── Typed selection refs ──────────────────────────────────────────────────
 

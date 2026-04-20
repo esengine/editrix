@@ -1,9 +1,9 @@
 import type { Event, IDisposable } from '@editrix/common';
 import { Emitter, isMac } from '@editrix/common';
 import type { IFileSystemService } from '@editrix/core';
+import type { IWorkspaceService } from '@editrix/shell';
 import type { TreeNode } from '@editrix/view-dom';
 import { BaseWidget, showContextMenu, TreeWidget } from '@editrix/view-dom';
-import type { IProjectService } from './services.js';
 
 const REVEAL_LABEL = isMac() ? 'Reveal in Finder' : 'Show in Explorer';
 
@@ -49,14 +49,14 @@ function extToIcon(ext: string, isDir: boolean): string {
  */
 export class ProjectFilesWidget extends BaseWidget {
   private readonly _fileSystem: IFileSystemService;
-  private readonly _project: IProjectService;
+  private readonly _project: IWorkspaceService;
   private _tree: TreeWidget | undefined;
   private _watchHandle: IDisposable | undefined;
   private _changeSub: IDisposable | undefined;
   private readonly _onDidSelectFolder = new Emitter<string>();
   readonly onDidSelectFolder: Event<string> = this._onDidSelectFolder.event;
 
-  constructor(id: string, fileSystem: IFileSystemService, project: IProjectService) {
+  constructor(id: string, fileSystem: IFileSystemService, project: IWorkspaceService) {
     super(id, 'project-files');
     this._fileSystem = fileSystem;
     this._project = project;

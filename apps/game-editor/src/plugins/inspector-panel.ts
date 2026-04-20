@@ -247,13 +247,6 @@ function ecsToPropertyGroups(
   return { groups, values };
 }
 
-/**
- * Dependencies the inspector panel needs to wire up. Passed in by the
- * plugin shell after `ctx.services.get(...)` resolves them; the panel
- * itself never touches the service registry except through {@link services}
- * for the genuinely late-bound services (`IAssetRevealService`,
- * `IConsoleService`) that register after this plugin activates.
- */
 export interface InspectorPanelDeps {
   readonly layout: ILayoutService;
   readonly view: IViewService;
@@ -264,11 +257,7 @@ export interface InspectorPanelDeps {
   readonly componentFilter: IInspectorComponentFilterShape;
   readonly catalog: IAssetCatalogServiceShape;
   readonly prefabService: IPrefabServiceShape;
-  /**
-   * Late-bound service registry lookup — used only for services that
-   * activate after the inspector (console, asset-reveal). Kept narrow
-   * so the panel stays mostly dep-injected.
-   */
+  /** Needed only for late-bound services (console, asset-reveal). */
   readonly services: IServiceRegistry;
   readonly subscriptions: DisposableStore;
 }

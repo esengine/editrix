@@ -9,6 +9,7 @@ import {
   ILayoutService,
   ISelectionService,
   IViewService,
+  IWorkspaceService,
 } from '@editrix/shell';
 import type { ContextMenuItem } from '@editrix/view-dom';
 import { ContentBrowserWidget } from '../content-browser-widget.js';
@@ -19,7 +20,6 @@ import {
   IAssetRevealService,
   IECSScenePresence,
   IPrefabService,
-  IProjectService,
   parseSelectionRef,
 } from '../services.js';
 
@@ -62,7 +62,6 @@ export const ProjectPanelsPlugin: IPlugin = {
       'editrix.view',
       'app.document-sync',
       'app.filesystem',
-      'app.project',
       'app.asset-catalog',
       'app.prefab',
       'app.animation',
@@ -73,7 +72,7 @@ export const ProjectPanelsPlugin: IPlugin = {
     const view = ctx.services.get(IViewService);
     const documentService = ctx.services.get(IDocumentService);
     const fileSystem = ctx.services.get(IFileSystemService);
-    const project = ctx.services.get(IProjectService);
+    const project = ctx.services.get(IWorkspaceService);
     const selection = ctx.services.get(ISelectionService);
     const catalog = ctx.services.get(IAssetCatalogService);
     const prefabService = ctx.services.get(IPrefabService);

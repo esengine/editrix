@@ -133,15 +133,6 @@ export async function createEditor(options: CreateEditorOptions): Promise<Editor
   );
   kernel.services.register(IWorkspaceServiceId, workspaceService);
 
-  // Commands → activation events wiring. Plugins declaring
-  // `onCommand:<id>` wake up the first time that command is dispatched.
-  // Subscription is installed before plugins register so no dispatch is
-  // missed. The `fireActivationEvent` call is fire-and-forget — the
-  // command registry's own execute() continues synchronously after the
-  // event fires; lazy plugins typically register during their activate()
-  // and the registry will find the fresh entry.
-  // (See ICommandRegistry.onWillExecute for the caveat on races.)
-
   if (options.userSettings) {
     settingsService.importUserValues(options.userSettings);
   }
@@ -202,8 +193,6 @@ export async function createEditor(options: CreateEditorOptions): Promise<Editor
     if (ev.path.length > 0) void kernel.fireActivationEvent('onWorkspaceOpen');
   });
   if (workspaceService.isOpen) {
-    // Seeded workspace — fire the activation event now that the eager
-    // pass has completed so any `onWorkspaceOpen` plugins wake up.
     await kernel.fireActivationEvent('onWorkspaceOpen');
   }
 

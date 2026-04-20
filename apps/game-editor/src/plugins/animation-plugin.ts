@@ -13,14 +13,14 @@
 import { Emitter } from '@editrix/common';
 import { IFileSystemService } from '@editrix/core';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import { ICommandRegistry, IDialogService, IDocumentService } from '@editrix/shell';
-import { registerIcon } from '@editrix/view-dom';
 import {
-  IAnimationService,
-  IProjectService,
-  type AnimClipData,
-  type AnimFrameData,
-} from '../services.js';
+  ICommandRegistry,
+  IDialogService,
+  IDocumentService,
+  IWorkspaceService,
+} from '@editrix/shell';
+import { registerIcon } from '@editrix/view-dom';
+import { IAnimationService, type AnimClipData, type AnimFrameData } from '../services.js';
 
 const ANIM_CLIP_VERSION = '1.0';
 const ANIM_CLIP_EXT = '.esanim';
@@ -129,11 +129,11 @@ export const AnimationPlugin: IPlugin = {
   descriptor: {
     id: 'app.animation',
     version: '1.0.0',
-    dependencies: ['app.filesystem', 'app.project', 'app.document-sync'],
+    dependencies: ['app.filesystem', 'app.document-sync'],
   },
   activate(ctx: IPluginContext) {
     const fileSystem = ctx.services.get(IFileSystemService);
-    const project = ctx.services.get(IProjectService);
+    const project = ctx.services.get(IWorkspaceService);
     const documentService = ctx.services.get(IDocumentService);
     const commands = ctx.services.get(ICommandRegistry);
     const dialogs = ctx.services.get(IDialogService);

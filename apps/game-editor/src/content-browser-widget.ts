@@ -1,9 +1,9 @@
 import type { Event } from '@editrix/common';
 import { Emitter, isMac } from '@editrix/common';
 import type { FileEntry, IFileSystemService } from '@editrix/core';
+import type { IWorkspaceService } from '@editrix/shell';
 import type { ContextMenuItem } from '@editrix/view-dom';
 import { BaseWidget, createIconElement, ListWidget, showContextMenu } from '@editrix/view-dom';
-import type { IProjectService } from './services.js';
 
 const REVEAL_LABEL = isMac() ? 'Reveal in Finder' : 'Show in Explorer';
 
@@ -75,7 +75,7 @@ function extToIcon(ext: string, isDir: boolean): string {
  */
 export class ContentBrowserWidget extends BaseWidget {
   private readonly _fileSystem: IFileSystemService;
-  private readonly _project: IProjectService;
+  private readonly _project: IWorkspaceService;
   private _activeView: 'assets' | 'console' = 'assets';
 
   // Sidebar elements
@@ -142,7 +142,7 @@ export class ContentBrowserWidget extends BaseWidget {
   constructor(
     id: string,
     fileSystem: IFileSystemService,
-    project: IProjectService,
+    project: IWorkspaceService,
     options?: {
       buildCardMenu?: (path: string) => readonly ContextMenuItem[];
       buildEmptyAreaMenu?: (targetDirPath: string) => readonly ContextMenuItem[];

@@ -6,6 +6,7 @@ import {
   ISelectionService,
   IUndoRedoService,
   IViewService,
+  IWorkspaceService,
 } from '@editrix/shell';
 import { AnimationEditorWidget } from '../animation-editor-widget.js';
 import {
@@ -14,7 +15,6 @@ import {
   IAssetCatalogService,
   IECSScenePresence,
   IPrefabService,
-  IProjectService,
   ISharedRenderContext,
 } from '../services.js';
 import { ViewportWidget } from '../viewport-widget.js';
@@ -40,7 +40,6 @@ export const ViewportPlugin: IPlugin = {
       'app.render-context',
       'app.ecs-scene',
       'app.asset-catalog',
-      'app.project',
       'app.document-sync',
       'app.prefab',
       'app.animation',
@@ -55,7 +54,7 @@ export const ViewportPlugin: IPlugin = {
     const renderContextSvc = ctx.services.get(ISharedRenderContext);
     const presence = ctx.services.get(IECSScenePresence);
     const catalog = ctx.services.get(IAssetCatalogService);
-    const project = ctx.services.get(IProjectService);
+    const project = ctx.services.get(IWorkspaceService);
     const documentService = ctx.services.get(IDocumentService);
     const prefabService = ctx.services.get(IPrefabService);
     const animationService = ctx.services.get(IAnimationService);

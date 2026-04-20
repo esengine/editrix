@@ -10,13 +10,9 @@ import {
   IDocumentService,
   INotificationService,
   ISelectionService,
+  IWorkspaceService,
 } from '@editrix/shell';
-import {
-  IECSScenePresence,
-  IPlayModeService,
-  IPrefabService,
-  IProjectService,
-} from '../services.js';
+import { IECSScenePresence, IPlayModeService, IPrefabService } from '../services.js';
 
 interface ElectronFileApi {
   selectFile(options?: {
@@ -36,12 +32,12 @@ export const DocumentSyncPlugin: IPlugin = {
   descriptor: {
     id: 'app.document-sync',
     version: '1.0.0',
-    dependencies: ['app.ecs-scene', 'app.filesystem', 'app.project', 'app.play-mode'],
+    dependencies: ['app.ecs-scene', 'app.filesystem', 'app.play-mode'],
   },
   activate(ctx: IPluginContext) {
     const presence = ctx.services.get(IECSScenePresence);
     const fileSystem = ctx.services.get(IFileSystemService);
-    const project = ctx.services.get(IProjectService);
+    const project = ctx.services.get(IWorkspaceService);
     const selection = ctx.services.get(ISelectionService);
     const playMode = ctx.services.get(IPlayModeService);
     const dialogs = ctx.services.get(IDialogService);

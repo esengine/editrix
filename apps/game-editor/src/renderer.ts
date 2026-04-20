@@ -36,13 +36,12 @@ import {
   PlayModePlugin,
   PrefabPlugin,
   ProjectPanelsPlugin,
-  ProjectPlugin,
   RenderContextPlugin,
   SdkBridgePlugin,
   SdkEcsAdapterPlugin,
   ViewportPlugin,
 } from './plugins/index.js';
-import { IPlayModeService, IProjectService } from './services.js';
+import { IPlayModeService } from './services.js';
 
 // ─── Electron API ───────────────────────────────────────
 
@@ -101,10 +100,12 @@ async function main(): Promise<void> {
 
   const EDITRIX_API_VERSION = 1;
 
+  const normalisedProjectPath = projectPath.replace(/\\/g, '/').replace(/\/$/, '');
+
   const editor: EditorInstance = await createEditor({
     container,
+    ...(normalisedProjectPath ? { workspace: { path: normalisedProjectPath } } : {}),
     plugins: [
-      ProjectPlugin,
       FilesystemPlugin,
       AssetCatalogPlugin,
       OSDropImportPlugin,
@@ -133,7 +134,7 @@ async function main(): Promise<void> {
   const documentService = editor.kernel.services.get(IDocumentService);
   const consoleService = editor.kernel.services.get(IConsoleService);
   const fileSystem = editor.kernel.services.get(IFileSystemService);
-  const project = editor.kernel.services.get(IProjectService);
+  const workspace = editor.workspace;
 
   // Preload the runtime SDK so the first Play doesn't wait on a 368KB fetch.
   const estellaService = editor.kernel.services.get(IEstellaService);
@@ -285,7 +286,7 @@ async function main(): Promise<void> {
                   consoleService.log('info', `Plugin "${name}" created at plugins/${slug}/`);
                   // Hot-load: read plugin.json to get the main entry path
                   try {
-                    const pluginDir = project.resolve(`plugins/${slug}`);
+                    const pluginDir = workspace.resolve(`plugins/${slug}`);
                     const manifestRaw = await fileSystem.readFile(`${pluginDir}/plugin.json`);
                     const manifest = JSON.parse(manifestRaw) as { main?: string };
                     const mainFile = manifest.main ?? 'dist/index.js';
@@ -701,8 +702,8 @@ async function main(): Promise<void> {
   // (no default Camera+Shape briefly appearing before a real scene replaces it).
 
   // ── Plugin hot-reload: watch plugin dist/ for changes ──
-  if (project.isOpen) {
-    const pluginsDir = project.resolve('plugins');
+  if (workspace.isOpen) {
+    const pluginsDir = workspace.resolve('plugins');
     fileSystem.watch(pluginsDir);
     fileSystem.onDidChangeFile((event) => {
       // Only reload when a .js file changes

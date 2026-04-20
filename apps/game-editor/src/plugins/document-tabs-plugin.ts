@@ -4,10 +4,10 @@ import {
   IDocumentService,
   INotificationService,
   IViewAdapter,
+  IWorkspaceService,
 } from '@editrix/shell';
 import type { DocumentTabItem } from '@editrix/view-dom';
 import { DomViewAdapter } from '@editrix/view-dom';
-import { IProjectService } from '../services.js';
 
 interface ElectronFileApi {
   selectFile(options?: {
@@ -52,7 +52,7 @@ export const DocumentTabsPlugin: IPlugin = {
     }
     const tabBar = viewAdapter.documentTabBar;
     const documentService = ctx.services.get(IDocumentService);
-    const project = ctx.services.get(IProjectService);
+    const project = ctx.services.get(IWorkspaceService);
     const dialogs = ctx.services.get(IDialogService);
     const notifications = ctx.services.get(INotificationService);
 

@@ -2,7 +2,7 @@ import { toDisposable } from '@editrix/common';
 import { IFileSystemService } from '@editrix/core';
 import { IConsoleService } from '@editrix/plugin-console';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import { IProjectService } from '../services.js';
+import { IWorkspaceService } from '@editrix/shell';
 
 const ASSETS_DIR = 'assets';
 
@@ -10,11 +10,11 @@ export const OSDropImportPlugin: IPlugin = {
   descriptor: {
     id: 'app.os-drop-import',
     version: '1.0.0',
-    dependencies: ['app.filesystem', 'app.project'],
+    dependencies: ['app.filesystem'],
   },
   activate(ctx: IPluginContext) {
     const fs = ctx.services.get(IFileSystemService);
-    const project = ctx.services.get(IProjectService);
+    const project = ctx.services.get(IWorkspaceService);
 
     // Global dragover to allow drop. Without preventDefault on dragover,
     // the drop event never fires.

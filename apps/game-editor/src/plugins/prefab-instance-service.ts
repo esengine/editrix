@@ -50,13 +50,12 @@ import {
   migratePrefabData,
   PREFAB_FORMAT_VERSION,
 } from '@editrix/scene';
-import type { IDocumentService, ISelectionService } from '@editrix/shell';
+import type { IDocumentService, ISelectionService, IWorkspaceService } from '@editrix/shell';
 import type {
   IAssetCatalogService,
   IECSScenePresence,
   IPlayModeService,
   IPrefabService,
-  IProjectService,
   PrefabEvent,
   PrefabInstanceInfo,
   PrefabOverrideRef,
@@ -66,16 +65,11 @@ import { PREFAB_METADATA_KEYS } from '../services.js';
 export interface PrefabServiceDeps {
   readonly presence: IECSScenePresence;
   readonly fileSystem: IFileSystemService;
-  readonly project: IProjectService;
+  readonly project: IWorkspaceService;
   readonly catalog: IAssetCatalogService;
   readonly playMode: IPlayModeService;
   readonly documentService: IDocumentService;
   readonly selection: ISelectionService;
-  /**
-   * Disposable bag the service adds its event subscriptions to. Lifetime
-   * must at least equal the returned service's usage — typically the
-   * plugin's `subscriptions`.
-   */
   readonly subscriptions: DisposableStore;
 }
 
@@ -141,12 +135,7 @@ function isPlacementOverride(o: PrefabOverride, rootPrefabEntityId: string): boo
   );
 }
 
-/**
- * Build the prefab authoring service. All state (caches, dirty queues,
- * override debouncers, ECS snapshots) is closed over inside this factory
- * — the returned object is a valid {@link IPrefabService} that the
- * plugin shell registers on the service registry.
- */
+/** Build the prefab authoring service — all state lives in closures. */
 export function createPrefabInstanceService(deps: PrefabServiceDeps): IPrefabService {
   const { presence, fileSystem, project, catalog, playMode, documentService, selection } = deps;
   const subscriptions = deps.subscriptions;

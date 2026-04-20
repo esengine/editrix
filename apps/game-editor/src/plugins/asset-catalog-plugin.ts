@@ -3,6 +3,7 @@ import type { IDisposable } from '@editrix/common';
 import { IFileSystemService } from '@editrix/core';
 import type { FileChangeEvent } from '@editrix/core';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
+import { IWorkspaceService } from '@editrix/shell';
 import type {
   AssetChange,
   AssetEntry,
@@ -10,7 +11,7 @@ import type {
   IAssetCatalogService,
   ImporterSettings,
 } from '../services.js';
-import { IAssetCatalogService as IAssetCatalogServiceId, IProjectService } from '../services.js';
+import { IAssetCatalogService as IAssetCatalogServiceId } from '../services.js';
 
 const META_SUFFIX = '.meta';
 const ASSETS_DIR = 'assets';
@@ -19,11 +20,11 @@ export const AssetCatalogPlugin: IPlugin = {
   descriptor: {
     id: 'app.asset-catalog',
     version: '1.0.0',
-    dependencies: ['app.filesystem', 'app.project'],
+    dependencies: ['app.filesystem'],
   },
   activate(ctx: IPluginContext) {
     const fs = ctx.services.get(IFileSystemService);
-    const project = ctx.services.get(IProjectService);
+    const project = ctx.services.get(IWorkspaceService);
 
     if (!project.isOpen) {
       // Nothing to catalog without a project. Register a stub so consumers

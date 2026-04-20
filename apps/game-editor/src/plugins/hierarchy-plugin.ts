@@ -9,6 +9,7 @@ import {
   ISelectionService,
   IUndoRedoService,
   IViewService,
+  IWorkspaceService,
 } from '@editrix/shell';
 import type { TreeNode } from '@editrix/view-dom';
 import { registerIcon, showContextMenu, TreeWidget } from '@editrix/view-dom';
@@ -17,7 +18,6 @@ import {
   IAssetCatalogService,
   IECSScenePresence,
   IPrefabService,
-  IProjectService,
   parseSelectionRef,
   PREFAB_METADATA_KEYS,
 } from '../services.js';
@@ -151,7 +151,7 @@ export const HierarchyPlugin: IPlugin = {
     const presence = ctx.services.get(IECSScenePresence);
     const documentService = ctx.services.get(IDocumentService);
     const prefabService = ctx.services.get(IPrefabService);
-    const project = ctx.services.get(IProjectService);
+    const project = ctx.services.get(IWorkspaceService);
     const fileSystem = ctx.services.get(IFileSystemService);
     const catalog = ctx.services.get(IAssetCatalogService);
     const dialogs = ctx.services.get(IDialogService);

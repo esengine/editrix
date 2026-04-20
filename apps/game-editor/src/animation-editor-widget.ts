@@ -1,3 +1,4 @@
+import type { IWorkspaceService } from '@editrix/shell';
 import { BaseWidget, createIconElement } from '@editrix/view-dom';
 import { ASSET_PATH_MIME } from './content-browser-widget.js';
 import type {
@@ -5,7 +6,6 @@ import type {
   AnimFrameData,
   IAnimationService,
   IAssetCatalogService,
-  IProjectService,
 } from './services.js';
 
 function assetUrl(relativePath: string): string {
@@ -34,7 +34,7 @@ function toProjectRelative(abs: string, projectPath: string): string | undefined
 export class AnimationEditorWidget extends BaseWidget {
   private readonly _anim: IAnimationService;
   private readonly _catalog: IAssetCatalogService;
-  private readonly _project: IProjectService;
+  private readonly _project: IWorkspaceService;
 
   private _filePath: string | undefined;
   private _data: AnimClipData | undefined;
@@ -61,7 +61,7 @@ export class AnimationEditorWidget extends BaseWidget {
     id: string,
     anim: IAnimationService,
     catalog: IAssetCatalogService,
-    project: IProjectService,
+    project: IWorkspaceService,
   ) {
     super(id, 'animation-editor');
     this._anim = anim;

@@ -1,13 +1,3 @@
-/**
- * Inspector plugin shell — wires {@link setupInspectorPanel} into the
- * kernel's plugin graph.
- *
- * Panel behaviour (property grid, asset inspector, prefab override UI,
- * add/remove/reorder component flows) lives in
- * {@link ../plugins/inspector-panel}. This file just resolves the
- * dependencies and forwards them.
- */
-
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { ILayoutService, ISelectionService, IUndoRedoService, IViewService } from '@editrix/shell';
 import {
