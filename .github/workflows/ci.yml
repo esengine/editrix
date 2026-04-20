@@ -29,16 +29,20 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       # The `esengine` workspace dep is `file:vendor/estella/sdk` — a rollup
       # package that ships `dist/`. A fresh clone has no dist, so its npm
       # install runs first (own lockfile), then we build it before pnpm
       # resolves the editrix tree's types.
+      #
+      # `npm install` (not `ci`) because the submodule's lockfile can drift
+      # from its package.json between bumps — we don't own that lockfile and
+      # shouldn't fail CI on it.
       - name: Install estella SDK deps
         working-directory: vendor/estella/sdk
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Build estella SDK
         working-directory: vendor/estella/sdk
