@@ -5,7 +5,7 @@ import type { ISelectionService, IUndoRedoService } from '@editrix/shell';
 import { BaseWidget, createIconElement, registerIcon } from '@editrix/view-dom';
 import { ASSET_PATH_MIME } from './content-browser-widget.js';
 import { EditorCamera } from './editor-camera.js';
-import { GizmoController, type ToolId as GizmoToolId } from './gizmo-controller.js';
+import { GizmoController, type ToolId as GizmoToolId, type GizmoAxis } from './gizmo-controller.js';
 import type { SharedRenderContext, RenderView } from './render-context.js';
 import { entityRef, parseSelectionRef } from './services.js';
 
@@ -466,6 +466,13 @@ export class SceneViewWidget extends BaseWidget {
       const screenRingRadius = Math.abs(cy - rsy);
 
       this._gizmo.drawForEntity(ctx, cx, cy, screenRingRadius, rotRad, screenCorners);
+
+      // Full-canvas dashed line showing the locked axis while the user is
+      // actively dragging along X or Y. Drawn last so it sits on top of
+      // the selection border and gizmo arrows.
+      if (this._gizmo.isDragging && this._gizmo.dragEntityId === id) {
+        this._gizmo.drawAxisLockLine(ctx, w, h, cx, cy);
+      }
     }
 
     ctx.restore();
@@ -565,14 +572,38 @@ export class SceneViewWidget extends BaseWidget {
         return;
       }
 
-      // Move/Rotate/Scale: start drag if an entity is selected
+      // Move/Rotate/Scale path.
+      const ecs = this._ecsScene;
+      if (!ecs) return;
+
       const selectedIds = this._selection.getSelection();
       const firstSelected = selectedIds[0];
       const firstRef = firstSelected !== undefined ? parseSelectionRef(firstSelected) : undefined;
       let entityId = firstRef?.kind === 'entity' ? firstRef.id : undefined;
 
-      // If nothing selected (or selection is non-entity), try to pick first.
-      if (entityId === undefined) {
+      // If there's already an entity selection with a Transform, hit-test
+      // the gizmo handles before anything else — grabbing an X or Y arrow
+      // should take priority over picking an entity underneath.
+      let axis: GizmoAxis = 'xy';
+      if (entityId !== undefined && ecs.hasComponent(entityId, 'Transform')) {
+        const px = ecs.getProperty(entityId, 'Transform', 'position.x') as number;
+        const py = ecs.getProperty(entityId, 'Transform', 'position.y') as number;
+        const rect = canvas.getBoundingClientRect();
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
+        const [cxCanvas, cyCanvas] = this._editorCamera.worldToScreen(
+          px,
+          py,
+          canvas.clientWidth,
+          canvas.clientHeight,
+        );
+        const hit = this._gizmo.hitTestHandle(sx, sy, cxCanvas, cyCanvas);
+        if (hit !== null) axis = hit;
+      }
+
+      // No handle hit (or no selection yet) — fall back to picking the
+      // entity under the cursor, matching the legacy free-drag flow.
+      if (axis === 'xy' && entityId === undefined) {
         const hit = this._pickEntity(wx, wy);
         if (hit !== undefined) {
           this._selection.select([entityRef(hit)]);
@@ -580,11 +611,17 @@ export class SceneViewWidget extends BaseWidget {
         } else return;
       }
 
-      const ecs = this._ecsScene;
-      if (!ecs?.hasComponent(entityId, 'Transform')) return;
+      if (entityId === undefined || !ecs.hasComponent(entityId, 'Transform')) return;
 
-      this._gizmo.beginDrag(ecs, entityId, wx, wy);
-      canvas.style.cursor = this._gizmo.tool === 'move' ? 'move' : 'crosshair';
+      this._gizmo.beginDrag(ecs, entityId, wx, wy, axis);
+      canvas.style.cursor =
+        axis === 'x'
+          ? 'ew-resize'
+          : axis === 'y'
+            ? 'ns-resize'
+            : this._gizmo.tool === 'move'
+              ? 'move'
+              : 'crosshair';
     });
 
     // Middle-click drag to pan
