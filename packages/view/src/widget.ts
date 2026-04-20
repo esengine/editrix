@@ -28,6 +28,23 @@ export interface IWidget extends IDisposable {
 
   /** Whether the widget currently has focus. */
   readonly hasFocus: boolean;
+
+  /**
+   * Return a JSON-serializable snapshot of the widget's view state —
+   * scroll position, expanded-tree rows, input draft, etc. Used by the
+   * view service to survive widget dispose/re-create pairs (plugin
+   * hot-reload, factory re-registration). Return undefined (or omit
+   * this method entirely) when the widget has nothing worth saving.
+   */
+  getState?(): unknown;
+
+  /**
+   * Restore a snapshot previously returned by {@link getState}. Called
+   * after {@link mount} when the view service has persisted state from
+   * a prior instance. Implementations should degrade gracefully when
+   * the payload is malformed or from a newer schema.
+   */
+  setState?(state: unknown): void;
 }
 
 /**

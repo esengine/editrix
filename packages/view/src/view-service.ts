@@ -33,6 +33,13 @@ export interface IViewService extends IDisposable {
   /** Get all active widget panel IDs. */
   getActiveWidgetIds(): readonly string[];
 
+  /**
+   * Forget any persisted state for this panel. Call when a panel is
+   * being permanently removed (not a hot-reload) so a future instance
+   * starts fresh. No-op when no state has been saved.
+   */
+  clearPersistedState(panelId: string): void;
+
   /** Event fired when a widget is created or destroyed. */
   readonly onDidChangeWidgets: Event<string>;
 }
@@ -52,6 +59,14 @@ export const IViewService = createServiceId<IViewService>('IViewService');
 export class ViewService implements IViewService {
   private readonly _factories = new Map<string, WidgetFactory>();
   private readonly _widgets = new Map<string, IWidget>();
+  /**
+   * Survives widget dispose. Written in {@link destroyWidget} when the
+   * widget opts in via `getState`, read in {@link createWidget} to seed
+   * the replacement instance. Entries linger until
+   * {@link clearPersistedState} or {@link dispose} — the expectation is
+   * that a panel the user actually closed will have that called.
+   */
+  private readonly _persistedState = new Map<string, unknown>();
   private readonly _onDidChange = new Emitter<string>();
 
   readonly onDidChangeWidgets: Event<string> = this._onDidChange.event;
@@ -83,6 +98,20 @@ export class ViewService implements IViewService {
 
     const widget = factory(panelId);
     this._widgets.set(panelId, widget);
+
+    // Rehydrate from a prior instance if the previous widget opted in.
+    // Guarded so a subclass whose schema changed can throw on bad state
+    // without preventing the new instance from returning — the caller
+    // gets a usable widget and just loses the old view state.
+    if (this._persistedState.has(panelId) && typeof widget.setState === 'function') {
+      try {
+        widget.setState(this._persistedState.get(panelId));
+      } catch {
+        /* stale state; drop it below */
+      }
+      this._persistedState.delete(panelId);
+    }
+
     this._onDidChange.fire(panelId);
     return widget;
   }
@@ -95,9 +124,25 @@ export class ViewService implements IViewService {
     const widget = this._widgets.get(panelId);
     if (!widget) return;
 
+    // Snapshot before dispose — getState is the only hook a widget has
+    // to retain anything across instance boundaries. Swallow throws so
+    // a bugged implementation doesn't block the dispose path.
+    if (typeof widget.getState === 'function') {
+      try {
+        const state = widget.getState();
+        if (state !== undefined) this._persistedState.set(panelId, state);
+      } catch {
+        /* leave any previously-saved state untouched */
+      }
+    }
+
     widget.dispose();
     this._widgets.delete(panelId);
     this._onDidChange.fire(panelId);
+  }
+
+  clearPersistedState(panelId: string): void {
+    this._persistedState.delete(panelId);
   }
 
   getActiveWidgetIds(): readonly string[] {
@@ -110,6 +155,7 @@ export class ViewService implements IViewService {
     }
     this._widgets.clear();
     this._factories.clear();
+    this._persistedState.clear();
     this._onDidChange.dispose();
   }
 }
