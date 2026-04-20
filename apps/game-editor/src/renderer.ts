@@ -752,5 +752,13 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  document.body.textContent = `Failed to start: ${String(err)}`;
+  // eslint-disable-next-line no-console -- fatal-path; IConsoleService may not exist
+  console.error('[renderer] main() threw:', err);
+  const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
+  document.body.innerHTML = '';
+  const pre = document.createElement('pre');
+  pre.style.cssText =
+    'color:#e06c75;background:#1b1b1f;padding:20px;white-space:pre-wrap;font:13px monospace;margin:0;';
+  pre.textContent = `Failed to start:\n\n${message}`;
+  document.body.appendChild(pre);
 });
