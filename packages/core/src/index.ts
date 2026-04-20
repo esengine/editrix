@@ -48,7 +48,12 @@ export { createKernel } from './kernel.js';
 
 // ── Plugin manifest: static descriptor validated at load time ──────────────
 export type { DiscoveredPlugin, PluginManifest } from './plugin-manifest.js';
-export { validateManifest } from './plugin-manifest.js';
+export {
+  checkApiCompatibility,
+  CURRENT_API_VERSION,
+  MIN_SUPPORTED_API_VERSION,
+  validateManifest,
+} from './plugin-manifest.js';
 
 // ── Plugin loader: discovers and loads plugins from a scanner ──────────────
 export type { IPluginScanner, PluginLoadResult } from './plugin-loader.js';

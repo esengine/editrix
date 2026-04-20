@@ -2,7 +2,7 @@ import type { IDisposable } from '@editrix/common';
 import { createServiceId } from '@editrix/common';
 import type { IKernel } from './kernel.js';
 import type { DiscoveredPlugin, PluginManifest } from './plugin-manifest.js';
-import { validateManifest } from './plugin-manifest.js';
+import { checkApiCompatibility, validateManifest } from './plugin-manifest.js';
 import type { IPlugin } from './plugin.js';
 
 /**
@@ -101,17 +101,22 @@ export class PluginLoader implements IPluginLoader {
   }
 
   async loadFromPath(entryPath: string, manifest: PluginManifest): Promise<void> {
-    // Validate manifest
     const validationError = validateManifest(manifest);
     if (validationError) {
       throw new Error(`Invalid manifest for "${manifest.id}": ${validationError}`);
     }
 
-    // Dynamic import
+    // Reject incompatible API versions before touching the filesystem —
+    // cheap failure beats loading a plugin that will crash once the
+    // kernel invokes a symbol the plugin author expects to exist.
+    const apiError = checkApiCompatibility(manifest);
+    if (apiError) {
+      throw new Error(apiError);
+    }
+
     const module = await this._importModule(entryPath);
     const plugin = this._extractPlugin(module, manifest);
 
-    // Register with kernel
     this._kernel.registerPlugin(plugin);
     this._loaded.push(manifest);
   }

@@ -51,6 +51,48 @@ export interface DiscoveredPlugin {
 }
 
 /**
+ * The plugin API version this build of the framework understands. Bump
+ * when a breaking change ships in the IPlugin contract (new required
+ * methods, changed service IDs, etc.).
+ */
+export const CURRENT_API_VERSION = 1;
+
+/**
+ * Oldest plugin API version this build still accepts. Keep equal to
+ * CURRENT_API_VERSION until we commit to multi-version compatibility.
+ */
+export const MIN_SUPPORTED_API_VERSION = 1;
+
+/**
+ * Check whether a manifest's declared apiVersion is compatible with the
+ * current framework build. Returns a human-readable reason when
+ * incompatible (loader should reject), or undefined when compatible.
+ *
+ * Manifests without an apiVersion are treated as compatible — the field
+ * is opt-in so legacy plugins continue to load.
+ */
+export function checkApiCompatibility(manifest: PluginManifest): string | undefined {
+  const v = manifest.apiVersion;
+  if (v === undefined) return undefined;
+  if (!Number.isInteger(v)) {
+    return `Plugin "${manifest.id}" has non-integer apiVersion ${String(v)}.`;
+  }
+  if (v > CURRENT_API_VERSION) {
+    return (
+      `Plugin "${manifest.id}" requires API v${String(v)}, but this build ` +
+      `provides v${String(CURRENT_API_VERSION)}. Upgrade the editor.`
+    );
+  }
+  if (v < MIN_SUPPORTED_API_VERSION) {
+    return (
+      `Plugin "${manifest.id}" targets API v${String(v)}, older than the ` +
+      `minimum supported v${String(MIN_SUPPORTED_API_VERSION)}. Rebuild the plugin.`
+    );
+  }
+  return undefined;
+}
+
+/**
  * Validate a manifest object. Returns an error message or undefined if valid.
  */
 export function validateManifest(value: unknown): string | undefined {

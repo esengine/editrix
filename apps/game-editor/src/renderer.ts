@@ -98,8 +98,6 @@ async function main(): Promise<void> {
     IConsoleService,
   };
 
-  const EDITRIX_API_VERSION = 1;
-
   const normalisedProjectPath = projectPath.replace(/\\/g, '/').replace(/\/$/, '');
 
   const editor: EditorInstance = await createEditor({
@@ -146,19 +144,6 @@ async function main(): Promise<void> {
     .catch((err: unknown) => {
       consoleService.log('error', `Failed to load estella: ${String(err)}`, 'estella');
     });
-
-  // Check plugin API version compatibility
-  for (const info of editor.pluginManager.getAll()) {
-    if (info.builtin) continue;
-    const pluginApi = info.manifest.apiVersion;
-    if (pluginApi !== undefined && pluginApi > EDITRIX_API_VERSION) {
-      consoleService.log(
-        'warn',
-        `Plugin "${info.manifest.name}" requires API v${String(pluginApi)} but editor provides v${String(EDITRIX_API_VERSION)}. It may not work correctly.`,
-        'plugin-loader',
-      );
-    }
-  }
 
   // ── Menu bar ──
   editor.view.menuBar.setAppIcon('extensions');

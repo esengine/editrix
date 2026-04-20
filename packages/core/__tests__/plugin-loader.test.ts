@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { IPlugin } from '../src/plugin.js';
 import type { DiscoveredPlugin, PluginManifest } from '../src/plugin-manifest.js';
-import { validateManifest } from '../src/plugin-manifest.js';
+import {
+  checkApiCompatibility,
+  CURRENT_API_VERSION,
+  validateManifest,
+} from '../src/plugin-manifest.js';
 import type { IPluginScanner } from '../src/plugin-loader.js';
 import { PluginLoader } from '../src/plugin-loader.js';
 import { createKernel } from '../src/kernel.js';
@@ -101,5 +105,58 @@ describe('PluginLoader', () => {
     await expect(loader.loadFromPath('test.js', invalidManifest)).rejects.toThrow(
       'Invalid manifest',
     );
+  });
+
+  it('should reject a manifest asking for an unsupported apiVersion before touching the entry file', async () => {
+    const kernel = createKernel();
+    const loader = new PluginLoader(kernel);
+    const manifest: PluginManifest = {
+      id: 'test.future',
+      name: 'Future Plugin',
+      version: '1.0.0',
+      apiVersion: CURRENT_API_VERSION + 1,
+    };
+
+    await expect(loader.loadFromPath('should-never-be-touched.js', manifest)).rejects.toThrow(
+      /requires API v/,
+    );
+  });
+});
+
+describe('checkApiCompatibility', () => {
+  it('returns undefined when apiVersion is omitted (opt-in field)', () => {
+    expect(checkApiCompatibility({ id: 'x', name: 'X', version: '1.0.0' })).toBeUndefined();
+  });
+
+  it('returns undefined when apiVersion equals the current build', () => {
+    expect(
+      checkApiCompatibility({
+        id: 'x',
+        name: 'X',
+        version: '1.0.0',
+        apiVersion: CURRENT_API_VERSION,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('rejects a manifest built for a future API', () => {
+    const reason = checkApiCompatibility({
+      id: 'x',
+      name: 'X',
+      version: '1.0.0',
+      apiVersion: CURRENT_API_VERSION + 1,
+    });
+    expect(reason).toMatch(/requires API v/);
+    expect(reason).toContain('Upgrade the editor');
+  });
+
+  it('rejects a non-integer apiVersion as malformed', () => {
+    const reason = checkApiCompatibility({
+      id: 'x',
+      name: 'X',
+      version: '1.0.0',
+      apiVersion: 1.5 as unknown as number,
+    });
+    expect(reason).toMatch(/non-integer apiVersion/);
   });
 });
