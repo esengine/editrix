@@ -79,6 +79,18 @@ export class SceneViewWidget extends BaseWidget {
   private _lastMouseX = 0;
   private _lastMouseY = 0;
 
+  // Marquee selection state (Select tool only). Coordinates are canvas-
+  // relative CSS pixels; the world-space rect is computed at mouseup time
+  // for the actual entity intersection pass.
+  private _marquee: {
+    active: boolean;
+    startSX: number;
+    startSY: number;
+    currSX: number;
+    currSY: number;
+    additive: boolean;
+  } = { active: false, startSX: 0, startSY: 0, currSX: 0, currSY: 0, additive: false };
+
   private readonly _onDidDropAsset = new Emitter<SceneAssetDropEvent>();
   readonly onDidDropAsset: Event<SceneAssetDropEvent> = this._onDidDropAsset.event;
 
@@ -140,6 +152,7 @@ export class SceneViewWidget extends BaseWidget {
         this._drawGrid(ctx, w, h);
         this._drawSnapGrid(ctx, w, h);
         this._drawSelectionHighlight(ctx, w, h);
+        this._drawMarquee(ctx);
       },
       target: ctx2d,
       get width() {
@@ -435,6 +448,101 @@ export class SceneViewWidget extends BaseWidget {
     return Math.max((sizeX * scaleX) / 2, (sizeY * scaleY) / 2);
   }
 
+  /**
+   * Resolve a marquee drag into a selection change. Entities whose scaled
+   * AABB overlaps the marquee's world-space rect are added (or toggled,
+   * for Shift-drag). Tiny-drag case: if the rect is under 3 screen
+   * pixels in either dimension, treat it as an empty-area click —
+   * clear the selection unless additive, matching the pre-marquee
+   * behaviour of clicking empty canvas.
+   */
+  private _commitMarqueeSelection(
+    canvas: HTMLCanvasElement,
+    m: { startSX: number; startSY: number; currSX: number; currSY: number; additive: boolean },
+  ): void {
+    const ecs = this._ecsScene;
+    if (!ecs) return;
+
+    const screenW = Math.abs(m.currSX - m.startSX);
+    const screenH = Math.abs(m.currSY - m.startSY);
+    if (screenW < 3 && screenH < 3) {
+      if (!m.additive) this._selection.clearSelection();
+      return;
+    }
+
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const cam = this._editorCamera;
+    const [wx0, wy0] = cam.screenToWorld(m.startSX, m.startSY, w, h);
+    const [wx1, wy1] = cam.screenToWorld(m.currSX, m.currSY, w, h);
+    const minX = Math.min(wx0, wx1);
+    const maxX = Math.max(wx0, wx1);
+    const minY = Math.min(wy0, wy1);
+    const maxY = Math.max(wy0, wy1);
+
+    // Walk the full scene tree — same traversal as _pickEntity, just
+    // with rect-intersection instead of point-in-AABB.
+    const hits: number[] = [];
+    const visit = (ids: readonly number[]): void => {
+      for (const id of ids) {
+        if (ecs.hasComponent(id, 'Transform')) {
+          const px = ecs.getProperty(id, 'Transform', 'position.x') as number;
+          const py = ecs.getProperty(id, 'Transform', 'position.y') as number;
+          let sizeX = 20;
+          let sizeY = 20;
+          if (ecs.hasComponent(id, 'ShapeRenderer')) {
+            sizeX = ecs.getProperty(id, 'ShapeRenderer', 'size.x') as number;
+            sizeY = ecs.getProperty(id, 'ShapeRenderer', 'size.y') as number;
+          } else if (ecs.hasComponent(id, 'Sprite')) {
+            sizeX = ecs.getProperty(id, 'Sprite', 'size.x') as number;
+            sizeY = ecs.getProperty(id, 'Sprite', 'size.y') as number;
+          }
+          const scaleX = ecs.getProperty(id, 'Transform', 'scale.x') as number;
+          const scaleY = ecs.getProperty(id, 'Transform', 'scale.y') as number;
+          const hw = Math.abs(sizeX * scaleX) / 2;
+          const hh = Math.abs(sizeY * scaleY) / 2;
+          // Rotation isn't factored in — testing a rotated entity's
+          // unrotated AABB widens the hit a bit but keeps the marquee
+          // predictable ("does the entity's box overlap the rect").
+          if (px + hw >= minX && px - hw <= maxX && py + hh >= minY && py - hh <= maxY) {
+            hits.push(id);
+          }
+        }
+        visit(ecs.getChildren(id));
+      }
+    };
+    visit(ecs.getRootEntities());
+
+    const refs = hits.map((id) => entityRef(id));
+    if (m.additive) {
+      const combined = new Set(this._selection.getSelection());
+      for (const r of refs) combined.add(r);
+      this._selection.select([...combined]);
+    } else {
+      this._selection.select(refs);
+    }
+  }
+
+  /** Draw the marquee rectangle in screen space during an active drag. */
+  private _drawMarquee(ctx: CanvasRenderingContext2D): void {
+    if (!this._marquee.active) return;
+    const m = this._marquee;
+    const x = Math.min(m.startSX, m.currSX);
+    const y = Math.min(m.startSY, m.currSY);
+    const w = Math.abs(m.currSX - m.startSX);
+    const h = Math.abs(m.currSY - m.startSY);
+    if (w < 1 && h < 1) return;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(74, 143, 255, 0.10)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(74, 143, 255, 0.75)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, w, h);
+    ctx.restore();
+  }
+
   /** Pick the topmost entity at the given world position. */
   private _pickEntity(wx: number, wy: number): number | undefined {
     const ecs = this._ecsScene;
@@ -718,8 +826,37 @@ export class SceneViewWidget extends BaseWidget {
 
       if (this._gizmo.tool === 'select') {
         const hit = this._pickEntity(wx, wy);
-        if (hit !== undefined) this._selection.select([entityRef(hit)]);
-        else this._selection.clearSelection();
+        if (hit !== undefined) {
+          // Click on an entity — Shift adds to selection, otherwise
+          // replaces. Don't start a marquee when an entity was hit;
+          // the user may want to drag it later once move tool takes over.
+          if (e.shiftKey) {
+            const existing = new Set(this._selection.getSelection());
+            const ref = entityRef(hit);
+            if (existing.has(ref)) existing.delete(ref);
+            else existing.add(ref);
+            this._selection.select([...existing]);
+          } else {
+            this._selection.select([entityRef(hit)]);
+          }
+          this._renderContext.requestRender();
+          return;
+        }
+
+        // Missed any entity — start a marquee. Clear selection happens at
+        // mouseup only if the marquee actually contains nothing, so a
+        // tiny accidental drag doesn't wipe the current selection.
+        const rect = canvas.getBoundingClientRect();
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
+        this._marquee = {
+          active: true,
+          startSX: sx,
+          startSY: sy,
+          currSX: sx,
+          currSY: sy,
+          additive: e.shiftKey,
+        };
         this._renderContext.requestRender();
         return;
       }
@@ -807,6 +944,15 @@ export class SceneViewWidget extends BaseWidget {
         return;
       }
 
+      // Marquee update
+      if (this._marquee.active) {
+        const rect = canvas.getBoundingClientRect();
+        this._marquee.currSX = e.clientX - rect.left;
+        this._marquee.currSY = e.clientY - rect.top;
+        this._renderContext.requestRender();
+        return;
+      }
+
       // Transform drag (left button)
       if (!this._gizmo.isDragging || !this._ecsScene) return;
       const [wx, wy] = getWorldPos(e);
@@ -819,6 +965,22 @@ export class SceneViewWidget extends BaseWidget {
       if (e.button === 1 && this._isPanning) {
         this._isPanning = false;
         canvas.style.cursor = '';
+        return;
+      }
+
+      // End marquee selection
+      if (e.button === 0 && this._marquee.active) {
+        const m = this._marquee;
+        this._marquee = {
+          active: false,
+          startSX: 0,
+          startSY: 0,
+          currSX: 0,
+          currSY: 0,
+          additive: false,
+        };
+        this._commitMarqueeSelection(canvas, m);
+        this._renderContext.requestRender();
         return;
       }
 
