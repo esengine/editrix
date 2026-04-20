@@ -5,10 +5,11 @@ import type { IPlugin, IPluginContext } from '@editrix/shell';
 import {
   DocumentService,
   ICommandRegistry,
+  IDialogService,
   IDocumentService,
+  INotificationService,
   ISelectionService,
 } from '@editrix/shell';
-import { showConfirmDialog } from '../dialogs.js';
 import {
   IECSScenePresence,
   IPlayModeService,
@@ -42,6 +43,8 @@ export const DocumentSyncPlugin: IPlugin = {
     const project = ctx.services.get(IProjectService);
     const selection = ctx.services.get(ISelectionService);
     const playMode = ctx.services.get(IPlayModeService);
+    const dialogs = ctx.services.get(IDialogService);
+    const notifications = ctx.services.get(INotificationService);
 
     const documentService = new DocumentService(
       (path) => fileSystem.readFile(path),
@@ -74,10 +77,11 @@ export const DocumentSyncPlugin: IPlugin = {
             .filter((d) => d.filePath !== filePath && d.filePath.endsWith('.scene.json'));
           for (const prior of priorScenes) {
             if (prior.dirty) {
-              const ok = await showConfirmDialog(
-                `Opening "${filePath.split('/').pop() ?? ''}" will close "${prior.name}" with unsaved changes.`,
-                { okLabel: 'Discard changes', destructive: true },
-              );
+              const ok = await dialogs.confirm({
+                message: `Opening "${filePath.split('/').pop() ?? ''}" will close "${prior.name}" with unsaved changes.`,
+                okLabel: 'Discard changes',
+                destructive: true,
+              });
               if (!ok) throw new Error('Open cancelled by user.');
             }
             documentService.close(prior.filePath);
@@ -213,8 +217,8 @@ export const DocumentSyncPlugin: IPlugin = {
           try {
             await documentService.open(picked);
           } catch (err) {
-            await showConfirmDialog(err instanceof Error ? err.message : String(err), {
-              okLabel: 'OK',
+            notifications.error('Failed to open scene', {
+              detail: err instanceof Error ? err.message : String(err),
             });
           }
         },

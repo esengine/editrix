@@ -1,6 +1,9 @@
 import { CommandsPlugin, ICommandRegistry } from '@editrix/commands';
 import type {
+  IClipboardService,
+  IDialogService,
   IKernel,
+  INotificationService,
   IPlugin,
   IPluginManager,
   IPluginScanner,
@@ -9,6 +12,9 @@ import type {
 } from '@editrix/core';
 import {
   createKernel,
+  IClipboardService as IClipboardServiceId,
+  IDialogService as IDialogServiceId,
+  INotificationService as INotificationServiceId,
   IPluginManager as IPluginManagerId,
   ISettingsService as ISettingsServiceId,
   IUndoRedoService as IUndoRedoServiceId,
@@ -56,6 +62,12 @@ export interface EditorInstance {
   readonly settings: ISettingsService;
   /** Shortcut to the undo/redo service. */
   readonly undoRedo: IUndoRedoService;
+  /** Shortcut to the dialog service (provided by the DOM view plugin). */
+  readonly dialogs: IDialogService;
+  /** Shortcut to the notification (toast) service. */
+  readonly notifications: INotificationService;
+  /** Shortcut to the clipboard service. */
+  readonly clipboard: IClipboardService;
   /** The DOM view adapter. */
   readonly view: DomViewAdapter;
   /** Shut down the editor and release all resources. */
@@ -143,6 +155,9 @@ export async function createEditor(options: CreateEditorOptions): Promise<Editor
 
   const layout = kernel.services.get(ILayoutService);
   const commands = kernel.services.get(ICommandRegistry);
+  const dialogs = kernel.services.get(IDialogServiceId);
+  const notifications = kernel.services.get(INotificationServiceId);
+  const clipboard = kernel.services.get(IClipboardServiceId);
 
   registerBuiltinCommands(commands, layout, undoRedoService);
   const globalBinding = registerEditorSettings(settingsService, options.container);
@@ -159,6 +174,9 @@ export async function createEditor(options: CreateEditorOptions): Promise<Editor
     pluginManager,
     settings: settingsService,
     undoRedo: undoRedoService,
+    dialogs,
+    notifications,
+    clipboard,
     view,
     async destroy() {
       globalBinding.dispose();

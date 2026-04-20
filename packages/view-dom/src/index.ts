@@ -87,5 +87,14 @@ export { TreeWidget } from './widgets/tree-widget.js';
 // Settings binding
 export { SettingsBinding } from './settings-binding.js';
 
+// Dialog service (DOM impl)
+export { DomDialogService } from './dialog-service.js';
+
+// Notification service (DOM impl)
+export { DomNotificationService } from './notification-service.js';
+
+// Clipboard service (navigator.clipboard wrapper)
+export { NavigatorClipboardService } from './clipboard-service.js';
+
 // Plugin factory
 export { createDomViewPlugin, ViewDomPluginId } from './dom-view-plugin.js';

@@ -13,9 +13,8 @@
 import { Emitter } from '@editrix/common';
 import { IFileSystemService } from '@editrix/core';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import { ICommandRegistry, IDocumentService } from '@editrix/shell';
+import { ICommandRegistry, IDialogService, IDocumentService } from '@editrix/shell';
 import { registerIcon } from '@editrix/view-dom';
-import { showInputDialog } from '../dialogs.js';
 import {
   IAnimationService,
   IProjectService,
@@ -137,6 +136,7 @@ export const AnimationPlugin: IPlugin = {
     const project = ctx.services.get(IProjectService);
     const documentService = ctx.services.get(IDocumentService);
     const commands = ctx.services.get(ICommandRegistry);
+    const dialogs = ctx.services.get(IDialogService);
 
     const clips = new Map<string, AnimClipData>();
     const onDidChangeClip = new Emitter<{ filePath: string; data: AnimClipData }>();
@@ -213,7 +213,8 @@ export const AnimationPlugin: IPlugin = {
               ? opts.targetDirPath
               : project.resolve('assets/animations');
 
-          const entered = await showInputDialog('New Animation Clip', {
+          const entered = await dialogs.prompt({
+            title: 'New Animation Clip',
             initialValue: 'clip',
             placeholder: 'filename',
             okLabel: 'Create',

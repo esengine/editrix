@@ -1,8 +1,12 @@
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import { IDocumentService, IViewAdapter } from '@editrix/shell';
+import {
+  IDialogService,
+  IDocumentService,
+  INotificationService,
+  IViewAdapter,
+} from '@editrix/shell';
 import type { DocumentTabItem } from '@editrix/view-dom';
 import { DomViewAdapter } from '@editrix/view-dom';
-import { showConfirmDialog } from '../dialogs.js';
 import { IProjectService } from '../services.js';
 
 interface ElectronFileApi {
@@ -49,6 +53,8 @@ export const DocumentTabsPlugin: IPlugin = {
     const tabBar = viewAdapter.documentTabBar;
     const documentService = ctx.services.get(IDocumentService);
     const project = ctx.services.get(IProjectService);
+    const dialogs = ctx.services.get(IDialogService);
+    const notifications = ctx.services.get(INotificationService);
 
     /** Re-render tab items from the document service. */
     const refresh = (): void => {
@@ -94,10 +100,11 @@ export const DocumentTabsPlugin: IPlugin = {
       const doc = documentService.getOpenDocuments().find((d) => d.filePath === filePath);
       if (!doc) return;
       if (doc.dirty) {
-        const ok = await showConfirmDialog(
-          `"${doc.name}" has unsaved changes. Close without saving?`,
-          { okLabel: 'Discard changes', destructive: true },
-        );
+        const ok = await dialogs.confirm({
+          message: `"${doc.name}" has unsaved changes. Close without saving?`,
+          okLabel: 'Discard changes',
+          destructive: true,
+        });
         if (!ok) return;
       }
       documentService.close(filePath);
@@ -120,8 +127,8 @@ export const DocumentTabsPlugin: IPlugin = {
         await documentService.open(picked);
       } catch (err) {
         // The document handler chain wraps errors with context; surface that.
-        await showConfirmDialog(err instanceof Error ? err.message : String(err), {
-          okLabel: 'OK',
+        notifications.error('Failed to open file', {
+          detail: err instanceof Error ? err.message : String(err),
         });
       }
     }

@@ -4,6 +4,7 @@ import { IConsoleService } from '@editrix/plugin-console';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import {
   ICommandRegistry,
+  IDialogService,
   IDocumentService,
   ILayoutService,
   ISelectionService,
@@ -11,7 +12,6 @@ import {
 } from '@editrix/shell';
 import type { ContextMenuItem } from '@editrix/view-dom';
 import { ContentBrowserWidget } from '../content-browser-widget.js';
-import { showConfirmDialog, showInputDialog } from '../dialogs.js';
 import { ProjectFilesWidget } from '../project-files-widget.js';
 import {
   assetRef,
@@ -79,6 +79,7 @@ export const ProjectPanelsPlugin: IPlugin = {
     const prefabService = ctx.services.get(IPrefabService);
     const presence = ctx.services.get(IECSScenePresence);
     const commands = ctx.services.get(ICommandRegistry);
+    const dialogs = ctx.services.get(IDialogService);
 
     let contentBrowserWidget: ContentBrowserWidget | undefined;
 
@@ -137,7 +138,8 @@ export const ProjectPanelsPlugin: IPlugin = {
       );
       const suggested = `${baseLeaf}_variant.esprefab`;
 
-      const entered = await showInputDialog('Create Variant', {
+      const entered = await dialogs.prompt({
+        title: 'Create Variant',
         initialValue: suggested,
         placeholder: 'filename.esprefab',
         okLabel: 'Create',
@@ -149,7 +151,8 @@ export const ProjectPanelsPlugin: IPlugin = {
       const filePath = `${dir}/${filename}`;
 
       if (await fileSystem.exists(filePath)) {
-        const ok = await showConfirmDialog(`${filename} already exists. Overwrite?`, {
+        const ok = await dialogs.confirm({
+          message: `${filename} already exists. Overwrite?`,
           okLabel: 'Overwrite',
           destructive: true,
         });

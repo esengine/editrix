@@ -96,3 +96,25 @@ export { createDefaultProjectConfig } from './project.js';
 // ── Undo/Redo service: app-level operation history ─────────────────────────
 export type { UndoRedoOperation, UndoRedoStateEvent } from './undo-redo.js';
 export { IUndoRedoService, UndoRedoService } from './undo-redo.js';
+
+// ── Dialog service: modal confirm / prompt / message boxes ─────────────────
+export type {
+  ConfirmDialogOptions,
+  DialogButton,
+  DialogButtonVariant,
+  InputDialogOptions,
+  MessageDialogOptions,
+} from './dialog.js';
+export { IDialogService } from './dialog.js';
+
+// ── Notification service: non-modal toasts ────────────────────────────────
+export type {
+  Notification,
+  NotificationAction,
+  NotificationOptions,
+  NotificationSeverity,
+} from './notification.js';
+export { INotificationService } from './notification.js';
+
+// ── Clipboard service: platform-agnostic text clipboard ───────────────────
+export { IClipboardService } from './clipboard.js';

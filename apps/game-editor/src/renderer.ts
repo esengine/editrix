@@ -20,7 +20,6 @@ import {
 } from '@editrix/shell';
 import type { EditorInstance, IPlugin } from '@editrix/shell';
 import { createIconElement, DomViewAdapter } from '@editrix/view-dom';
-import { showInputDialog, showThreeChoiceDialog } from './dialogs.js';
 import { LocalPluginScanner } from './local-plugin-scanner.js';
 import {
   AnimationPlugin,
@@ -253,62 +252,65 @@ async function main(): Promise<void> {
         id: 'project.createPlugin',
         label: 'Create Plugin...',
         onClick: () => {
-          void showInputDialog('Create Plugin', {
-            placeholder: 'Plugin name (e.g. My Tool)',
-            okLabel: 'Create',
-          }).then((name) => {
-            if (!name) return;
-            const slug = name
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, '-')
-              .replace(/^-|-$/g, '');
-            if (!slug) return;
-            const electronApi = getApi() as unknown as {
-              createPlugin(
-                p: string,
-                id: string,
-                n: string,
-              ): Promise<{ success: boolean; error?: string }>;
-            };
-            void electronApi
-              .createPlugin(projectPath, slug, name)
-              .then(async (result: { success: boolean; error?: string }) => {
-                if (!result.success) {
-                  consoleService.log(
-                    'error',
-                    `Failed to create plugin: ${result.error ?? 'unknown'}`,
-                  );
-                  return;
-                }
-                consoleService.log('info', `Plugin "${name}" created at plugins/${slug}/`);
-                // Hot-load: read plugin.json to get the main entry path
-                try {
-                  const pluginDir = project.resolve(`plugins/${slug}`);
-                  const manifestRaw = await fileSystem.readFile(`${pluginDir}/plugin.json`);
-                  const manifest = JSON.parse(manifestRaw) as { main?: string };
-                  const mainFile = manifest.main ?? 'dist/index.js';
-                  const entryUrl = `file:///${pluginDir}/${mainFile}`;
-                  const mod = (await import(/* webpackIgnore: true */ entryUrl)) as Record<
-                    string,
-                    unknown
-                  >;
-                  const plugin = (mod['default'] ?? mod['plugin']) as
-                    | { descriptor?: { id: string }; activate?: unknown }
-                    | undefined;
-                  if (plugin?.descriptor && typeof plugin.activate === 'function') {
-                    editor.kernel.registerPlugin(plugin as unknown as IPlugin);
-                    await editor.kernel.activatePlugin(plugin.descriptor.id);
-                    consoleService.log('info', `Plugin "${name}" loaded and activated.`);
+          void editor.dialogs
+            .prompt({
+              title: 'Create Plugin',
+              placeholder: 'Plugin name (e.g. My Tool)',
+              okLabel: 'Create',
+            })
+            .then((name) => {
+              if (!name) return;
+              const slug = name
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-|-$/g, '');
+              if (!slug) return;
+              const electronApi = getApi() as unknown as {
+                createPlugin(
+                  p: string,
+                  id: string,
+                  n: string,
+                ): Promise<{ success: boolean; error?: string }>;
+              };
+              void electronApi
+                .createPlugin(projectPath, slug, name)
+                .then(async (result: { success: boolean; error?: string }) => {
+                  if (!result.success) {
+                    consoleService.log(
+                      'error',
+                      `Failed to create plugin: ${result.error ?? 'unknown'}`,
+                    );
+                    return;
                   }
-                } catch (err) {
-                  consoleService.log(
-                    'warn',
-                    `Plugin created but could not hot-load: ${String(err)}`,
-                  );
-                  consoleService.log('info', 'Restart the editor to load the plugin.');
-                }
-              });
-          });
+                  consoleService.log('info', `Plugin "${name}" created at plugins/${slug}/`);
+                  // Hot-load: read plugin.json to get the main entry path
+                  try {
+                    const pluginDir = project.resolve(`plugins/${slug}`);
+                    const manifestRaw = await fileSystem.readFile(`${pluginDir}/plugin.json`);
+                    const manifest = JSON.parse(manifestRaw) as { main?: string };
+                    const mainFile = manifest.main ?? 'dist/index.js';
+                    const entryUrl = `file:///${pluginDir}/${mainFile}`;
+                    const mod = (await import(/* webpackIgnore: true */ entryUrl)) as Record<
+                      string,
+                      unknown
+                    >;
+                    const plugin = (mod['default'] ?? mod['plugin']) as
+                      | { descriptor?: { id: string }; activate?: unknown }
+                      | undefined;
+                    if (plugin?.descriptor && typeof plugin.activate === 'function') {
+                      editor.kernel.registerPlugin(plugin as unknown as IPlugin);
+                      await editor.kernel.activatePlugin(plugin.descriptor.id);
+                      consoleService.log('info', `Plugin "${name}" loaded and activated.`);
+                    }
+                  } catch (err) {
+                    consoleService.log(
+                      'warn',
+                      `Plugin created but could not hot-load: ${String(err)}`,
+                    );
+                    consoleService.log('info', 'Restart the editor to load the plugin.');
+                  }
+                });
+            });
         },
       },
     ],
@@ -425,7 +427,14 @@ async function main(): Promise<void> {
           ? `"${dirty[0]?.name ?? ''}" has unsaved changes.\nSave before closing?`
           : `${String(dirty.length)} files have unsaved changes:\n\n${dirty.map((d) => `• ${d.name}`).join('\n')}\n\nSave before closing?`;
 
-      const choice = await showThreeChoiceDialog(message);
+      const choice = await editor.dialogs.showMessage({
+        message,
+        buttons: [
+          { id: 'discard', label: "Don't Save", variant: 'destructive' },
+          { id: 'cancel', label: 'Cancel', isCancel: true },
+          { id: 'save', label: 'Save', variant: 'primary', isDefault: true },
+        ],
+      });
       if (choice === 'cancel') {
         getApi()?.closeAck(false);
         return;

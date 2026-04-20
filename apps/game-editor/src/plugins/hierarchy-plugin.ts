@@ -2,15 +2,16 @@ import { IFileSystemService } from '@editrix/core';
 import type { IECSSceneService } from '@editrix/estella';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import {
+  IDialogService,
   IDocumentService,
   ILayoutService,
+  INotificationService,
   ISelectionService,
   IUndoRedoService,
   IViewService,
 } from '@editrix/shell';
 import type { TreeNode } from '@editrix/view-dom';
 import { registerIcon, showContextMenu, TreeWidget } from '@editrix/view-dom';
-import { showConfirmDialog, showInputDialog } from '../dialogs.js';
 import {
   entityRef,
   IAssetCatalogService,
@@ -153,6 +154,8 @@ export const HierarchyPlugin: IPlugin = {
     const project = ctx.services.get(IProjectService);
     const fileSystem = ctx.services.get(IFileSystemService);
     const catalog = ctx.services.get(IAssetCatalogService);
+    const dialogs = ctx.services.get(IDialogService);
+    const notifications = ctx.services.get(INotificationService);
 
     const hasActiveSceneDoc = (): boolean => {
       return documentService.activeDocument?.endsWith('.scene.json') === true;
@@ -292,9 +295,8 @@ export const HierarchyPlugin: IPlugin = {
             const deletingRoot = toDelete.filter((id) => rootsBeforeDelete.includes(id));
             const remainingRoots = rootsBeforeDelete.filter((id) => !toDelete.includes(id));
             if (deletingRoot.length > 0 && remainingRoots.length === 0) {
-              void showConfirmDialog(
+              notifications.warn(
                 'A prefab must have exactly one root entity. Delete its children instead, or exit Prefab Mode to edit a scene.',
-                { okLabel: 'OK' },
               );
               toDelete = toDelete.filter((id) => !deletingRoot.includes(id));
               if (toDelete.length === 0) return;
@@ -342,22 +344,25 @@ export const HierarchyPlugin: IPlugin = {
           const entityId = selectionToEntityId(rawId);
           if (entityId === undefined) return;
           const previous = ecs.getName(entityId) || `Entity ${String(entityId)}`;
-          void showInputDialog('Rename Entity', {
-            initialValue: previous,
-            okLabel: 'Rename',
-          }).then((name) => {
-            if (!name || name === previous) return;
-            ecs.setName(entityId, name);
-            undoRedo.push({
-              label: 'Rename Entity',
-              undo: () => {
-                ecs.setName(entityId, previous);
-              },
-              redo: () => {
-                ecs.setName(entityId, name);
-              },
+          void dialogs
+            .prompt({
+              title: 'Rename Entity',
+              initialValue: previous,
+              okLabel: 'Rename',
+            })
+            .then((name) => {
+              if (!name || name === previous) return;
+              ecs.setName(entityId, name);
+              undoRedo.push({
+                label: 'Rename Entity',
+                undo: () => {
+                  ecs.setName(entityId, previous);
+                },
+                redo: () => {
+                  ecs.setName(entityId, name);
+                },
+              });
             });
-          });
         };
 
         const duplicateEntities = (rawIds: readonly string[]): void => {
@@ -408,7 +413,8 @@ export const HierarchyPlugin: IPlugin = {
           const entityName = ecs.getName(entityId) || 'Prefab';
           const safeName = entityName.replace(/[^a-zA-Z0-9_-]+/g, '_') || 'Prefab';
           const suggested = `${safeName}.esprefab`;
-          const filename = await showInputDialog('Create Prefab', {
+          const filename = await dialogs.prompt({
+            title: 'Create Prefab',
             initialValue: suggested,
             placeholder: 'filename.esprefab',
             okLabel: 'Create',
@@ -421,7 +427,8 @@ export const HierarchyPlugin: IPlugin = {
           const filePath = `${prefabsDir}/${finalName}`;
 
           if (await fileSystem.exists(filePath)) {
-            const ok = await showConfirmDialog(`${finalName} already exists. Overwrite?`, {
+            const ok = await dialogs.confirm({
+              message: `${finalName} already exists. Overwrite?`,
               okLabel: 'Overwrite',
               destructive: true,
             });
@@ -432,10 +439,9 @@ export const HierarchyPlugin: IPlugin = {
           try {
             await prefabService.createPrefab(entityId, filePath);
           } catch (err) {
-            await showConfirmDialog(
-              `Could not create prefab: ${err instanceof Error ? err.message : String(err)}`,
-              { okLabel: 'OK' },
-            );
+            notifications.error('Could not create prefab', {
+              detail: err instanceof Error ? err.message : String(err),
+            });
           }
         };
 
