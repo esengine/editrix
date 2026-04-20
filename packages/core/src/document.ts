@@ -56,6 +56,23 @@ export interface IDocumentService extends IDisposable {
   /** Save a document. Serializes via handler and writes to disk. */
   save(filePath: string): Promise<void>;
 
+  /**
+   * Save the current in-memory state of an open document to a different
+   * path. The existing document entry is rekeyed to the new path (no
+   * reload), dirty is cleared, and active state follows. Throws if the
+   * source isn't open, the destination is already open elsewhere, or no
+   * handler matches either path.
+   */
+  saveAs(fromPath: string, toPath: string): Promise<void>;
+
+  /**
+   * Discard in-memory state and reload from disk via the handler. Used
+   * for both user-initiated revert ("discard my changes") and
+   * system-triggered reload (external file watcher). Caller is
+   * responsible for confirming with the user when unsaved changes exist.
+   */
+  revert(filePath: string): Promise<void>;
+
   /** Close a document. */
   close(filePath: string): void;
 
@@ -180,6 +197,91 @@ export class DocumentService implements IDocumentService {
       await this._writeFile(normalized, content);
     } catch (cause) {
       throw new Error(`Failed to write document "${normalized}".`, { cause });
+    }
+
+    this.setDirty(normalized, false);
+  }
+
+  async saveAs(fromPath: string, toPath: string): Promise<void> {
+    const normalizedFrom = fromPath.replace(/\\/g, '/');
+    const normalizedTo = toPath.replace(/\\/g, '/');
+
+    const doc = this._documents.get(normalizedFrom);
+    if (!doc) throw new Error(`Document "${normalizedFrom}" is not open.`);
+
+    if (normalizedTo !== normalizedFrom && this._documents.has(normalizedTo)) {
+      throw new Error(
+        `Cannot save as "${normalizedTo}": a document is already open at that path.`,
+      );
+    }
+
+    const sourceHandler = this._findHandler(normalizedFrom);
+    if (!sourceHandler) {
+      throw new Error(`No document handler registered for "${normalizedFrom}".`);
+    }
+
+    // Destination path must also resolve to a handler — prevents silently
+    // writing a .scene.json as .txt and losing type info on the next open.
+    if (!this._findHandler(normalizedTo)) {
+      throw new Error(`No document handler registered for "${normalizedTo}".`);
+    }
+
+    let content: string;
+    try {
+      content = await sourceHandler.serialize(normalizedFrom);
+    } catch (cause) {
+      throw new Error(`Failed to serialize document "${normalizedFrom}".`, { cause });
+    }
+
+    try {
+      await this._writeFile(normalizedTo, content);
+    } catch (cause) {
+      throw new Error(`Failed to write document "${normalizedTo}".`, { cause });
+    }
+
+    if (normalizedTo === normalizedFrom) {
+      this.setDirty(normalizedFrom, false);
+      return;
+    }
+
+    this._documents.delete(normalizedFrom);
+    const name = normalizedTo.split('/').pop() ?? normalizedTo;
+    const ext = this._getExtension(name);
+    this._documents.set(normalizedTo, {
+      filePath: normalizedTo,
+      name,
+      extension: ext,
+      dirty: false,
+    });
+    this._onDidChangeDocuments.fire();
+
+    if (this._activeDocument === normalizedFrom) {
+      this._activeDocument = normalizedTo;
+      this._onDidChangeActive.fire(normalizedTo);
+    }
+  }
+
+  async revert(filePath: string): Promise<void> {
+    const normalized = filePath.replace(/\\/g, '/');
+    const doc = this._documents.get(normalized);
+    if (!doc) throw new Error(`Document "${normalized}" is not open.`);
+
+    const handler = this._findHandler(normalized);
+    if (!handler) {
+      throw new Error(`No document handler registered for "${normalized}".`);
+    }
+
+    let content: string;
+    try {
+      content = await this._readFile(normalized);
+    } catch (cause) {
+      throw new Error(`Failed to read document "${normalized}".`, { cause });
+    }
+
+    try {
+      await handler.load(normalized, content);
+    } catch (cause) {
+      throw new Error(`Failed to reload document "${normalized}".`, { cause });
     }
 
     this.setDirty(normalized, false);

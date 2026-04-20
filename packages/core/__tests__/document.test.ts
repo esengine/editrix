@@ -201,6 +201,136 @@ describe('DocumentService', () => {
     });
   });
 
+  describe('saveAs', () => {
+    it('should serialize via source handler, write to destination, rekey the document', async () => {
+      const fs = fakeFs({ '/proj/a.scene.json': '{}' });
+      const service = new DocumentService(fs.readFile, fs.writeFile);
+      service.registerHandler(sceneHandler());
+
+      await service.open('/proj/a.scene.json');
+      service.setDirty('/proj/a.scene.json', true);
+
+      await service.saveAs('/proj/a.scene.json', '/proj/b.scene.json');
+
+      expect(fs.written.get('/proj/b.scene.json')).toBe('serialized(/proj/a.scene.json)');
+      expect(service.activeDocument).toBe('/proj/b.scene.json');
+      expect(service.getOpenDocuments()).toHaveLength(1);
+      expect(service.getOpenDocuments()[0]?.dirty).toBe(false);
+    });
+
+    it('should transfer active state when the source was active', async () => {
+      const fs = fakeFs({ '/proj/a.scene.json': '{}', '/proj/other.scene.json': '{}' });
+      const service = new DocumentService(fs.readFile, fs.writeFile);
+      service.registerHandler(sceneHandler());
+      await service.open('/proj/other.scene.json');
+      await service.open('/proj/a.scene.json'); // now active
+
+      const active = vi.fn();
+      service.onDidChangeActive(active);
+
+      await service.saveAs('/proj/a.scene.json', '/proj/renamed.scene.json');
+
+      expect(service.activeDocument).toBe('/proj/renamed.scene.json');
+      expect(active).toHaveBeenCalledWith('/proj/renamed.scene.json');
+    });
+
+    it('should treat same-path saveAs as a regular save (no rekey, clears dirty)', async () => {
+      const fs = fakeFs({ '/proj/a.scene.json': '{}' });
+      const service = new DocumentService(fs.readFile, fs.writeFile);
+      service.registerHandler(sceneHandler());
+      await service.open('/proj/a.scene.json');
+      service.setDirty('/proj/a.scene.json', true);
+
+      await service.saveAs('/proj/a.scene.json', '/proj/a.scene.json');
+
+      expect(fs.written.get('/proj/a.scene.json')).toBe('serialized(/proj/a.scene.json)');
+      expect(service.getOpenDocuments()[0]?.dirty).toBe(false);
+      expect(service.getOpenDocuments()).toHaveLength(1);
+    });
+
+    it('should throw when the source document is not open', async () => {
+      const fs = fakeFs();
+      const service = new DocumentService(fs.readFile, fs.writeFile);
+      service.registerHandler(sceneHandler());
+
+      await expect(service.saveAs('/proj/ghost.scene.json', '/proj/b.scene.json')).rejects.toThrow(
+        '"/proj/ghost.scene.json" is not open',
+      );
+    });
+
+    it('should throw when the destination collides with another open document', async () => {
+      const fs = fakeFs({ '/proj/a.scene.json': '{}', '/proj/b.scene.json': '{}' });
+      const service = new DocumentService(fs.readFile, fs.writeFile);
+      service.registerHandler(sceneHandler());
+      await service.open('/proj/a.scene.json');
+      await service.open('/proj/b.scene.json');
+
+      await expect(service.saveAs('/proj/a.scene.json', '/proj/b.scene.json')).rejects.toThrow(
+        'already open at that path',
+      );
+    });
+
+    it('should throw when no handler matches the destination extension', async () => {
+      const fs = fakeFs({ '/proj/a.scene.json': '{}' });
+      const service = new DocumentService(fs.readFile, fs.writeFile);
+      service.registerHandler(sceneHandler());
+      await service.open('/proj/a.scene.json');
+
+      await expect(service.saveAs('/proj/a.scene.json', '/proj/a.unknown')).rejects.toThrow(
+        'No document handler registered for "/proj/a.unknown"',
+      );
+    });
+  });
+
+  describe('revert', () => {
+    it('should re-read from disk, re-load through the handler, and clear dirty', async () => {
+      const fs = fakeFs({ '/proj/a.scene.json': '{"v":1}' });
+      const service = new DocumentService(fs.readFile, fs.writeFile);
+      const handler = sceneHandler();
+      service.registerHandler(handler);
+
+      await service.open('/proj/a.scene.json');
+      service.setDirty('/proj/a.scene.json', true);
+      handler.loaded.length = 0;
+
+      // Simulate external change on disk before revert.
+      await fs.writeFile('/proj/a.scene.json', '{"v":2}');
+      await service.revert('/proj/a.scene.json');
+
+      expect(handler.loaded).toEqual(['/proj/a.scene.json:{"v":2}']);
+      expect(service.getOpenDocuments()[0]?.dirty).toBe(false);
+    });
+
+    it('should throw when the document is not open', async () => {
+      const fs = fakeFs();
+      const service = new DocumentService(fs.readFile, fs.writeFile);
+      service.registerHandler(sceneHandler());
+
+      await expect(service.revert('/proj/ghost.scene.json')).rejects.toThrow(
+        '"/proj/ghost.scene.json" is not open',
+      );
+    });
+
+    it('should wrap read failures and leave the document untouched', async () => {
+      const calls = { read: 0 };
+      const readFile = async (path: string): Promise<string> => {
+        calls.read++;
+        if (calls.read === 1) return '{"v":1}'; // open succeeds
+        throw new Error('disk error'); // revert fails
+      };
+      const writeFile = async (): Promise<void> => {};
+      const service = new DocumentService(readFile, writeFile);
+      service.registerHandler(sceneHandler());
+      await service.open('/proj/a.scene.json');
+      service.setDirty('/proj/a.scene.json', true);
+
+      await expect(service.revert('/proj/a.scene.json')).rejects.toThrow(
+        'Failed to read document "/proj/a.scene.json"',
+      );
+      expect(service.getOpenDocuments()[0]?.dirty).toBe(true); // dirty preserved
+    });
+  });
+
   describe('close', () => {
     it('should remove the document and pick a new active one', async () => {
       const fs = fakeFs({ '/proj/a.scene.json': '{}', '/proj/b.scene.json': '{}' });
