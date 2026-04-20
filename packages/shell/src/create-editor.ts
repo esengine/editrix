@@ -19,11 +19,13 @@ import {
   INotificationService as INotificationServiceId,
   IPathService as IPathServiceId,
   IPluginManager as IPluginManagerId,
+  IProgressService as IProgressServiceId,
   ISettingsService as ISettingsServiceId,
   IUndoRedoService as IUndoRedoServiceId,
   IWorkspaceService as IWorkspaceServiceId,
   PathService,
   PluginManager,
+  ProgressService,
   SettingsService,
   UndoRedoService,
   WorkspaceService,
@@ -124,6 +126,9 @@ export async function createEditor(options: CreateEditorOptions): Promise<Editor
 
   const pathService = new PathService();
   kernel.services.register(IPathServiceId, pathService);
+
+  const progressService = new ProgressService();
+  kernel.services.register(IProgressServiceId, progressService);
 
   const undoRedoService = new UndoRedoService();
   kernel.services.register(IUndoRedoServiceId, undoRedoService);
@@ -240,6 +245,7 @@ export async function createEditor(options: CreateEditorOptions): Promise<Editor
       settingsService.dispose();
       workspaceService.dispose();
       pathService.dispose();
+      progressService.dispose();
     },
   };
 }

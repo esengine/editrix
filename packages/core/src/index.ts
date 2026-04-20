@@ -79,6 +79,15 @@ export { DocumentService, IDocumentService } from './document.js';
 // ── Path service: DI-friendly cross-platform path utilities ───────────────
 export { IPathService, PathService } from './path.js';
 
+// ── Progress service: long-task tracking with optional cancellation ───────
+export type {
+  ProgressEvent,
+  ProgressOptions,
+  ProgressReporter,
+  ProgressUpdate,
+} from './progress.js';
+export { IProgressService, ProgressService } from './progress.js';
+
 // ── Filesystem abstraction: pluggable backend for file IO ──────────────────
 export type { FileChangeEvent, FileEntry, FileEntryType, FileStat } from './filesystem.js';
 export {
