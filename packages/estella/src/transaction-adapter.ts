@@ -47,8 +47,12 @@ export function runTransaction(
   if (tx.opCount > 0) {
     undoRedo.push({
       label,
-      undo: () => tx.undo(),
-      redo: () => tx.redo(),
+      undo: () => {
+        tx.undo();
+      },
+      redo: () => {
+        tx.redo();
+      },
       ...(options?.resourceKey !== undefined && { resourceKey: options.resourceKey }),
     });
   }
@@ -70,8 +74,12 @@ export function pushTransaction(
   if (tx.opCount === 0) return;
   undoRedo.push({
     label: tx.label,
-    undo: () => tx.undo(),
-    redo: () => tx.redo(),
+    undo: () => {
+      tx.undo();
+    },
+    redo: () => {
+      tx.redo();
+    },
     ...(options?.resourceKey !== undefined && { resourceKey: options.resourceKey }),
   });
 }
