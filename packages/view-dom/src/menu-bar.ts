@@ -47,6 +47,8 @@ export class MenuBar implements IDisposable {
   private _activeTabId: string | undefined;
   private _container: HTMLElement | undefined;
   private _activeMenu: string | undefined;
+  private _selectedItemIndex = 0;
+  private _previouslyFocused: HTMLElement | null = null;
   private _rightSection: HTMLElement | undefined;
   private _appIconName: string | undefined;
 
@@ -73,6 +75,9 @@ export class MenuBar implements IDisposable {
     this._render();
 
     document.addEventListener('click', this._onDocClick);
+    document.addEventListener('keydown', this._onKeyDown);
+    document.addEventListener('keyup', this._onKeyUp);
+    window.addEventListener('blur', this._onWindowBlur);
   }
 
   addMenu(menu: MenuDescriptor): IDisposable {
@@ -108,6 +113,10 @@ export class MenuBar implements IDisposable {
 
   dispose(): void {
     document.removeEventListener('click', this._onDocClick);
+    document.removeEventListener('keydown', this._onKeyDown);
+    document.removeEventListener('keyup', this._onKeyUp);
+    window.removeEventListener('blur', this._onWindowBlur);
+    document.body.removeAttribute('data-alt-down');
     this._onDidSelectTab.dispose();
     this._onDidCloseTab.dispose();
     this._onDidRequestNewTab.dispose();
@@ -116,10 +125,154 @@ export class MenuBar implements IDisposable {
 
   private readonly _onDocClick = (): void => {
     if (this._activeMenu) {
-      this._activeMenu = undefined;
-      this._render();
+      this._closeMenu();
     }
   };
+
+  private readonly _onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === 'Alt') document.body.dataset['altDown'] = 'true';
+
+    // Alt+mnemonic opens a top-level menu from anywhere. Browsers use
+    // Alt+shift for their own menu UI so only respond to plain Alt.
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key.length === 1) {
+      const menu = this._findMenuByMnemonic(e.key);
+      if (menu) {
+        e.preventDefault();
+        this._openMenu(menu.id);
+        return;
+      }
+    }
+
+    if (this._activeMenu === undefined) return;
+
+    switch (e.key) {
+      case 'Escape':
+        e.preventDefault();
+        this._closeMenu();
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        this._moveSelection(1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        this._moveSelection(-1);
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        this._cycleMenu(1);
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        this._cycleMenu(-1);
+        break;
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        this._activateSelected();
+        break;
+      default:
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+          // Mnemonic-in-dropdown: plain letter jumps to and triggers
+          // the matching item without requiring Alt.
+          const activated = this._activateItemByMnemonic(e.key);
+          if (activated) e.preventDefault();
+        }
+    }
+  };
+
+  private readonly _onKeyUp = (e: KeyboardEvent): void => {
+    if (e.key === 'Alt') delete document.body.dataset['altDown'];
+  };
+
+  private readonly _onWindowBlur = (): void => {
+    delete document.body.dataset['altDown'];
+  };
+
+  private _openMenu(menuId: string): void {
+    if (this._activeMenu !== menuId) {
+      this._previouslyFocused =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+    this._activeMenu = menuId;
+    this._selectedItemIndex = this._firstActivatableIndex(menuId) ?? 0;
+    this._render();
+  }
+
+  private _closeMenu(): void {
+    if (this._activeMenu === undefined) return;
+    this._activeMenu = undefined;
+    const toRestore = this._previouslyFocused;
+    this._previouslyFocused = null;
+    this._render();
+    if (toRestore && document.contains(toRestore)) {
+      try {
+        toRestore.focus();
+      } catch {
+        /* element may no longer be focusable */
+      }
+    }
+  }
+
+  private _moveSelection(delta: number): void {
+    const menu = this._menus.find((m) => m.id === this._activeMenu);
+    if (!menu) return;
+    const count = menu.items.length;
+    if (count === 0) return;
+    let i = this._selectedItemIndex;
+    for (let step = 0; step < count; step++) {
+      i = (i + delta + count) % count;
+      if (menu.items[i]?.separator !== true) {
+        this._selectedItemIndex = i;
+        this._render();
+        return;
+      }
+    }
+  }
+
+  private _cycleMenu(delta: number): void {
+    if (this._menus.length === 0) return;
+    const currentIdx = this._menus.findIndex((m) => m.id === this._activeMenu);
+    const nextIdx = (currentIdx + delta + this._menus.length) % this._menus.length;
+    const next = this._menus[nextIdx];
+    if (next) this._openMenu(next.id);
+  }
+
+  private _activateSelected(): void {
+    const menu = this._menus.find((m) => m.id === this._activeMenu);
+    const item = menu?.items[this._selectedItemIndex];
+    if (!item || item.separator === true) return;
+    this._closeMenu();
+    item.onClick?.();
+  }
+
+  private _activateItemByMnemonic(key: string): boolean {
+    const menu = this._menus.find((m) => m.id === this._activeMenu);
+    if (!menu) return false;
+    const lower = key.toLowerCase();
+    const idx = menu.items.findIndex((item) => {
+      if (item.separator === true) return false;
+      return mnemonicOf(item.label)?.toLowerCase() === lower;
+    });
+    if (idx === -1) return false;
+    this._selectedItemIndex = idx;
+    this._activateSelected();
+    return true;
+  }
+
+  private _firstActivatableIndex(menuId: string): number | undefined {
+    const menu = this._menus.find((m) => m.id === menuId);
+    if (!menu) return undefined;
+    for (let i = 0; i < menu.items.length; i++) {
+      if (menu.items[i]?.separator !== true) return i;
+    }
+    return undefined;
+  }
+
+  private _findMenuByMnemonic(key: string): MenuDescriptor | undefined {
+    const lower = key.toLowerCase();
+    return this._menus.find((m) => mnemonicOf(m.label)?.toLowerCase() === lower);
+  }
 
   private _render(): void {
     if (!this._container) return;
@@ -141,20 +294,27 @@ export class MenuBar implements IDisposable {
     const menuSection = createElement('div', 'editrix-menubar-menus');
     for (const menu of this._menus) {
       const trigger = createElement('div', 'editrix-menubar-item');
-      trigger.textContent = menu.label;
+      const triggerLabel = createElement('span', 'editrix-menubar-item-label');
+      appendMnemonicLabel(triggerLabel, menu.label);
+      trigger.appendChild(triggerLabel);
 
       if (menu.id === this._activeMenu) {
         trigger.classList.add('editrix-menubar-item--active');
 
         const dropdown = createElement('div', 'editrix-menubar-dropdown');
-        for (const item of menu.items) {
+        for (let i = 0; i < menu.items.length; i++) {
+          const item = menu.items[i];
+          if (!item) continue;
           if (item.separator) {
             dropdown.appendChild(createElement('div', 'editrix-menubar-separator'));
             continue;
           }
           const row = createElement('div', 'editrix-menubar-dropdown-item');
+          if (i === this._selectedItemIndex) {
+            row.classList.add('editrix-menubar-dropdown-item--selected');
+          }
           const label = createElement('span');
-          label.textContent = item.label;
+          appendMnemonicLabel(label, item.label);
           row.appendChild(label);
 
           if (item.shortcut) {
@@ -163,10 +323,15 @@ export class MenuBar implements IDisposable {
             row.appendChild(shortcut);
           }
 
+          row.addEventListener('mouseenter', () => {
+            if (this._selectedItemIndex !== i) {
+              this._selectedItemIndex = i;
+              this._render();
+            }
+          });
           row.addEventListener('click', (e) => {
             e.stopPropagation();
-            this._activeMenu = undefined;
-            this._render();
+            this._closeMenu();
             item.onClick?.();
           });
           dropdown.appendChild(row);
@@ -176,14 +341,16 @@ export class MenuBar implements IDisposable {
 
       trigger.addEventListener('click', (e) => {
         e.stopPropagation();
-        this._activeMenu = this._activeMenu === menu.id ? undefined : menu.id;
-        this._render();
+        if (this._activeMenu === menu.id) {
+          this._closeMenu();
+        } else {
+          this._openMenu(menu.id);
+        }
       });
 
       trigger.addEventListener('mouseenter', () => {
         if (this._activeMenu && this._activeMenu !== menu.id) {
-          this._activeMenu = menu.id;
-          this._render();
+          this._openMenu(menu.id);
         }
       });
 
@@ -284,4 +451,69 @@ export class MenuBar implements IDisposable {
   get rightSection(): HTMLElement | undefined {
     return this._rightSection;
   }
+}
+
+/**
+ * Extract the mnemonic character from a label. `&F`ile → 'F'. Falls back
+ * to the first alphanumeric character so callers that haven't opted in
+ * still get sensible Alt+key behavior. A literal `&&` escapes the
+ * marker and does not produce a mnemonic.
+ */
+function mnemonicOf(label: string): string | undefined {
+  const idx = findMnemonicIndex(label);
+  if (idx === -1) {
+    for (const ch of label) {
+      if (/[A-Za-z0-9]/.test(ch)) return ch;
+    }
+    return undefined;
+  }
+  return label[idx + 1];
+}
+
+function findMnemonicIndex(label: string): number {
+  for (let i = 0; i < label.length - 1; i++) {
+    if (label[i] !== '&') continue;
+    if (label[i + 1] === '&') {
+      i++; // skip the escaped pair
+      continue;
+    }
+    return i;
+  }
+  return -1;
+}
+
+/**
+ * Render `label` into `target`, underlining the mnemonic character
+ * (`&F`ile → F is underlined). Unmarked labels fall back to plain text.
+ */
+function appendMnemonicLabel(target: HTMLElement, label: string): void {
+  const idx = findMnemonicIndex(label);
+  if (idx === -1) {
+    // No explicit `&` — fall back to underlining the first alphanumeric
+    // char so callers get Windows-style hints without opting in.
+    const match = /[A-Za-z0-9]/.exec(label);
+    if (!match) {
+      target.textContent = label;
+      return;
+    }
+    const at = match.index;
+    if (at > 0) target.appendChild(document.createTextNode(label.slice(0, at)));
+    const u = document.createElement('u');
+    u.className = 'editrix-menubar-mnemonic';
+    u.textContent = match[0];
+    target.appendChild(u);
+    if (at + 1 < label.length) {
+      target.appendChild(document.createTextNode(label.slice(at + 1)));
+    }
+    return;
+  }
+  const before = label.slice(0, idx).replace(/&&/g, '&');
+  const mnem = label[idx + 1] ?? '';
+  const after = label.slice(idx + 2).replace(/&&/g, '&');
+  if (before) target.appendChild(document.createTextNode(before));
+  const u = document.createElement('u');
+  u.className = 'editrix-menubar-mnemonic';
+  u.textContent = mnem;
+  target.appendChild(u);
+  if (after) target.appendChild(document.createTextNode(after));
 }

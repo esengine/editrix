@@ -71,9 +71,14 @@ const DEFAULT_CSS = /* css */ `
   padding: 5px 10px; border-radius: 3px;
   font-size: 12px; cursor: pointer;
 }
-.editrix-menubar-dropdown-item:hover { background: var(--editrix-accent); color: var(--editrix-accent-text); }
+.editrix-menubar-dropdown-item:hover,
+.editrix-menubar-dropdown-item--selected { background: var(--editrix-accent); color: var(--editrix-accent-text); }
 .editrix-menubar-shortcut { font-size: 11px; color: var(--editrix-text-dim); margin-left: 24px; }
-.editrix-menubar-dropdown-item:hover .editrix-menubar-shortcut { color: var(--editrix-accent-text); opacity: 0.7; }
+.editrix-menubar-dropdown-item:hover .editrix-menubar-shortcut,
+.editrix-menubar-dropdown-item--selected .editrix-menubar-shortcut { color: var(--editrix-accent-text); opacity: 0.7; }
+.editrix-menubar-mnemonic { text-decoration: none; }
+.editrix-menubar-item--active .editrix-menubar-mnemonic,
+body[data-alt-down='true'] .editrix-menubar-mnemonic { text-decoration: underline; }
 .editrix-menubar-separator { height: 1px; background: var(--editrix-border); margin: 3px 6px; }
 
 /* ─── Menu bar integrated tabs ─────────────────── */
