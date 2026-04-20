@@ -92,7 +92,7 @@ export class DomViewAdapter implements IViewAdapter {
     this._commandRegistry = commandRegistry;
     this._keybindingService = keybindingService;
     this._theme = options?.theme ?? DARK_THEME;
-    this._commandPalette = new CommandPalette(commandRegistry);
+    this._commandPalette = new CommandPalette(commandRegistry, keybindingService);
 
     // Wire activity bar → sidebar
     this._subscriptions.add(

@@ -464,11 +464,24 @@ const DEFAULT_CSS = /* css */ `
   padding: 6px 12px; cursor: pointer;
   border-radius: 4px; margin: 1px 0;
   transition: background 0.06s;
+  display: flex; align-items: center; gap: 12px;
 }
 .editrix-palette-item:hover { background: rgba(255,255,255,0.04); }
 .editrix-palette-item--selected { background: var(--editrix-accent); color: var(--editrix-accent-text); }
 .editrix-palette-item--selected .editrix-palette-category { color: var(--editrix-accent-text); opacity: 0.7; }
+.editrix-palette-item--selected .editrix-palette-shortcut { color: var(--editrix-accent-text); opacity: 0.85; border-color: currentColor; }
+.editrix-palette-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editrix-palette-category { color: var(--editrix-text-dim); }
+.editrix-palette-shortcut {
+  flex-shrink: 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--editrix-border);
+  border-radius: 3px;
+  color: var(--editrix-text-dim);
+  background: rgba(255,255,255,0.03);
+}
 .editrix-palette-empty { padding: 16px; text-align: center; color: var(--editrix-text-dim); }
 
 /* ─── List widget ───────────────────────────────── */
