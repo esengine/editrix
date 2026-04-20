@@ -30,3 +30,12 @@ export type { SdkComponentDef, SdkComponentInfo } from './component-catalog.js';
 
 // ── SDK adapter interface ─────────────────────────────────
 export type { IEcsSdkAdapter } from './ecs-sdk-adapter.js';
+
+// ── Undo/redo adapter ─────────────────────────────────────
+export {
+  runTransaction,
+  pushTransaction,
+  Transaction,
+  type TransactionOp,
+  type RunTransactionOptions,
+} from './transaction-adapter.js';
