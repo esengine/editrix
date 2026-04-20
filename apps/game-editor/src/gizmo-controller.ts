@@ -33,11 +33,20 @@ export interface TransformSnapshot {
   sy: number;
 }
 
-export interface DragResult {
+export interface DragResultEntity {
   entityId: number;
-  tool: Exclude<ToolId, 'select'>;
   before: TransformSnapshot;
   after: TransformSnapshot;
+}
+
+export interface DragResult {
+  tool: Exclude<ToolId, 'select'>;
+  entities: DragResultEntity[];
+}
+
+interface DraggedEntity {
+  entityId: number;
+  startValues: TransformSnapshot;
 }
 
 // Tool-specific visual sizes, expressed in screen-space pixels so they stay
@@ -71,18 +80,23 @@ export class GizmoController {
   private _tool: ToolId = 'select';
   private _drag: {
     active: boolean;
-    entityId: number;
+    entries: DraggedEntity[];
+    // World-space pivot captured at drag start. For single-select this is
+    // the entity's own position; for multi-select it's the centroid of
+    // all selected positions. Rotate and scale dilate around this point.
+    pivotX: number;
+    pivotY: number;
     axis: GizmoAxis;
     startWorldX: number;
     startWorldY: number;
-    startValues: TransformSnapshot;
   } = {
     active: false,
-    entityId: 0,
+    entries: [],
+    pivotX: 0,
+    pivotY: 0,
     axis: 'xy',
     startWorldX: 0,
     startWorldY: 0,
-    startValues: { px: 0, py: 0, rotation: 0, sx: 1, sy: 1 },
   };
 
   get tool(): ToolId {
@@ -97,12 +111,18 @@ export class GizmoController {
     return this._drag.active;
   }
 
-  get dragEntityId(): number {
-    return this._drag.entityId;
-  }
-
   get dragAxis(): GizmoAxis {
     return this._drag.axis;
+  }
+
+  /** Entity IDs currently being dragged. Stable across one drag gesture. */
+  get dragEntityIds(): readonly number[] {
+    return this._drag.entries.map((e) => e.entityId);
+  }
+
+  /** World-space pivot of the current drag (centroid for multi-select). */
+  get dragPivot(): { readonly x: number; readonly y: number } {
+    return { x: this._drag.pivotX, y: this._drag.pivotY };
   }
 
   /**
@@ -177,27 +197,45 @@ export class GizmoController {
   }
 
   /**
-   * Capture the entity's current Transform and flip into drag mode. Called
-   * from SceneViewWidget's mousedown handler after it has resolved which
-   * entity is being manipulated (from selection or hit-test). The axis
-   * defaults to 'xy' (free 2D) for rotate/scale and for move-tool drags
-   * that didn't hit a handle; pass 'x' or 'y' to lock a move-tool drag to
-   * one axis.
+   * Snapshot every entity's starting Transform and flip into drag mode.
+   * Called from SceneViewWidget's mousedown handler after it has resolved
+   * the target set (from selection or hit-test) and axis (from a handle
+   * hit-test or default 'xy' for free drag). The pivot is computed as the
+   * centroid of the entities' starting positions — rotate and scale
+   * dilate around it, so a group of sprites rotates about their collective
+   * centre rather than around any one member.
+   *
+   * Entities without a Transform should be filtered out by the caller;
+   * this method assumes every id in the list has one.
    */
   beginDrag(
     ecs: IECSSceneService,
-    entityId: number,
+    entityIds: readonly number[],
     worldX: number,
     worldY: number,
     axis: GizmoAxis = 'xy',
   ): void {
+    const entries: DraggedEntity[] = [];
+    let pivotX = 0;
+    let pivotY = 0;
+    for (const id of entityIds) {
+      const startValues = readTransform(ecs, id);
+      entries.push({ entityId: id, startValues });
+      pivotX += startValues.px;
+      pivotY += startValues.py;
+    }
+    if (entries.length > 0) {
+      pivotX /= entries.length;
+      pivotY /= entries.length;
+    }
     this._drag = {
       active: true,
-      entityId,
+      entries,
+      pivotX,
+      pivotY,
       axis,
       startWorldX: worldX,
       startWorldY: worldY,
-      startValues: readTransform(ecs, entityId),
     };
   }
 
@@ -209,52 +247,69 @@ export class GizmoController {
    */
   applyDrag(ecs: IECSSceneService, worldX: number, worldY: number, snap: number): void {
     if (!this._drag.active) return;
-    const { entityId, startWorldX, startWorldY, startValues: s } = this._drag;
+    const { entries, pivotX, pivotY, startWorldX, startWorldY, axis } = this._drag;
+    if (entries.length === 0) return;
 
     if (this._tool === 'move') {
-      const axis = this._drag.axis;
-      // Axis lock: if axis is 'y' the X delta is dropped; if 'x' the Y
-      // delta is dropped. 'xy' applies both (free 2D, legacy behaviour).
-      let newX = axis === 'y' ? s.px : s.px + (worldX - startWorldX);
-      let newY = axis === 'x' ? s.py : s.py + (worldY - startWorldY);
+      let dx = axis === 'y' ? 0 : worldX - startWorldX;
+      let dy = axis === 'x' ? 0 : worldY - startWorldY;
       if (snap > 0) {
-        if (axis !== 'y') newX = Math.round(newX / snap) * snap;
-        if (axis !== 'x') newY = Math.round(newY / snap) * snap;
+        // Snap the pivot itself, then apply the pivot's delta to each
+        // entity so relative layout between selected items is preserved.
+        if (axis !== 'y') dx = Math.round((pivotX + dx) / snap) * snap - pivotX;
+        if (axis !== 'x') dy = Math.round((pivotY + dy) / snap) * snap - pivotY;
       }
-      ecs.setProperty(entityId, 'Transform', 'position.x', newX);
-      ecs.setProperty(entityId, 'Transform', 'position.y', newY);
+      for (const e of entries) {
+        ecs.setProperty(e.entityId, 'Transform', 'position.x', e.startValues.px + dx);
+        ecs.setProperty(e.entityId, 'Transform', 'position.y', e.startValues.py + dy);
+      }
     } else if (this._tool === 'rotate') {
-      const px = ecs.getProperty(entityId, 'Transform', 'position.x') as number;
-      const py = ecs.getProperty(entityId, 'Transform', 'position.y') as number;
-      const startAngle = Math.atan2(startWorldY - py, startWorldX - px);
-      const currAngle = Math.atan2(worldY - py, worldX - px);
-      const deltaAngleDeg = ((currAngle - startAngle) * 180) / Math.PI;
-      ecs.setProperty(entityId, 'Transform', 'rotation.z', s.rotation + deltaAngleDeg);
+      const startAngle = Math.atan2(startWorldY - pivotY, startWorldX - pivotX);
+      const currAngle = Math.atan2(worldY - pivotY, worldX - pivotX);
+      const deltaRad = currAngle - startAngle;
+      const deltaDeg = (deltaRad * 180) / Math.PI;
+      const cos = Math.cos(deltaRad);
+      const sin = Math.sin(deltaRad);
+      for (const e of entries) {
+        const ox = e.startValues.px - pivotX;
+        const oy = e.startValues.py - pivotY;
+        ecs.setProperty(e.entityId, 'Transform', 'position.x', pivotX + ox * cos - oy * sin);
+        ecs.setProperty(e.entityId, 'Transform', 'position.y', pivotY + ox * sin + oy * cos);
+        ecs.setProperty(e.entityId, 'Transform', 'rotation.z', e.startValues.rotation + deltaDeg);
+      }
     } else if (this._tool === 'scale') {
-      const axis = this._drag.axis;
-      const px = ecs.getProperty(entityId, 'Transform', 'position.x') as number;
-      const py = ecs.getProperty(entityId, 'Transform', 'position.y') as number;
-
       if (axis === 'x') {
-        // Horizontal-only scale: ratio is the change in horizontal
-        // distance between the drag-start point and the current point,
-        // preserving sign so dragging past the pivot flips the entity.
-        const startDX = signedDelta(startWorldX - px);
-        const currDX = worldX - px;
+        const startDX = signedDelta(startWorldX - pivotX);
+        const currDX = worldX - pivotX;
         const ratio = currDX / startDX;
-        ecs.setProperty(entityId, 'Transform', 'scale.x', s.sx * ratio);
+        for (const e of entries) {
+          const ox = e.startValues.px - pivotX;
+          ecs.setProperty(e.entityId, 'Transform', 'position.x', pivotX + ox * ratio);
+          ecs.setProperty(e.entityId, 'Transform', 'scale.x', e.startValues.sx * ratio);
+        }
       } else if (axis === 'y') {
-        const startDY = signedDelta(startWorldY - py);
-        const currDY = worldY - py;
+        const startDY = signedDelta(startWorldY - pivotY);
+        const currDY = worldY - pivotY;
         const ratio = currDY / startDY;
-        ecs.setProperty(entityId, 'Transform', 'scale.y', s.sy * ratio);
+        for (const e of entries) {
+          const oy = e.startValues.py - pivotY;
+          ecs.setProperty(e.entityId, 'Transform', 'position.y', pivotY + oy * ratio);
+          ecs.setProperty(e.entityId, 'Transform', 'scale.y', e.startValues.sy * ratio);
+        }
       } else {
-        // Uniform (xy / ring — ring shouldn't reach here but treat as uniform).
-        const startDist = Math.max(0.01, Math.hypot(startWorldX - px, startWorldY - py));
-        const currDist = Math.hypot(worldX - px, worldY - py);
+        // Uniform (xy / ring — ring shouldn't reach scale but defaulting
+        // to uniform keeps the code robust if future tools alias through).
+        const startDist = Math.max(0.01, Math.hypot(startWorldX - pivotX, startWorldY - pivotY));
+        const currDist = Math.hypot(worldX - pivotX, worldY - pivotY);
         const ratio = currDist / startDist;
-        ecs.setProperty(entityId, 'Transform', 'scale.x', s.sx * ratio);
-        ecs.setProperty(entityId, 'Transform', 'scale.y', s.sy * ratio);
+        for (const e of entries) {
+          const ox = e.startValues.px - pivotX;
+          const oy = e.startValues.py - pivotY;
+          ecs.setProperty(e.entityId, 'Transform', 'position.x', pivotX + ox * ratio);
+          ecs.setProperty(e.entityId, 'Transform', 'position.y', pivotY + oy * ratio);
+          ecs.setProperty(e.entityId, 'Transform', 'scale.x', e.startValues.sx * ratio);
+          ecs.setProperty(e.entityId, 'Transform', 'scale.y', e.startValues.sy * ratio);
+        }
       }
     }
   }
@@ -272,13 +327,18 @@ export class GizmoController {
       this._drag.active = false;
       return null;
     }
-    const { entityId, startValues } = this._drag;
+    const { entries } = this._drag;
     this._drag.active = false;
 
-    const after = readTransform(ecs, entityId);
-    if (transformsEqual(startValues, after)) return null;
-
-    return { entityId, tool, before: startValues, after };
+    const results: DragResultEntity[] = [];
+    let anyChanged = false;
+    for (const e of entries) {
+      const after = readTransform(ecs, e.entityId);
+      if (!transformsEqual(e.startValues, after)) anyChanged = true;
+      results.push({ entityId: e.entityId, before: e.startValues, after });
+    }
+    if (!anyChanged) return null;
+    return { tool, entities: results };
   }
 
   /**

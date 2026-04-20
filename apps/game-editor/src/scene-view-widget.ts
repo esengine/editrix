@@ -350,21 +350,37 @@ export class SceneViewWidget extends BaseWidget {
   }
 
   /**
-   * Compute the screen-space rotate-ring radius for a given entity. The
-   * ring sits just outside the entity's scaled bounds, matching the draw
-   * path in _drawSelectionHighlight — this returns the centre-to-ring
-   * distance before GizmoController adds its own 10px padding, so the
-   * same value can be passed to both hitTestHandle and drawForEntity.
+   * Ring radius for a whole selection — walks the entities, takes the
+   * world-space max of their bounds, then projects that through the
+   * camera so the rotate gizmo encloses the full group. Shares the
+   * per-entity projection logic with _computeScreenRingRadius below.
    */
-  private _computeScreenRingRadius(
-    entityId: number,
-    centerScreenY: number,
+  private _computeSelectionScreenRingRadius(
+    entityIds: readonly number[],
+    pivotWX: number,
+    pivotWY: number,
+    pivotScreenY: number,
     canvasWidth: number,
     canvasHeight: number,
   ): number {
+    let maxWorldRingRadius = 0;
+    for (const id of entityIds) {
+      const r = this._computeWorldRingRadius(id);
+      if (r > maxWorldRingRadius) maxWorldRingRadius = r;
+    }
+    const [, rsy] = this._editorCamera.worldToScreen(
+      pivotWX,
+      pivotWY + maxWorldRingRadius,
+      canvasWidth,
+      canvasHeight,
+    );
+    return Math.abs(pivotScreenY - rsy);
+  }
+
+  /** World-space ring radius based on entity bounds × scale. */
+  private _computeWorldRingRadius(entityId: number): number {
     const ecs = this._ecsScene;
     if (!ecs) return 0;
-    const py = ecs.getProperty(entityId, 'Transform', 'position.y') as number;
     const scaleX = ecs.getProperty(entityId, 'Transform', 'scale.x') as number;
     const scaleY = ecs.getProperty(entityId, 'Transform', 'scale.y') as number;
     let sizeX = 20;
@@ -376,17 +392,7 @@ export class SceneViewWidget extends BaseWidget {
       sizeX = ecs.getProperty(entityId, 'Sprite', 'size.x') as number;
       sizeY = ecs.getProperty(entityId, 'Sprite', 'size.y') as number;
     }
-    const hw = (sizeX * scaleX) / 2;
-    const hh = (sizeY * scaleY) / 2;
-    const worldRingRadius = Math.max(hw, hh);
-    const px = ecs.getProperty(entityId, 'Transform', 'position.x') as number;
-    const [, rsy] = this._editorCamera.worldToScreen(
-      px,
-      py + worldRingRadius,
-      canvasWidth,
-      canvasHeight,
-    );
-    return Math.abs(centerScreenY - rsy);
+    return Math.max((sizeX * scaleX) / 2, (sizeY * scaleY) / 2);
   }
 
   /** Pick the topmost entity at the given world position. */
@@ -445,6 +451,20 @@ export class SceneViewWidget extends BaseWidget {
     const cam = this._editorCamera;
     ctx.save();
 
+    // Collect per-entity draw info in one pass. We use this twice: once to
+    // draw the selection border around each entity, then once to compute
+    // the shared pivot and ring radius for the single gizmo drawn over the
+    // whole selection.
+    interface EntityDrawInfo {
+      id: number;
+      px: number;
+      py: number;
+      screenCorners: [number, number][];
+      worldRingRadius: number;
+      rotRad: number;
+    }
+    const infos: EntityDrawInfo[] = [];
+
     for (const idStr of selectedIds) {
       const ref = parseSelectionRef(idStr);
       if (ref?.kind !== 'entity') continue;
@@ -468,59 +488,102 @@ export class SceneViewWidget extends BaseWidget {
         sizeY = ecs.getProperty(id, 'Sprite', 'size.y') as number;
       }
 
-      // Apply scale to size
       const hw = (sizeX * scaleX) / 2;
       const hh = (sizeY * scaleY) / 2;
-
-      // 4 local corners (centered, then rotated around entity position)
       const cos = Math.cos(rotRad);
       const sin = Math.sin(rotRad);
       const corners: [number, number][] = [
         [-hw, hh],
         [hw, hh],
         [hw, -hh],
-        [-hw, -hh], // TL, TR, BR, BL in world (Y-up)
+        [-hw, -hh],
       ];
-      const screenCorners = corners.map(([lx, ly]) => {
+      const screenCorners: [number, number][] = corners.map(([lx, ly]) => {
         const wx = px + lx * cos - ly * sin;
         const wy = py + lx * sin + ly * cos;
         return cam.worldToScreen(wx, wy, w, h);
       });
 
-      // Draw rotated selection border (polygon)
       ctx.strokeStyle = '#4a8fff';
       ctx.lineWidth = 1.5;
       ctx.setLineDash([]);
       ctx.beginPath();
       const first = screenCorners[0];
-      if (!first) continue;
-      ctx.moveTo(first[0], first[1]);
-      for (let ci = 1; ci < 4; ci++) {
-        const corner = screenCorners[ci];
-        if (!corner) continue;
-        ctx.lineTo(corner[0], corner[1]);
+      if (first) {
+        ctx.moveTo(first[0], first[1]);
+        for (let ci = 1; ci < 4; ci++) {
+          const corner = screenCorners[ci];
+          if (!corner) continue;
+          ctx.lineTo(corner[0], corner[1]);
+        }
+        ctx.closePath();
+        ctx.stroke();
       }
-      ctx.closePath();
-      ctx.stroke();
 
-      // Center in screen space
-      const [cx, cy] = cam.worldToScreen(px, py, w, h);
+      infos.push({
+        id,
+        px,
+        py,
+        screenCorners,
+        worldRingRadius: Math.max(hw, hh),
+        rotRad,
+      });
+    }
 
-      // Convert the rotate-ring world radius into screen-space pixels so
-      // GizmoController stays in pure screen units (its gizmo math is
-      // camera-agnostic; the widget is the only place that knows about
-      // world → screen projection).
-      const worldRingRadius = Math.max(hw, hh);
-      const [, rsy] = cam.worldToScreen(px, py + worldRingRadius, w, h);
-      const screenRingRadius = Math.abs(cy - rsy);
+    if (infos.length > 0) {
+      // Pivot / ring radius come from the active drag when one is in
+      // flight so the gizmo tracks the drag's captured pivot (stable
+      // across the gesture) rather than the entities' current positions
+      // (which are being mutated each mousemove). When idle, fall back to
+      // the centroid of the live selection.
+      let pivotWX: number;
+      let pivotWY: number;
+      if (this._gizmo.isDragging) {
+        const p = this._gizmo.dragPivot;
+        pivotWX = p.x;
+        pivotWY = p.y;
+      } else {
+        pivotWX = 0;
+        pivotWY = 0;
+        for (const info of infos) {
+          pivotWX += info.px;
+          pivotWY += info.py;
+        }
+        pivotWX /= infos.length;
+        pivotWY /= infos.length;
+      }
+      const [pivotSX, pivotSY] = cam.worldToScreen(pivotWX, pivotWY, w, h);
 
-      this._gizmo.drawForEntity(ctx, cx, cy, screenRingRadius, rotRad, screenCorners);
+      // Ring radius: max of the selection's worldRingRadius values, so a
+      // group rotate gizmo encloses the whole group rather than just one
+      // member.
+      let maxWorldRingRadius = 0;
+      for (const info of infos) {
+        if (info.worldRingRadius > maxWorldRingRadius) maxWorldRingRadius = info.worldRingRadius;
+      }
+      const [, rsy] = cam.worldToScreen(pivotWX, pivotWY + maxWorldRingRadius, w, h);
+      const screenRingRadius = Math.abs(pivotSY - rsy);
 
-      // Full-canvas dashed line showing the locked axis while the user is
-      // actively dragging along X or Y. Drawn last so it sits on top of
-      // the selection border and gizmo arrows.
-      if (this._gizmo.isDragging && this._gizmo.dragEntityId === id) {
-        this._gizmo.drawAxisLockLine(ctx, w, h, cx, cy);
+      // Rotation indicator only carries meaning for a single selection —
+      // multi-select entities can each have different rotations, so the
+      // indicator dot tracks the first entity's heading in that case as
+      // a "lead" reference.
+      const rotRadForIndicator = infos[0]?.rotRad ?? 0;
+      // Corner handles are per-entity; for the scale gizmo the overlay
+      // shows the first entity's corners as the bounding hint.
+      const cornersForScale = infos[0]?.screenCorners ?? [];
+
+      this._gizmo.drawForEntity(
+        ctx,
+        pivotSX,
+        pivotSY,
+        screenRingRadius,
+        rotRadForIndicator,
+        cornersForScale,
+      );
+
+      if (this._gizmo.isDragging) {
+        this._gizmo.drawAxisLockLine(ctx, w, h, pivotSX, pivotSY);
       }
     }
 
@@ -625,46 +688,59 @@ export class SceneViewWidget extends BaseWidget {
       const ecs = this._ecsScene;
       if (!ecs) return;
 
-      const selectedIds = this._selection.getSelection();
-      const firstSelected = selectedIds[0];
-      const firstRef = firstSelected !== undefined ? parseSelectionRef(firstSelected) : undefined;
-      let entityId = firstRef?.kind === 'entity' ? firstRef.id : undefined;
+      // Collect every selected entity with a Transform, preserving the
+      // selection order (first one drives hit-test references).
+      const draggable: number[] = [];
+      for (const raw of this._selection.getSelection()) {
+        const ref = parseSelectionRef(raw);
+        if (ref?.kind !== 'entity') continue;
+        if (!ecs.hasComponent(ref.id, 'Transform')) continue;
+        draggable.push(ref.id);
+      }
 
-      // If there's already an entity selection with a Transform, hit-test
-      // the gizmo handles before anything else — grabbing an X arrow, Y
-      // arrow, or rotate ring should take priority over picking an entity
-      // underneath.
+      // If there's already a selection with a Transform, hit-test the
+      // gizmo handles before anything else — grabbing an X arrow, Y arrow,
+      // or rotate ring should take priority over picking a different
+      // entity underneath the cursor.
       let axis: GizmoAxis = 'xy';
-      if (entityId !== undefined && ecs.hasComponent(entityId, 'Transform')) {
-        const px = ecs.getProperty(entityId, 'Transform', 'position.x') as number;
-        const py = ecs.getProperty(entityId, 'Transform', 'position.y') as number;
+      if (draggable.length > 0) {
+        // Pivot screen pos = centroid of all selected entities' positions
+        // (matches what draw + applyDrag use).
+        let pivotWX = 0;
+        let pivotWY = 0;
+        for (const id of draggable) {
+          pivotWX += ecs.getProperty(id, 'Transform', 'position.x') as number;
+          pivotWY += ecs.getProperty(id, 'Transform', 'position.y') as number;
+        }
+        pivotWX /= draggable.length;
+        pivotWY /= draggable.length;
         const rect = canvas.getBoundingClientRect();
         const sx = e.clientX - rect.left;
         const sy = e.clientY - rect.top;
         const w = canvas.clientWidth;
         const h = canvas.clientHeight;
-        const [cxCanvas, cyCanvas] = this._editorCamera.worldToScreen(px, py, w, h);
+        const [pivotSX, pivotSY] = this._editorCamera.worldToScreen(pivotWX, pivotWY, w, h);
         const screenRingRadius =
           this._gizmo.tool === 'rotate'
-            ? this._computeScreenRingRadius(entityId, cyCanvas, w, h)
+            ? this._computeSelectionScreenRingRadius(draggable, pivotWX, pivotWY, pivotSY, w, h)
             : 0;
-        const hit = this._gizmo.hitTestHandle(sx, sy, cxCanvas, cyCanvas, screenRingRadius);
+        const hit = this._gizmo.hitTestHandle(sx, sy, pivotSX, pivotSY, screenRingRadius);
         if (hit !== null) axis = hit;
       }
 
-      // No handle hit (or no selection yet) — fall back to picking the
+      // No handle hit and no existing selection — fall back to picking the
       // entity under the cursor, matching the legacy free-drag flow.
-      if (axis === 'xy' && entityId === undefined) {
+      if (axis === 'xy' && draggable.length === 0) {
         const hit = this._pickEntity(wx, wy);
-        if (hit !== undefined) {
+        if (hit !== undefined && ecs.hasComponent(hit, 'Transform')) {
           this._selection.select([entityRef(hit)]);
-          entityId = hit;
+          draggable.push(hit);
         } else return;
       }
 
-      if (entityId === undefined || !ecs.hasComponent(entityId, 'Transform')) return;
+      if (draggable.length === 0) return;
 
-      this._gizmo.beginDrag(ecs, entityId, wx, wy, axis);
+      this._gizmo.beginDrag(ecs, draggable, wx, wy, axis);
       canvas.style.cursor = cursorForAxis(axis, this._gizmo.tool);
     });
 
@@ -712,23 +788,31 @@ export class SceneViewWidget extends BaseWidget {
         const result = this._gizmo.endDrag(this._ecsScene);
         if (result) {
           const ecs = this._ecsScene;
-          const { entityId: id, tool, before, after } = result;
+          const { tool, entities } = result;
           const toolLabel = tool.charAt(0).toUpperCase() + tool.slice(1);
+          const label =
+            entities.length === 1
+              ? `${toolLabel} Entity`
+              : `${toolLabel} ${entities.length} Entities`;
           this._undoRedo.push({
-            label: `${toolLabel} Entity`,
+            label,
             undo: () => {
-              ecs.setProperty(id, 'Transform', 'position.x', before.px);
-              ecs.setProperty(id, 'Transform', 'position.y', before.py);
-              ecs.setProperty(id, 'Transform', 'rotation.z', before.rotation);
-              ecs.setProperty(id, 'Transform', 'scale.x', before.sx);
-              ecs.setProperty(id, 'Transform', 'scale.y', before.sy);
+              for (const ent of entities) {
+                ecs.setProperty(ent.entityId, 'Transform', 'position.x', ent.before.px);
+                ecs.setProperty(ent.entityId, 'Transform', 'position.y', ent.before.py);
+                ecs.setProperty(ent.entityId, 'Transform', 'rotation.z', ent.before.rotation);
+                ecs.setProperty(ent.entityId, 'Transform', 'scale.x', ent.before.sx);
+                ecs.setProperty(ent.entityId, 'Transform', 'scale.y', ent.before.sy);
+              }
             },
             redo: () => {
-              ecs.setProperty(id, 'Transform', 'position.x', after.px);
-              ecs.setProperty(id, 'Transform', 'position.y', after.py);
-              ecs.setProperty(id, 'Transform', 'rotation.z', after.rotation);
-              ecs.setProperty(id, 'Transform', 'scale.x', after.sx);
-              ecs.setProperty(id, 'Transform', 'scale.y', after.sy);
+              for (const ent of entities) {
+                ecs.setProperty(ent.entityId, 'Transform', 'position.x', ent.after.px);
+                ecs.setProperty(ent.entityId, 'Transform', 'position.y', ent.after.py);
+                ecs.setProperty(ent.entityId, 'Transform', 'rotation.z', ent.after.rotation);
+                ecs.setProperty(ent.entityId, 'Transform', 'scale.x', ent.after.sx);
+                ecs.setProperty(ent.entityId, 'Transform', 'scale.y', ent.after.sy);
+              }
             },
           });
         }
