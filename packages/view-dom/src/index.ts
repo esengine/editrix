@@ -12,7 +12,7 @@ export { clearChildren, createElement, setCssVars } from './dom-utils.js';
 
 // Theme system
 export type { EditorTheme, ThemeColors } from './theme.js';
-export { applyTheme, DARK_THEME } from './theme.js';
+export { applyTheme, DARK_THEME, LIGHT_THEME } from './theme.js';
 
 // Menu bar
 export type { MenuBarTab, MenuDescriptor, MenuItem } from './menu-bar.js';

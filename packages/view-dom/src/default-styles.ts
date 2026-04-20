@@ -16,8 +16,8 @@ const DEFAULT_CSS = /* css */ `
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); }
+::-webkit-scrollbar-thumb { background: var(--editrix-scrollbar-thumb, rgba(255,255,255,0.08)); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--editrix-scrollbar-thumb-hover, rgba(255,255,255,0.16)); }
 ::-webkit-scrollbar-corner { background: transparent; }
 
 /* ─── Root ──────────────────────────────────────── */

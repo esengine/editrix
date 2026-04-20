@@ -34,6 +34,10 @@ export interface ThemeColors {
   readonly success: string;
   readonly warning: string;
   readonly error: string;
+  /** Scrollbar thumb color — needs to contrast against panel backgrounds. */
+  readonly scrollbarThumb: string;
+  /** Scrollbar thumb color on hover (typically the thumb color but stronger). */
+  readonly scrollbarThumbHover: string;
 }
 
 /**
@@ -47,14 +51,14 @@ export const DARK_THEME: EditorTheme = {
     surface: '#252529',
     border: '#2e2e34',
     text: '#cccccc',
-    textDim: '#7e7e86',
+    textDim: '#9a9aa3',
     accent: '#4a8fff',
     accentText: '#ffffff',
     panelBackground: '#1b1b1f',
     tabActive: '#2c2c32',
     tabInactive: '#1b1b1f',
     statusBar: '#252529',
-    statusBarText: '#7e7e86',
+    statusBarText: '#9a9aa3',
     overlay: 'rgba(0, 0, 0, 0.65)',
     menuBar: '#1b1b1f',
     toolbar: '#252529',
@@ -64,6 +68,43 @@ export const DARK_THEME: EditorTheme = {
     success: '#98c379',
     warning: '#e5c07b',
     error: '#e06c75',
+    scrollbarThumb: 'rgba(255, 255, 255, 0.08)',
+    scrollbarThumbHover: 'rgba(255, 255, 255, 0.16)',
+  },
+};
+
+/**
+ * Light theme — tuned for WCAG AA contrast on a near-white canvas, with
+ * deeper accent and axis hues than the dark theme uses (pale tones
+ * become illegible on white).
+ */
+export const LIGHT_THEME: EditorTheme = {
+  id: 'editrix.light',
+  name: 'Light',
+  colors: {
+    background: '#ffffff',
+    surface: '#f4f4f6',
+    border: '#d6d6dc',
+    text: '#1b1b1f',
+    textDim: '#55555c',
+    accent: '#0a67d0',
+    accentText: '#ffffff',
+    panelBackground: '#ffffff',
+    tabActive: '#e6e6ea',
+    tabInactive: '#f4f4f6',
+    statusBar: '#ececf0',
+    statusBarText: '#55555c',
+    overlay: 'rgba(0, 0, 0, 0.32)',
+    menuBar: '#ececf0',
+    toolbar: '#f4f4f6',
+    axisX: '#c8323f',
+    axisY: '#2a8c3e',
+    axisZ: '#2466a8',
+    success: '#3c9040',
+    warning: '#9a6f0a',
+    error: '#c03040',
+    scrollbarThumb: 'rgba(0, 0, 0, 0.18)',
+    scrollbarThumbHover: 'rgba(0, 0, 0, 0.32)',
   },
 };
 
