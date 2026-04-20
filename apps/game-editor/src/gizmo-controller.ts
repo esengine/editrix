@@ -82,9 +82,19 @@ const COLOR_CORNER = '#4a8fff';
 const COLOR_X_ACTIVE = '#ffd24a';
 const COLOR_Y_ACTIVE = '#ffd24a';
 const COLOR_RING_ACTIVE = '#ffd24a';
+// Softer "about to grab" tints for hover — warm enough to read as a
+// change from the idle red/green/blue, cool enough that it doesn't look
+// like a drag is already in progress.
+const COLOR_X_HOVER = '#ff9b66';
+const COLOR_Y_HOVER = '#a8e86f';
+const COLOR_RING_HOVER = '#8cb7ff';
 
 export class GizmoController {
   private _tool: ToolId = 'select';
+  // Which handle the cursor is currently over. Used to tint the idle
+  // gizmo so the user sees which part is grabbable before pressing the
+  // mouse. Ignored while a drag is in progress — the active tint wins.
+  private _hoverAxis: GizmoAxis | null = null;
   private _drag: {
     active: boolean;
     entries: DraggedEntity[];
@@ -120,6 +130,22 @@ export class GizmoController {
 
   get dragAxis(): GizmoAxis {
     return this._drag.axis;
+  }
+
+  /**
+   * Set or clear the hovered handle. Callers should pass the result of
+   * {@link hitTestHandle} on every mousemove while no drag is active.
+   * Returns true if the hover state actually changed — the caller can
+   * use that to skip an unnecessary re-render.
+   */
+  setHoverAxis(axis: GizmoAxis | null): boolean {
+    if (this._hoverAxis === axis) return false;
+    this._hoverAxis = axis;
+    return true;
+  }
+
+  get hoverAxis(): GizmoAxis | null {
+    return this._hoverAxis;
   }
 
   /** Entity IDs currently being dragged. Stable across one drag gesture. */
@@ -428,11 +454,31 @@ export class GizmoController {
     return this._drag.axis;
   }
 
+  /**
+   * Pick the colour for a handle given the idle / hover / active tints.
+   * Active always wins over hover, so releasing the mouse after a drag
+   * visibly settles into whatever the cursor is currently over.
+   */
+  private _axisColor(
+    axis: Exclude<GizmoAxis, 'ring'>,
+    idle: string,
+    hover: string,
+    active: string,
+  ): string {
+    const activeAxis = this._drag.active ? this._drag.axis : null;
+    if (activeAxis === axis) return active;
+    // Hover only matters when no drag is in progress — otherwise the
+    // cursor is pinned by the drag math and the handle we're dragging
+    // already has the active tint.
+    if (!this._drag.active && this._hoverAxis === axis) return hover;
+    return idle;
+  }
+
   private _drawMoveGizmo(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
     const len = MOVE_ARROW_LEN_PX;
+    const xColor = this._axisColor('x', COLOR_X, COLOR_X_HOVER, COLOR_X_ACTIVE);
+    const yColor = this._axisColor('y', COLOR_Y, COLOR_Y_HOVER, COLOR_Y_ACTIVE);
     const active = this._activeMoveAxis();
-    const xColor = active === 'x' ? COLOR_X_ACTIVE : COLOR_X;
-    const yColor = active === 'y' ? COLOR_Y_ACTIVE : COLOR_Y;
 
     ctx.strokeStyle = xColor;
     ctx.lineWidth = 2;
@@ -459,7 +505,8 @@ export class GizmoController {
 
     // Centre square — visual affordance for the free-XY grab.
     const hs = CENTER_HANDLE_HALF_PX;
-    ctx.strokeStyle = active === 'xy' ? COLOR_X_ACTIVE : '#ccd4df';
+    const centerHovered = !this._drag.active && this._hoverAxis === 'xy';
+    ctx.strokeStyle = active === 'xy' ? COLOR_X_ACTIVE : centerHovered ? COLOR_X_HOVER : '#ccd4df';
     ctx.lineWidth = 1;
     ctx.strokeRect(cx - hs, cy - hs, hs * 2, hs * 2);
   }
@@ -473,9 +520,10 @@ export class GizmoController {
   ): void {
     const radius = screenRingRadius + ROTATE_RING_PADDING_PX;
     const ringGrabbed = this._drag.active && this._tool === 'rotate';
-    const color = ringGrabbed ? COLOR_RING_ACTIVE : COLOR_RING;
+    const ringHovered = !this._drag.active && this._hoverAxis === 'ring';
+    const color = ringGrabbed ? COLOR_RING_ACTIVE : ringHovered ? COLOR_RING_HOVER : COLOR_RING;
     ctx.strokeStyle = color;
-    ctx.lineWidth = ringGrabbed ? 2.5 : 1.5;
+    ctx.lineWidth = ringGrabbed ? 2.5 : ringHovered ? 2 : 1.5;
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.stroke();
@@ -491,8 +539,8 @@ export class GizmoController {
     const len = SCALE_ARROW_LEN_PX;
     const hs = SCALE_END_BOX_HALF_PX;
     const active = this._activeScaleAxis();
-    const xColor = active === 'x' ? COLOR_X_ACTIVE : COLOR_X;
-    const yColor = active === 'y' ? COLOR_Y_ACTIVE : COLOR_Y;
+    const xColor = this._axisColor('x', COLOR_X, COLOR_X_HOVER, COLOR_X_ACTIVE);
+    const yColor = this._axisColor('y', COLOR_Y, COLOR_Y_HOVER, COLOR_Y_ACTIVE);
 
     // X axis shaft + end box
     ctx.strokeStyle = xColor;
@@ -515,7 +563,8 @@ export class GizmoController {
 
     // Uniform centre square
     const ch = CENTER_HANDLE_HALF_PX;
-    ctx.strokeStyle = active === 'xy' ? COLOR_X_ACTIVE : '#ccd4df';
+    const centerHovered = !this._drag.active && this._hoverAxis === 'xy';
+    ctx.strokeStyle = active === 'xy' ? COLOR_X_ACTIVE : centerHovered ? COLOR_X_HOVER : '#ccd4df';
     ctx.lineWidth = 1;
     ctx.strokeRect(cx - ch, cy - ch, ch * 2, ch * 2);
   }
