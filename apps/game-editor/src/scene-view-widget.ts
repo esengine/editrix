@@ -138,6 +138,7 @@ export class SceneViewWidget extends BaseWidget {
       },
       postDraw: (ctx: CanvasRenderingContext2D, w: number, h: number): void => {
         this._drawGrid(ctx, w, h);
+        this._drawSnapGrid(ctx, w, h);
         this._drawSelectionHighlight(ctx, w, h);
       },
       target: ctx2d,
@@ -268,6 +269,45 @@ export class SceneViewWidget extends BaseWidget {
   }
 
   /** Draw 2D grid overlay on the Scene View canvas. */
+  /**
+   * Draw a world-aligned grid of dots at the move tool's current snap
+   * spacing so users see exactly where a drag will land. Only active
+   * while the move tool is selected and snap is enabled, and bails when
+   * the projected spacing would cram more than ~60 dots per axis on
+   * screen (which would both be visually noisy and cost a lot of fills).
+   */
+  private _drawSnapGrid(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    if (this._gizmo.tool !== 'move') return;
+    const snap = parseFloat(this._snapInput?.value ?? '0') || 0;
+    if (snap <= 0) return;
+
+    const cam = this._editorCamera;
+    const [left, right, bottom, top] = cam.getWorldBounds(w, h);
+
+    // Screen-space spacing between adjacent snap points — if dots would
+    // overlap into a solid wash we skip the overlay so the user doesn't
+    // see a grey fog. 4px is tight enough to still feel precise.
+    const [sx0] = cam.worldToScreen(0, 0, w, h);
+    const [sx1] = cam.worldToScreen(snap, 0, w, h);
+    const screenStep = Math.abs(sx1 - sx0);
+    if (screenStep < 4) return;
+
+    const startWX = Math.floor(left / snap) * snap;
+    const endWX = Math.ceil(right / snap) * snap;
+    const startWY = Math.floor(bottom / snap) * snap;
+    const endWY = Math.ceil(top / snap) * snap;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    for (let wy = startWY; wy <= endWY; wy += snap) {
+      for (let wx = startWX; wx <= endWX; wx += snap) {
+        const [sx, sy] = cam.worldToScreen(wx, wy, w, h);
+        ctx.fillRect(Math.round(sx) - 1, Math.round(sy) - 1, 2, 2);
+      }
+    }
+    ctx.restore();
+  }
+
   private _drawGrid(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     const cam = this._editorCamera;
     const [left, right, bottom, top] = cam.getWorldBounds(w, h);

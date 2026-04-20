@@ -67,6 +67,13 @@ const CENTER_HANDLE_HALF_PX = 6;
 // within this band of the ring radius counts as grabbing the ring.
 const RING_HIT_HALF_PX = 8;
 
+// When the "snap" toolbar value is non-zero, rotate steps in this many
+// degrees and scale steps in this many units. The snap value itself is
+// only meaningful as a world distance to the move tool — rotate/scale
+// just treat it as a boolean "snap on".
+const ROTATE_SNAP_DEG = 15;
+const SCALE_SNAP_STEP = 0.1;
+
 const COLOR_X = '#e55561';
 const COLOR_Y = '#6bc46d';
 const COLOR_RING = '#4a8fff';
@@ -266,8 +273,15 @@ export class GizmoController {
     } else if (this._tool === 'rotate') {
       const startAngle = Math.atan2(startWorldY - pivotY, startWorldX - pivotX);
       const currAngle = Math.atan2(worldY - pivotY, worldX - pivotX);
-      const deltaRad = currAngle - startAngle;
-      const deltaDeg = (deltaRad * 180) / Math.PI;
+      let deltaDeg = ((currAngle - startAngle) * 180) / Math.PI;
+      // Snap toggles a fixed 15° step for rotate — the `snap` field is a
+      // world-unit distance for the move tool but collapsed into a simple
+      // "snap on/off" bit for rotate and scale. Keeps the single input in
+      // the toolbar from needing a per-tool UI.
+      if (snap > 0) {
+        deltaDeg = Math.round(deltaDeg / ROTATE_SNAP_DEG) * ROTATE_SNAP_DEG;
+      }
+      const deltaRad = (deltaDeg * Math.PI) / 180;
       const cos = Math.cos(deltaRad);
       const sin = Math.sin(deltaRad);
       for (const e of entries) {
@@ -278,10 +292,13 @@ export class GizmoController {
         ecs.setProperty(e.entityId, 'Transform', 'rotation.z', e.startValues.rotation + deltaDeg);
       }
     } else if (this._tool === 'scale') {
+      const snapRatio = (r: number): number =>
+        snap > 0 ? Math.round(r / SCALE_SNAP_STEP) * SCALE_SNAP_STEP : r;
+
       if (axis === 'x') {
         const startDX = signedDelta(startWorldX - pivotX);
         const currDX = worldX - pivotX;
-        const ratio = currDX / startDX;
+        const ratio = snapRatio(currDX / startDX);
         for (const e of entries) {
           const ox = e.startValues.px - pivotX;
           ecs.setProperty(e.entityId, 'Transform', 'position.x', pivotX + ox * ratio);
@@ -290,7 +307,7 @@ export class GizmoController {
       } else if (axis === 'y') {
         const startDY = signedDelta(startWorldY - pivotY);
         const currDY = worldY - pivotY;
-        const ratio = currDY / startDY;
+        const ratio = snapRatio(currDY / startDY);
         for (const e of entries) {
           const oy = e.startValues.py - pivotY;
           ecs.setProperty(e.entityId, 'Transform', 'position.y', pivotY + oy * ratio);
@@ -301,7 +318,7 @@ export class GizmoController {
         // to uniform keeps the code robust if future tools alias through).
         const startDist = Math.max(0.01, Math.hypot(startWorldX - pivotX, startWorldY - pivotY));
         const currDist = Math.hypot(worldX - pivotX, worldY - pivotY);
-        const ratio = currDist / startDist;
+        const ratio = snapRatio(currDist / startDist);
         for (const e of entries) {
           const ox = e.startValues.px - pivotX;
           const oy = e.startValues.py - pivotY;
