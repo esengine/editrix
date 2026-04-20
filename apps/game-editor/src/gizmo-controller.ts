@@ -14,8 +14,16 @@ import type { IECSSceneService } from '@editrix/estella';
 
 export type ToolId = 'select' | 'move' | 'rotate' | 'scale';
 
-/** Which direction a drag should move in. 'xy' is free 2D, 'x' / 'y' lock to one axis. */
-export type GizmoAxis = 'x' | 'y' | 'xy';
+/**
+ * Which direction a drag affects.
+ * - `x` / `y` — move or scale locked to one world axis.
+ * - `xy` — move freely in 2D, or uniform scale in both dimensions.
+ * - `ring` — rotate drag grabbed on the rotate ring. The math is identical
+ *   to free rotate, but the controller remembers the grab so drawing code
+ *   can highlight the ring and the caller can tell a ring-initiated drag
+ *   from a free-canvas one if it ever needs to.
+ */
+export type GizmoAxis = 'x' | 'y' | 'xy' | 'ring';
 
 export interface TransformSnapshot {
   px: number;
@@ -35,22 +43,29 @@ export interface DragResult {
 // Tool-specific visual sizes, expressed in screen-space pixels so they stay
 // constant under editor zoom.
 const MOVE_ARROW_LEN_PX = 30;
+const SCALE_ARROW_LEN_PX = 30;
+const SCALE_END_BOX_HALF_PX = 5;
 const ROTATE_RING_PADDING_PX = 10;
 const CORNER_HANDLE_PX = 5;
 
-// Hit-test padding around each move-arrow shaft. Generous enough that
-// grabbing the arrow works without pixel-hunting, narrow enough that the
-// X and Y zones don't overlap anywhere except at the centre square.
+// Hit-test padding around each move / scale arrow shaft. Generous enough
+// that grabbing the arrow works without pixel-hunting, narrow enough that
+// the X and Y zones don't overlap anywhere except at the centre square.
 const AXIS_HIT_PAD_PX = 6;
 const CENTER_HANDLE_HALF_PX = 6;
+
+// Half-thickness (in pixels) of the rotate ring's hit annulus. A click
+// within this band of the ring radius counts as grabbing the ring.
+const RING_HIT_HALF_PX = 8;
 
 const COLOR_X = '#e55561';
 const COLOR_Y = '#6bc46d';
 const COLOR_RING = '#4a8fff';
 const COLOR_CORNER = '#4a8fff';
-// Brighter tints used when an axis is hovered or actively being dragged.
+// Brighter tints used when an axis / ring is actively being dragged.
 const COLOR_X_ACTIVE = '#ffd24a';
 const COLOR_Y_ACTIVE = '#ffd24a';
+const COLOR_RING_ACTIVE = '#ffd24a';
 
 export class GizmoController {
   private _tool: ToolId = 'select';
@@ -91,24 +106,41 @@ export class GizmoController {
   }
 
   /**
-   * Hit-test the move gizmo handles. Returns which axis the user is
-   * grabbing ('x', 'y', 'xy' for the centre square), or null if the click
-   * missed all handles. Call this first on mousedown when the active tool
-   * has handles; fall back to entity-pick / free drag when the result is
-   * null. Only the move tool exposes handles in this cut — rotate/scale
-   * still free-drag from anywhere on the canvas.
+   * Hit-test the active tool's gizmo handles. Returns the axis the user is
+   * grabbing, or null if the click missed. Callers (SceneViewWidget) should
+   * fall back to entity-pick / free drag when this returns null, matching
+   * the legacy "click anywhere while selection has Transform" behaviour.
    *
-   * Coordinates are canvas-relative CSS pixels (use `e.clientX - rect.left`
-   * style math), matching what worldToScreen returns.
+   * Coordinates are canvas-relative CSS pixels (`e.clientX - rect.left`),
+   * matching what worldToScreen returns.
+   *
+   * @param screenRingRadius screen-space ring radius (centre-to-ring,
+   *   before the 10px padding the rotate gizmo adds). Required only for
+   *   rotate; ignored for other tools.
    */
   hitTestHandle(
     screenX: number,
     screenY: number,
     centerX: number,
     centerY: number,
+    screenRingRadius = 0,
   ): GizmoAxis | null {
-    if (this._tool !== 'move') return null;
+    if (this._tool === 'move')
+      return this._hitTestAxisHandles(screenX, screenY, centerX, centerY, MOVE_ARROW_LEN_PX);
+    if (this._tool === 'scale')
+      return this._hitTestAxisHandles(screenX, screenY, centerX, centerY, SCALE_ARROW_LEN_PX);
+    if (this._tool === 'rotate')
+      return this._hitTestRing(screenX, screenY, centerX, centerY, screenRingRadius);
+    return null;
+  }
 
+  private _hitTestAxisHandles(
+    screenX: number,
+    screenY: number,
+    centerX: number,
+    centerY: number,
+    arrowLen: number,
+  ): GizmoAxis | null {
     const dx = screenX - centerX;
     const dy = screenY - centerY;
 
@@ -118,21 +150,30 @@ export class GizmoController {
       return 'xy';
     }
 
-    // X arrow extends to the right of centre.
-    if (dx >= 0 && dx <= MOVE_ARROW_LEN_PX + AXIS_HIT_PAD_PX && Math.abs(dy) <= AXIS_HIT_PAD_PX) {
+    // X arrow / shaft extends to the right of centre.
+    if (dx >= 0 && dx <= arrowLen + AXIS_HIT_PAD_PX && Math.abs(dy) <= AXIS_HIT_PAD_PX) {
       return 'x';
     }
 
-    // Y arrow extends upward (canvas Y is inverted, so dy <= 0).
-    if (
-      dy <= 0 &&
-      dy >= -(MOVE_ARROW_LEN_PX + AXIS_HIT_PAD_PX) &&
-      Math.abs(dx) <= AXIS_HIT_PAD_PX
-    ) {
+    // Y arrow / shaft extends upward (canvas Y is inverted, so dy <= 0).
+    if (dy <= 0 && dy >= -(arrowLen + AXIS_HIT_PAD_PX) && Math.abs(dx) <= AXIS_HIT_PAD_PX) {
       return 'y';
     }
 
     return null;
+  }
+
+  private _hitTestRing(
+    screenX: number,
+    screenY: number,
+    centerX: number,
+    centerY: number,
+    screenRingRadius: number,
+  ): GizmoAxis | null {
+    const ringRadius = screenRingRadius + ROTATE_RING_PADDING_PX;
+    if (ringRadius <= 0) return null;
+    const dist = Math.hypot(screenX - centerX, screenY - centerY);
+    return Math.abs(dist - ringRadius) <= RING_HIT_HALF_PX ? 'ring' : null;
   }
 
   /**
@@ -190,13 +231,31 @@ export class GizmoController {
       const deltaAngleDeg = ((currAngle - startAngle) * 180) / Math.PI;
       ecs.setProperty(entityId, 'Transform', 'rotation.z', s.rotation + deltaAngleDeg);
     } else if (this._tool === 'scale') {
+      const axis = this._drag.axis;
       const px = ecs.getProperty(entityId, 'Transform', 'position.x') as number;
       const py = ecs.getProperty(entityId, 'Transform', 'position.y') as number;
-      const startDist = Math.max(0.01, Math.hypot(startWorldX - px, startWorldY - py));
-      const currDist = Math.hypot(worldX - px, worldY - py);
-      const ratio = currDist / startDist;
-      ecs.setProperty(entityId, 'Transform', 'scale.x', s.sx * ratio);
-      ecs.setProperty(entityId, 'Transform', 'scale.y', s.sy * ratio);
+
+      if (axis === 'x') {
+        // Horizontal-only scale: ratio is the change in horizontal
+        // distance between the drag-start point and the current point,
+        // preserving sign so dragging past the pivot flips the entity.
+        const startDX = signedDelta(startWorldX - px);
+        const currDX = worldX - px;
+        const ratio = currDX / startDX;
+        ecs.setProperty(entityId, 'Transform', 'scale.x', s.sx * ratio);
+      } else if (axis === 'y') {
+        const startDY = signedDelta(startWorldY - py);
+        const currDY = worldY - py;
+        const ratio = currDY / startDY;
+        ecs.setProperty(entityId, 'Transform', 'scale.y', s.sy * ratio);
+      } else {
+        // Uniform (xy / ring — ring shouldn't reach here but treat as uniform).
+        const startDist = Math.max(0.01, Math.hypot(startWorldX - px, startWorldY - py));
+        const currDist = Math.hypot(worldX - px, worldY - py);
+        const ratio = currDist / startDist;
+        ecs.setProperty(entityId, 'Transform', 'scale.x', s.sx * ratio);
+        ecs.setProperty(entityId, 'Transform', 'scale.y', s.sy * ratio);
+      }
     }
   }
 
@@ -244,7 +303,11 @@ export class GizmoController {
       this._drawMoveGizmo(ctx, cx, cy);
     } else if (this._tool === 'rotate') {
       this._drawRotateGizmo(ctx, cx, cy, screenRingRadius, rotRad);
-    } else {
+    } else if (this._tool === 'scale') {
+      this._drawScaleGizmo(ctx, cx, cy);
+      // Keep the corner handles as a supplementary bounding-box hint; they
+      // aren't themselves hit-tested but they help the user see the
+      // entity's current footprint as they scale.
       this._drawCornerHandles(ctx, screenCorners);
     }
   }
@@ -332,17 +395,57 @@ export class GizmoController {
     rotRad: number,
   ): void {
     const radius = screenRingRadius + ROTATE_RING_PADDING_PX;
-    ctx.strokeStyle = COLOR_RING;
-    ctx.lineWidth = 1.5;
+    const ringGrabbed = this._drag.active && this._tool === 'rotate';
+    const color = ringGrabbed ? COLOR_RING_ACTIVE : COLOR_RING;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = ringGrabbed ? 2.5 : 1.5;
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.stroke();
     const indX = cx + radius * Math.cos(-rotRad);
     const indY = cy + radius * Math.sin(-rotRad);
-    ctx.fillStyle = COLOR_RING;
+    ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(indX, indY, 4, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  private _drawScaleGizmo(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
+    const len = SCALE_ARROW_LEN_PX;
+    const hs = SCALE_END_BOX_HALF_PX;
+    const active = this._activeScaleAxis();
+    const xColor = active === 'x' ? COLOR_X_ACTIVE : COLOR_X;
+    const yColor = active === 'y' ? COLOR_Y_ACTIVE : COLOR_Y;
+
+    // X axis shaft + end box
+    ctx.strokeStyle = xColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + len, cy);
+    ctx.stroke();
+    ctx.fillStyle = xColor;
+    ctx.fillRect(cx + len - hs, cy - hs, hs * 2, hs * 2);
+
+    // Y axis shaft + end box
+    ctx.strokeStyle = yColor;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx, cy - len);
+    ctx.stroke();
+    ctx.fillStyle = yColor;
+    ctx.fillRect(cx - hs, cy - len - hs, hs * 2, hs * 2);
+
+    // Uniform centre square
+    const ch = CENTER_HANDLE_HALF_PX;
+    ctx.strokeStyle = active === 'xy' ? COLOR_X_ACTIVE : '#ccd4df';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(cx - ch, cy - ch, ch * 2, ch * 2);
+  }
+
+  private _activeScaleAxis(): GizmoAxis | null {
+    if (!this._drag.active || this._tool !== 'scale') return null;
+    return this._drag.axis;
   }
 
   private _drawCornerHandles(
@@ -355,6 +458,16 @@ export class GizmoController {
       ctx.fillRect(scx - hs / 2, scy - hs / 2, hs, hs);
     }
   }
+}
+
+// Axis scale uses a signed ratio so the user can drag the handle past the
+// pivot to flip the entity. A zero delta at drag-start would blow up into
+// infinity, so we floor the magnitude at a small epsilon while preserving
+// the original sign (or picking positive if the start was exactly zero).
+function signedDelta(v: number): number {
+  if (v > 0) return Math.max(v, 0.01);
+  if (v < 0) return Math.min(v, -0.01);
+  return 0.01;
 }
 
 function readTransform(ecs: IECSSceneService, entityId: number): TransformSnapshot {

@@ -9,6 +9,15 @@ import { GizmoController, type ToolId as GizmoToolId, type GizmoAxis } from './g
 import type { SharedRenderContext, RenderView } from './render-context.js';
 import { entityRef, parseSelectionRef } from './services.js';
 
+function cursorForAxis(axis: GizmoAxis, tool: GizmoToolId): string {
+  if (axis === 'x') return 'ew-resize';
+  if (axis === 'y') return 'ns-resize';
+  if (axis === 'ring') return 'grabbing';
+  // axis === 'xy'
+  if (tool === 'move') return 'move';
+  return 'crosshair';
+}
+
 export interface SceneAssetDropEvent {
   readonly absolutePath: string;
   readonly worldX: number;
@@ -340,6 +349,46 @@ export class SceneViewWidget extends BaseWidget {
     ctx.restore();
   }
 
+  /**
+   * Compute the screen-space rotate-ring radius for a given entity. The
+   * ring sits just outside the entity's scaled bounds, matching the draw
+   * path in _drawSelectionHighlight — this returns the centre-to-ring
+   * distance before GizmoController adds its own 10px padding, so the
+   * same value can be passed to both hitTestHandle and drawForEntity.
+   */
+  private _computeScreenRingRadius(
+    entityId: number,
+    centerScreenY: number,
+    canvasWidth: number,
+    canvasHeight: number,
+  ): number {
+    const ecs = this._ecsScene;
+    if (!ecs) return 0;
+    const py = ecs.getProperty(entityId, 'Transform', 'position.y') as number;
+    const scaleX = ecs.getProperty(entityId, 'Transform', 'scale.x') as number;
+    const scaleY = ecs.getProperty(entityId, 'Transform', 'scale.y') as number;
+    let sizeX = 20;
+    let sizeY = 20;
+    if (ecs.hasComponent(entityId, 'ShapeRenderer')) {
+      sizeX = ecs.getProperty(entityId, 'ShapeRenderer', 'size.x') as number;
+      sizeY = ecs.getProperty(entityId, 'ShapeRenderer', 'size.y') as number;
+    } else if (ecs.hasComponent(entityId, 'Sprite')) {
+      sizeX = ecs.getProperty(entityId, 'Sprite', 'size.x') as number;
+      sizeY = ecs.getProperty(entityId, 'Sprite', 'size.y') as number;
+    }
+    const hw = (sizeX * scaleX) / 2;
+    const hh = (sizeY * scaleY) / 2;
+    const worldRingRadius = Math.max(hw, hh);
+    const px = ecs.getProperty(entityId, 'Transform', 'position.x') as number;
+    const [, rsy] = this._editorCamera.worldToScreen(
+      px,
+      py + worldRingRadius,
+      canvasWidth,
+      canvasHeight,
+    );
+    return Math.abs(centerScreenY - rsy);
+  }
+
   /** Pick the topmost entity at the given world position. */
   private _pickEntity(wx: number, wy: number): number | undefined {
     const ecs = this._ecsScene;
@@ -582,8 +631,9 @@ export class SceneViewWidget extends BaseWidget {
       let entityId = firstRef?.kind === 'entity' ? firstRef.id : undefined;
 
       // If there's already an entity selection with a Transform, hit-test
-      // the gizmo handles before anything else — grabbing an X or Y arrow
-      // should take priority over picking an entity underneath.
+      // the gizmo handles before anything else — grabbing an X arrow, Y
+      // arrow, or rotate ring should take priority over picking an entity
+      // underneath.
       let axis: GizmoAxis = 'xy';
       if (entityId !== undefined && ecs.hasComponent(entityId, 'Transform')) {
         const px = ecs.getProperty(entityId, 'Transform', 'position.x') as number;
@@ -591,13 +641,14 @@ export class SceneViewWidget extends BaseWidget {
         const rect = canvas.getBoundingClientRect();
         const sx = e.clientX - rect.left;
         const sy = e.clientY - rect.top;
-        const [cxCanvas, cyCanvas] = this._editorCamera.worldToScreen(
-          px,
-          py,
-          canvas.clientWidth,
-          canvas.clientHeight,
-        );
-        const hit = this._gizmo.hitTestHandle(sx, sy, cxCanvas, cyCanvas);
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        const [cxCanvas, cyCanvas] = this._editorCamera.worldToScreen(px, py, w, h);
+        const screenRingRadius =
+          this._gizmo.tool === 'rotate'
+            ? this._computeScreenRingRadius(entityId, cyCanvas, w, h)
+            : 0;
+        const hit = this._gizmo.hitTestHandle(sx, sy, cxCanvas, cyCanvas, screenRingRadius);
         if (hit !== null) axis = hit;
       }
 
@@ -614,14 +665,7 @@ export class SceneViewWidget extends BaseWidget {
       if (entityId === undefined || !ecs.hasComponent(entityId, 'Transform')) return;
 
       this._gizmo.beginDrag(ecs, entityId, wx, wy, axis);
-      canvas.style.cursor =
-        axis === 'x'
-          ? 'ew-resize'
-          : axis === 'y'
-            ? 'ns-resize'
-            : this._gizmo.tool === 'move'
-              ? 'move'
-              : 'crosshair';
+      canvas.style.cursor = cursorForAxis(axis, this._gizmo.tool);
     });
 
     // Middle-click drag to pan
