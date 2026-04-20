@@ -444,50 +444,54 @@ async function main(): Promise<void> {
     })();
   });
 
-  // ── Right section: Undo/Redo + Play/Pause/Stop/Step + window controls ──
+  // ── Editor toolbar: editing-side affordances (undo/redo, etc.) ──
+  //
+  // Undo/Redo live here — not next to Play — because they're edit-time
+  // operations, not runtime. Putting them in the same cluster as
+  // Play/Stop implied a runtime relationship that isn't real. The
+  // editor toolbar is a distinct row below the menu bar, dedicated to
+  // this kind of editing tool.
+  const undoTooltip = (): string => {
+    if (!editor.undoRedo.canUndo()) return 'Nothing to undo';
+    const label = editor.undoRedo.getUndoLabel();
+    return `Undo${label !== undefined ? `: ${label}` : ''} (${formatKeyForDisplay('Mod+Z')})`;
+  };
+  const redoTooltip = (): string => {
+    if (!editor.undoRedo.canRedo()) return 'Nothing to redo';
+    const label = editor.undoRedo.getRedoLabel();
+    return `Redo${label !== undefined ? `: ${label}` : ''} (${formatKeyForDisplay('Mod+Shift+Z')})`;
+  };
+  editor.view.editorToolbar.addItem({
+    id: 'edit.undo',
+    icon: 'undo',
+    tooltip: undoTooltip(),
+    group: 'left',
+    disabled: !editor.undoRedo.canUndo(),
+    onClick: () => {
+      editor.undoRedo.undo();
+    },
+  });
+  editor.view.editorToolbar.addItem({
+    id: 'edit.redo',
+    icon: 'redo',
+    tooltip: redoTooltip(),
+    group: 'left',
+    disabled: !editor.undoRedo.canRedo(),
+    onClick: () => {
+      editor.undoRedo.redo();
+    },
+  });
+  editor.undoRedo.onDidChangeState(() => {
+    editor.view.editorToolbar.setDisabled('edit.undo', !editor.undoRedo.canUndo());
+    editor.view.editorToolbar.setDisabled('edit.redo', !editor.undoRedo.canRedo());
+    editor.view.editorToolbar.setTooltip('edit.undo', undoTooltip());
+    editor.view.editorToolbar.setTooltip('edit.redo', redoTooltip());
+  });
+
+  // ── Right section of the menu bar: Play/Pause/Stop/Step + window controls ──
   const rightSection = editor.view.menuBar.rightSection;
   if (rightSection) {
     const playMode = editor.kernel.services.get(IPlayModeService);
-
-    // Undo/Redo — placed ahead of play controls so the pair is the
-    // leftmost reachable element in the right section. Disabled state
-    // and tooltips track the undo/redo service so users know what
-    // they're about to invoke ("Undo: Move Entity") or why the button
-    // won't fire ("Nothing to undo").
-    const undoBtn = document.createElement('button');
-    undoBtn.className = 'editrix-menubar-play-btn';
-    undoBtn.appendChild(createIconElement('undo', 16));
-    undoBtn.addEventListener('click', () => {
-      editor.undoRedo.undo();
-    });
-    rightSection.appendChild(undoBtn);
-
-    const redoBtn = document.createElement('button');
-    redoBtn.className = 'editrix-menubar-play-btn';
-    redoBtn.appendChild(createIconElement('redo', 16));
-    redoBtn.addEventListener('click', () => {
-      editor.undoRedo.redo();
-    });
-    rightSection.appendChild(redoBtn);
-
-    const refreshUndoRedoState = (): void => {
-      const canUndo = editor.undoRedo.canUndo();
-      const canRedo = editor.undoRedo.canRedo();
-      const undoLabel = editor.undoRedo.getUndoLabel();
-      const redoLabel = editor.undoRedo.getRedoLabel();
-      undoBtn.disabled = !canUndo;
-      redoBtn.disabled = !canRedo;
-      undoBtn.title = canUndo
-        ? `Undo${undoLabel !== undefined ? `: ${undoLabel}` : ''} (${formatKeyForDisplay('Mod+Z')})`
-        : 'Nothing to undo';
-      redoBtn.title = canRedo
-        ? `Redo${redoLabel !== undefined ? `: ${redoLabel}` : ''} (${formatKeyForDisplay('Mod+Shift+Z')})`
-        : 'Nothing to redo';
-    };
-    refreshUndoRedoState();
-    editor.undoRedo.onDidChangeState(() => {
-      refreshUndoRedoState();
-    });
 
     const playBtn = document.createElement('button');
     playBtn.className = 'editrix-menubar-play-btn';

@@ -10,6 +10,8 @@ export interface EditorToolbarItem {
   readonly tooltip: string;
   readonly group?: 'left' | 'center' | 'right';
   readonly toggled?: boolean;
+  /** Render the button as disabled — greyed out, pointer ignored. */
+  readonly disabled?: boolean;
   readonly onClick: () => void;
 }
 
@@ -38,10 +40,23 @@ export class EditorToolbar implements IDisposable {
   }
 
   setToggled(itemId: string, toggled: boolean): void {
-    const item = this._items.find((i) => i.id === itemId);
-    if (!item) return;
-    const idx = this._items.indexOf(item);
-    this._items[idx] = { ...item, toggled };
+    this._patch(itemId, { toggled });
+  }
+
+  setDisabled(itemId: string, disabled: boolean): void {
+    this._patch(itemId, { disabled });
+  }
+
+  setTooltip(itemId: string, tooltip: string): void {
+    this._patch(itemId, { tooltip });
+  }
+
+  private _patch(itemId: string, patch: Partial<EditorToolbarItem>): void {
+    const idx = this._items.findIndex((i) => i.id === itemId);
+    if (idx === -1) return;
+    const current = this._items[idx];
+    if (!current) return;
+    this._items[idx] = { ...current, ...patch };
     this._render();
   }
 
@@ -84,8 +99,12 @@ export class EditorToolbar implements IDisposable {
       }
 
       if (item.toggled) btn.classList.add('editrix-editor-toolbar-btn--toggled');
+      if (item.disabled === true) btn.disabled = true;
 
-      btn.addEventListener('click', item.onClick);
+      btn.addEventListener('click', () => {
+        if (item.disabled === true) return;
+        item.onClick();
+      });
 
       const group = item.group ?? 'left';
       if (group === 'center') centerSection.appendChild(btn);

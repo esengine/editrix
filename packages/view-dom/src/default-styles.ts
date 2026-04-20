@@ -207,8 +207,9 @@ body[data-alt-down='true'] .editrix-menubar-mnemonic { text-decoration: underlin
   color: var(--editrix-text-dim); cursor: pointer;
   transition: all 0.1s;
 }
-.editrix-editor-toolbar-btn:hover { background: rgba(255,255,255,0.08); color: var(--editrix-text); }
+.editrix-editor-toolbar-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); color: var(--editrix-text); }
 .editrix-editor-toolbar-btn--toggled { background: var(--editrix-accent); color: var(--editrix-accent-text); }
+.editrix-editor-toolbar-btn:disabled { opacity: 0.35; cursor: default; }
 
 /* ─── Tab bar ───────────────────────────────────── */
 .editrix-top-tab-bar {
