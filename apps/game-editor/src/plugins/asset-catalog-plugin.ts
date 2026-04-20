@@ -3,7 +3,13 @@ import type { IDisposable } from '@editrix/common';
 import { IFileSystemService } from '@editrix/core';
 import type { FileChangeEvent } from '@editrix/core';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import type { AssetChange, AssetEntry, AssetType, IAssetCatalogService, ImporterSettings } from '../services.js';
+import type {
+  AssetChange,
+  AssetEntry,
+  AssetType,
+  IAssetCatalogService,
+  ImporterSettings,
+} from '../services.js';
 import { IAssetCatalogService as IAssetCatalogServiceId, IProjectService } from '../services.js';
 
 const META_SUFFIX = '.meta';
@@ -36,14 +42,27 @@ export const AssetCatalogPlugin: IPlugin = {
 class EmptyCatalog implements IAssetCatalogService {
   readonly ready = Promise.resolve();
   private readonly _onDidChange = new Emitter<AssetChange>();
-  private readonly _onDidChangeImporter = new Emitter<{ uuid: string; settings: ImporterSettings }>();
+  private readonly _onDidChangeImporter = new Emitter<{
+    uuid: string;
+    settings: ImporterSettings;
+  }>();
   readonly onDidChange = this._onDidChange.event;
   readonly onDidChangeImporter = this._onDidChangeImporter.event;
-  getAll(): readonly AssetEntry[] { return []; }
-  getByUuid(): undefined { return undefined; }
-  getByPath(): undefined { return undefined; }
-  getImporterSettings(): ImporterSettings { return {}; }
-  setImporterSettings(): Promise<void> { return Promise.resolve(); }
+  getAll(): readonly AssetEntry[] {
+    return [];
+  }
+  getByUuid(): undefined {
+    return undefined;
+  }
+  getByPath(): undefined {
+    return undefined;
+  }
+  getImporterSettings(): ImporterSettings {
+    return {};
+  }
+  setImporterSettings(): Promise<void> {
+    return Promise.resolve();
+  }
 }
 
 class AssetCatalog implements IAssetCatalogService, IDisposable {
@@ -51,7 +70,10 @@ class AssetCatalog implements IAssetCatalogService, IDisposable {
   private readonly _byPath = new Map<string, AssetEntry>();
   private readonly _importerByUuid = new Map<string, ImporterSettings>();
   private readonly _onDidChange = new Emitter<AssetChange>();
-  private readonly _onDidChangeImporter = new Emitter<{ uuid: string; settings: ImporterSettings }>();
+  private readonly _onDidChangeImporter = new Emitter<{
+    uuid: string;
+    settings: ImporterSettings;
+  }>();
   private _readyResolve!: () => void;
   private _watchHandle: IDisposable | undefined;
   private _changeSub: IDisposable | undefined;
@@ -66,7 +88,9 @@ class AssetCatalog implements IAssetCatalogService, IDisposable {
     private readonly _fs: IFileSystemService,
     private readonly _assetsDir: string,
   ) {
-    this.ready = new Promise((resolve) => { this._readyResolve = resolve; });
+    this.ready = new Promise((resolve) => {
+      this._readyResolve = resolve;
+    });
   }
 
   async init(): Promise<void> {
@@ -76,7 +100,9 @@ class AssetCatalog implements IAssetCatalogService, IDisposable {
       }
       await this._scan();
       this._watchHandle = this._fs.watch(this._assetsDir);
-      this._changeSub = this._fs.onDidChangeFile((e) => { this._handleFsEvent(e); });
+      this._changeSub = this._fs.onDidChangeFile((e) => {
+        this._handleFsEvent(e);
+      });
     } finally {
       this._readyResolve();
     }
@@ -179,7 +205,11 @@ class AssetCatalog implements IAssetCatalogService, IDisposable {
       const current = stack.pop();
       if (current === undefined) break;
       let entries;
-      try { entries = await this._fs.readDir(current); } catch { continue; }
+      try {
+        entries = await this._fs.readDir(current);
+      } catch {
+        continue;
+      }
       for (const e of entries) {
         if (e.type === 'directory') {
           stack.push(e.path);
@@ -211,7 +241,9 @@ class AssetCatalog implements IAssetCatalogService, IDisposable {
         }
         return parsed.uuid;
       }
-    } catch { /* missing or malformed — fall through and re-create */ }
+    } catch {
+      /* missing or malformed — fall through and re-create */
+    }
     const uuid = uuidv4();
     await this._fs.writeFile(metaPath, JSON.stringify({ uuid, mtime }, null, 2));
     return uuid;
@@ -230,7 +262,8 @@ class AssetCatalog implements IAssetCatalogService, IDisposable {
 
 function classify(extension: string): AssetType {
   const ext = extension.toLowerCase();
-  if (ext === '.png' || ext === '.jpg' || ext === '.jpeg' || ext === '.webp' || ext === '.gif') return 'image';
+  if (ext === '.png' || ext === '.jpg' || ext === '.jpeg' || ext === '.webp' || ext === '.gif')
+    return 'image';
   if (ext === '.esprefab') return 'prefab';
   if (ext === '.esanim') return 'anim-clip';
   if (ext === '.scene.json' || ext === '.json') return 'scene';

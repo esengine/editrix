@@ -38,7 +38,13 @@ export function createDomViewPlugin(options?: DomViewAdapterOptions): IPlugin {
       const commandRegistry = ctx.services.get(ICommandRegistry);
       const keybindingService = ctx.services.get(IKeybindingService);
 
-      const adapter = new DomViewAdapter(layoutService, viewService, commandRegistry, keybindingService, options);
+      const adapter = new DomViewAdapter(
+        layoutService,
+        viewService,
+        commandRegistry,
+        keybindingService,
+        options,
+      );
       ctx.subscriptions.add(adapter);
       ctx.subscriptions.add(ctx.services.register(IViewAdapter, adapter));
     },

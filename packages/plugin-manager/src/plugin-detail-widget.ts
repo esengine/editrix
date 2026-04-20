@@ -30,7 +30,9 @@ export class PluginDetailWidget extends BaseWidget {
     this._contentEl.style.flex = '1';
 
     this.subscriptions.add(
-      this._manager.onDidChangePlugin(() => { this._render(); }),
+      this._manager.onDidChangePlugin(() => {
+        this._render();
+      }),
     );
 
     this._render();
@@ -73,24 +75,32 @@ export class PluginDetailWidget extends BaseWidget {
     const actionBar = createElement('div', 'editrix-pd-actions');
     if (!info.builtin) {
       if (info.disabled) {
-        actionBar.appendChild(this._actionBtn('Enable', 'editrix-pd-btn--primary', () => {
-          void this._manager.enablePlugin(this._pluginId);
-        }));
+        actionBar.appendChild(
+          this._actionBtn('Enable', 'editrix-pd-btn--primary', () => {
+            void this._manager.enablePlugin(this._pluginId);
+          }),
+        );
       } else {
-        actionBar.appendChild(this._actionBtn('Disable', '', () => {
-          void this._manager.disablePlugin(this._pluginId);
-        }));
+        actionBar.appendChild(
+          this._actionBtn('Disable', '', () => {
+            void this._manager.disablePlugin(this._pluginId);
+          }),
+        );
       }
-      actionBar.appendChild(this._actionBtn('Uninstall', 'editrix-pd-btn--danger', () => {
-        void this._manager.uninstallPlugin(this._pluginId);
-      }));
+      actionBar.appendChild(
+        this._actionBtn('Uninstall', 'editrix-pd-btn--danger', () => {
+          void this._manager.uninstallPlugin(this._pluginId);
+        }),
+      );
     }
 
     // Status badge
     const statusBadge = createElement('span', 'editrix-pd-status');
     const stateText = info.disabled ? 'Disabled' : (STATE_LABELS[info.state] ?? info.state);
     statusBadge.textContent = stateText;
-    statusBadge.classList.add(info.disabled ? 'editrix-pd-status--disabled' : 'editrix-pd-status--active');
+    statusBadge.classList.add(
+      info.disabled ? 'editrix-pd-status--disabled' : 'editrix-pd-status--active',
+    );
     actionBar.appendChild(statusBadge);
 
     if (info.builtin) {

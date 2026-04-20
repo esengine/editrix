@@ -2,9 +2,19 @@ import { IFileSystemService } from '@editrix/core';
 import type { IECSSceneService, SceneData } from '@editrix/estella';
 import { IConsoleService } from '@editrix/plugin-console';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import { DocumentService, ICommandRegistry, IDocumentService, ISelectionService } from '@editrix/shell';
+import {
+  DocumentService,
+  ICommandRegistry,
+  IDocumentService,
+  ISelectionService,
+} from '@editrix/shell';
 import { showConfirmDialog } from '../dialogs.js';
-import { IECSScenePresence, IPlayModeService, IPrefabService, IProjectService } from '../services.js';
+import {
+  IECSScenePresence,
+  IPlayModeService,
+  IPrefabService,
+  IProjectService,
+} from '../services.js';
 
 interface ElectronFileApi {
   selectFile(options?: {
@@ -47,7 +57,11 @@ export const DocumentSyncPlugin: IPlugin = {
     // time (user action) it does. Returns undefined if something's off;
     // callers silently degrade to the old "no tab swap" behaviour.
     const tryPrefabService = (): IPrefabService | undefined => {
-      try { return ctx.services.get(IPrefabService); } catch { return undefined; }
+      try {
+        return ctx.services.get(IPrefabService);
+      } catch {
+        return undefined;
+      }
     };
 
     ctx.subscriptions.add(
@@ -90,14 +104,16 @@ export const DocumentSyncPlugin: IPlugin = {
       }),
     );
 
-    ctx.subscriptions.add(presence.onDidBind((ecs) => {
-      void (async (): Promise<void> => {
-        // Initial scene is set before dirty wiring so seeded entities
-        // aren't treated as user edits.
-        await chooseInitialScene(ecs);
-        wireDirtyMarkers(ctx, documentService, ecs);
-      })();
-    }));
+    ctx.subscriptions.add(
+      presence.onDidBind((ecs) => {
+        void (async (): Promise<void> => {
+          // Initial scene is set before dirty wiring so seeded entities
+          // aren't treated as user edits.
+          await chooseInitialScene(ecs);
+          wireDirtyMarkers(ctx, documentService, ecs);
+        })();
+      }),
+    );
 
     // Last ECS-occupying doc closed → tear down play + selection + ECS
     // together. Stop must precede clear so the snapshot restore writes into
@@ -197,10 +213,9 @@ export const DocumentSyncPlugin: IPlugin = {
           try {
             await documentService.open(picked);
           } catch (err) {
-            await showConfirmDialog(
-              err instanceof Error ? err.message : String(err),
-              { okLabel: 'OK' },
-            );
+            await showConfirmDialog(err instanceof Error ? err.message : String(err), {
+              okLabel: 'OK',
+            });
           }
         },
       }),
@@ -237,8 +252,8 @@ function parseSceneData(raw: string, filePath: string): SceneData {
     if ('nodeTypes' in obj || '$type' in obj) {
       throw new Error(
         `"${filePath}" is in the old SceneService format and is not supported. ` +
-        `Delete the file (or replace its contents with {"version":1,"name":"...","entities":[]}) ` +
-        `and reopen the project — the editor will seed a fresh ECS scene.`,
+          `Delete the file (or replace its contents with {"version":1,"name":"...","entities":[]}) ` +
+          `and reopen the project — the editor will seed a fresh ECS scene.`,
       );
     }
     throw new Error(`"${filePath}" is missing the required "entities" array.`);

@@ -160,9 +160,7 @@ describe('PluginManager', () => {
         builtin: false,
       });
 
-      await expect(manager.enablePlugin('p.unloaded')).rejects.toThrow(
-        'could not be enabled',
-      );
+      await expect(manager.enablePlugin('p.unloaded')).rejects.toThrow('could not be enabled');
     });
   });
 

@@ -1,12 +1,22 @@
 export { IEstellaService, EstellaService } from './estella-service.js';
-export type { ESEngineModule, EstellaModuleName, CppRegistry, VectorString } from './estella-service.js';
+export type {
+  ESEngineModule,
+  EstellaModuleName,
+  CppRegistry,
+  VectorString,
+} from './estella-service.js';
 export { EstellaPlugin } from './estella-plugin.js';
 
 export { IECSSceneService } from './ecs-scene-service.js';
 export type {
-    ComponentFieldSchema, FieldType, AssetFieldSubtype,
-    SceneData, SerializedEntity,
-    EntityEvent, ComponentEvent, PropertyEvent,
+  ComponentFieldSchema,
+  FieldType,
+  AssetFieldSubtype,
+  SceneData,
+  SerializedEntity,
+  EntityEvent,
+  ComponentEvent,
+  PropertyEvent,
 } from './ecs-scene-service.js';
 import type { AssetFieldSubtype } from './ecs-scene-service.js';
 
@@ -21,21 +31,26 @@ export type { ComponentMeta } from './component-schema.js';
 // built (and therefore before the SDK registry is populated). We keep
 // a frozen mirror here; the SDK's list is stable enough that drift
 // review on bump is straightforward.
-export const BUILTIN_ASSET_FIELD_SUBTYPES: Readonly<Record<string, Readonly<Record<string, AssetFieldSubtype>>>> = Object.freeze({
-  Sprite:          { texture: 'texture', material: 'material' },
-  SpineAnimation:  { material: 'material' },
-  BitmapText:      { font: 'font' },
-  Image:           { texture: 'texture', material: 'material' },
-  UIRenderer:      { texture: 'texture', material: 'material' },
-  SpriteAnimator:  { clip: 'anim-clip' },
-  AudioSource:     { clip: 'audio' },
+export const BUILTIN_ASSET_FIELD_SUBTYPES: Readonly<
+  Record<string, Readonly<Record<string, AssetFieldSubtype>>>
+> = Object.freeze({
+  Sprite: { texture: 'texture', material: 'material' },
+  SpineAnimation: { material: 'material' },
+  BitmapText: { font: 'font' },
+  Image: { texture: 'texture', material: 'material' },
+  UIRenderer: { texture: 'texture', material: 'material' },
+  SpriteAnimator: { clip: 'anim-clip' },
+  AudioSource: { clip: 'audio' },
   ParticleEmitter: { texture: 'texture', material: 'material' },
-  Tilemap:         { source: 'tilemap' },
-  TilemapLayer:    { texture: 'texture' },
-  TimelinePlayer:  { timeline: 'timeline' },
+  Tilemap: { source: 'tilemap' },
+  TilemapLayer: { texture: 'texture' },
+  TimelinePlayer: { timeline: 'timeline' },
 });
 
-export function assetFieldSubtype(componentName: string, fieldKey: string): AssetFieldSubtype | undefined {
+export function assetFieldSubtype(
+  componentName: string,
+  fieldKey: string,
+): AssetFieldSubtype | undefined {
   return BUILTIN_ASSET_FIELD_SUBTYPES[componentName]?.[fieldKey];
 }
 
@@ -50,28 +65,28 @@ export type { IEcsSdkAdapter } from './ecs-sdk-adapter.js';
 // through the @editrix/estella gateway so the app surface has a single
 // import point for scene + prefab types.
 export type {
-    PrefabData,
-    PrefabEntityData,
-    PrefabEntityId,
-    PrefabOverride,
-    NestedPrefabRef,
-    ProcessedEntity,
-    FlattenContext,
-    MigrationResult,
-    DiffOptions,
-    ValidateResult,
-    StaleOverride,
+  PrefabData,
+  PrefabEntityData,
+  PrefabEntityId,
+  PrefabOverride,
+  NestedPrefabRef,
+  ProcessedEntity,
+  FlattenContext,
+  MigrationResult,
+  DiffOptions,
+  ValidateResult,
+  StaleOverride,
 } from 'esengine';
 export {
-    flattenPrefab,
-    diffAgainstSource,
-    validateOverrides,
-    migratePrefabData,
-    applyOverrides,
-    bucketOverridesByEntity,
-    cloneComponents,
-    cloneComponentData,
-    cloneMetadata,
-    remapComponentEntityRefs,
-    PREFAB_FORMAT_VERSION,
+  flattenPrefab,
+  diffAgainstSource,
+  validateOverrides,
+  migratePrefabData,
+  applyOverrides,
+  bucketOverridesByEntity,
+  cloneComponents,
+  cloneComponentData,
+  cloneMetadata,
+  remapComponentEntityRefs,
+  PREFAB_FORMAT_VERSION,
 } from 'esengine';

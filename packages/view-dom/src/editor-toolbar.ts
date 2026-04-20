@@ -60,9 +60,18 @@ export class EditorToolbar implements IDisposable {
     }
     this._container.style.display = '';
 
-    const leftSection = createElement('div', 'editrix-editor-toolbar-section editrix-editor-toolbar-left');
-    const centerSection = createElement('div', 'editrix-editor-toolbar-section editrix-editor-toolbar-center');
-    const rightSection = createElement('div', 'editrix-editor-toolbar-section editrix-editor-toolbar-right');
+    const leftSection = createElement(
+      'div',
+      'editrix-editor-toolbar-section editrix-editor-toolbar-left',
+    );
+    const centerSection = createElement(
+      'div',
+      'editrix-editor-toolbar-section editrix-editor-toolbar-center',
+    );
+    const rightSection = createElement(
+      'div',
+      'editrix-editor-toolbar-section editrix-editor-toolbar-right',
+    );
 
     for (const item of this._items) {
       const btn = createElement('button', 'editrix-editor-toolbar-btn');

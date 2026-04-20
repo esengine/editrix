@@ -31,14 +31,20 @@ const DEFAULT_FPS = 12;
 // currentColor so it tints with the row's text color (tab, hierarchy, etc.).
 registerIcon(
   'anim-clip',
-  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
-  + '<rect x="3" y="4" width="18" height="16" rx="2"/>'
-  + '<path d="M3 9h18M3 15h18M8 4v16M16 4v16"/>'
-  + '</svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+    '<rect x="3" y="4" width="18" height="16" rx="2"/>' +
+    '<path d="M3 9h18M3 15h18M8 4v16M16 4v16"/>' +
+    '</svg>',
 );
 
 function emptyClip(): AnimClipData {
-  return { version: ANIM_CLIP_VERSION, type: 'animation-clip', fps: DEFAULT_FPS, loop: true, frames: [] };
+  return {
+    version: ANIM_CLIP_VERSION,
+    type: 'animation-clip',
+    fps: DEFAULT_FPS,
+    loop: true,
+    frames: [],
+  };
 }
 
 function parseClip(raw: string, filePath: string): AnimClipData {
@@ -46,7 +52,10 @@ function parseClip(raw: string, filePath: string): AnimClipData {
   try {
     parsed = JSON.parse(raw);
   } catch (cause) {
-    throw new Error(`"${filePath}" is not valid JSON: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+    throw new Error(
+      `"${filePath}" is not valid JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
   }
   if (typeof parsed !== 'object' || parsed === null) {
     throw new Error(`"${filePath}" is not an animation-clip document.`);
@@ -62,7 +71,11 @@ function parseClip(raw: string, filePath: string): AnimClipData {
     const frame = f as Record<string, unknown>;
     if (typeof frame['texture'] !== 'string') continue;
     const duration = typeof frame['duration'] === 'number' ? frame['duration'] : undefined;
-    frames.push(duration !== undefined ? { texture: frame['texture'], duration } : { texture: frame['texture'] });
+    frames.push(
+      duration !== undefined
+        ? { texture: frame['texture'], duration }
+        : { texture: frame['texture'] },
+    );
   }
   return {
     version: typeof obj['version'] === 'string' ? obj['version'] : ANIM_CLIP_VERSION,
@@ -79,12 +92,20 @@ function serializeClip(data: AnimClipData): string {
     type: data.type,
     fps: data.fps,
     loop: data.loop,
-    frames: data.frames.map((f) => (f.duration !== undefined ? { texture: f.texture, duration: f.duration } : { texture: f.texture })),
+    frames: data.frames.map((f) =>
+      f.duration !== undefined
+        ? { texture: f.texture, duration: f.duration }
+        : { texture: f.texture },
+    ),
   };
   return `${JSON.stringify(body, null, 2)}\n`;
 }
 
-async function uniqueClipPath(fs: IFileSystemService, dir: string, baseName: string): Promise<string> {
+async function uniqueClipPath(
+  fs: IFileSystemService,
+  dir: string,
+  baseName: string,
+): Promise<string> {
   const primary = `${dir}/${baseName}${ANIM_CLIP_EXT}`;
   if (!(await fs.exists(primary))) return primary;
   for (let i = 2; i < 1000; i++) {
@@ -144,12 +165,14 @@ export const AnimationPlugin: IPlugin = {
       return uuid;
     };
 
-    ctx.subscriptions.add(ctx.services.register(IAnimationService, {
-      getClip,
-      updateClip,
-      createClip,
-      onDidChangeClip: onDidChangeClip.event,
-    }));
+    ctx.subscriptions.add(
+      ctx.services.register(IAnimationService, {
+        getClip,
+        updateClip,
+        createClip,
+        onDidChangeClip: onDidChangeClip.event,
+      }),
+    );
 
     ctx.subscriptions.add(
       documentService.registerHandler({
@@ -167,13 +190,15 @@ export const AnimationPlugin: IPlugin = {
       }),
     );
 
-    ctx.subscriptions.add(documentService.onDidChangeDocuments(() => {
-      // Drop in-memory clips whose tabs are no longer open.
-      const open = new Set(documentService.getOpenDocuments().map((d) => d.filePath));
-      for (const key of [...clips.keys()]) {
-        if (!open.has(key)) clips.delete(key);
-      }
-    }));
+    ctx.subscriptions.add(
+      documentService.onDidChangeDocuments(() => {
+        // Drop in-memory clips whose tabs are no longer open.
+        const open = new Set(documentService.getOpenDocuments().map((d) => d.filePath));
+        for (const key of [...clips.keys()]) {
+          if (!open.has(key)) clips.delete(key);
+        }
+      }),
+    );
 
     ctx.subscriptions.add(
       commands.register({
@@ -183,9 +208,10 @@ export const AnimationPlugin: IPlugin = {
         async execute(_accessor, ...args: unknown[]): Promise<void> {
           if (!project.isOpen) return;
           const opts = (args[0] ?? {}) as { targetDirPath?: string };
-          const targetDir = (typeof opts.targetDirPath === 'string' && opts.targetDirPath !== '')
-            ? opts.targetDirPath
-            : project.resolve('assets/animations');
+          const targetDir =
+            typeof opts.targetDirPath === 'string' && opts.targetDirPath !== ''
+              ? opts.targetDirPath
+              : project.resolve('assets/animations');
 
           const entered = await showInputDialog('New Animation Clip', {
             initialValue: 'clip',

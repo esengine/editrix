@@ -22,9 +22,9 @@ describe('CommandRegistry', () => {
     const { registry } = setup();
     registry.register({ id: 'test.cmd', title: 'Test', execute() {} });
 
-    expect(() =>
-      registry.register({ id: 'test.cmd', title: 'Test2', execute() {} }),
-    ).toThrow('Command "test.cmd" is already registered.');
+    expect(() => registry.register({ id: 'test.cmd', title: 'Test2', execute() {} })).toThrow(
+      'Command "test.cmd" is already registered.',
+    );
   });
 
   it('should unregister when disposable is disposed', () => {

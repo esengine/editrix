@@ -26,10 +26,7 @@ export const SettingsPlugin: IPlugin = {
     const viewAdapter = ctx.services.get(IViewAdapter) as DomViewAdapter;
 
     ctx.subscriptions.add(
-      viewAdapter.sidebar.registerView(
-        'settings',
-        (id) => new SettingsWidget(id, settings),
-      ),
+      viewAdapter.sidebar.registerView('settings', (id) => new SettingsWidget(id, settings)),
     );
 
     ctx.subscriptions.add(

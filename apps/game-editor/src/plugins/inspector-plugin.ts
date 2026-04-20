@@ -45,7 +45,10 @@ function assetUrl(relativePath: string): string {
   return `project-asset:///${relativePath.split('/').map(encodeURIComponent).join('/')}`;
 }
 
-function resolveAssetPreview(catalog: IAssetCatalogServiceShape, ref: string): AssetRefPreview | undefined {
+function resolveAssetPreview(
+  catalog: IAssetCatalogServiceShape,
+  ref: string,
+): AssetRefPreview | undefined {
   if (!ref) return undefined;
   const uuid = ref.startsWith('@uuid:') ? ref.slice('@uuid:'.length) : ref;
   const entry: AssetEntry | undefined = catalog.getByUuid(uuid);
@@ -99,17 +102,25 @@ function formatSourceValue(v: unknown): string {
 
 function fieldTypeToPropertyType(type: ComponentFieldSchema['type']): PropertyType {
   switch (type) {
-    case 'float': return 'number';
-    case 'int': return 'number';
-    case 'bool': return 'boolean';
+    case 'float':
+      return 'number';
+    case 'int':
+      return 'number';
+    case 'bool':
+      return 'boolean';
     // 'color' in ECS is a packed numeric — long term we'd render a color
     // swatch, but the inspector's color control wants a hex string today.
     // Treat as number for now so the value at least round-trips.
-    case 'color': return 'number';
-    case 'enum': return 'enum';
-    case 'string': return 'string';
-    case 'asset': return 'asset';
-    case 'entity': return 'entity';
+    case 'color':
+      return 'number';
+    case 'enum':
+      return 'enum';
+    case 'string':
+      return 'string';
+    case 'asset':
+      return 'asset';
+    case 'entity':
+      return 'entity';
   }
 }
 
@@ -143,15 +154,15 @@ const componentIconMap: Record<string, string> = {
 // layout anchors; visual trio (Sprite/Image/Text/UIRenderer) next;
 // Camera/Canvas after. Everything else falls through to alphabetical.
 const COMPONENT_ORDER_PRIORITY: Record<string, number> = {
-  Transform:   0,
-  UIRect:      1,
-  Sprite:      10,
-  Image:       11,
-  Text:        12,
-  BitmapText:  13,
-  UIRenderer:  14,
-  Camera:      20,
-  Canvas:      21,
+  Transform: 0,
+  UIRect: 1,
+  Sprite: 10,
+  Image: 11,
+  Text: 12,
+  BitmapText: 13,
+  UIRenderer: 14,
+  Camera: 20,
+  Canvas: 21,
 };
 
 function sortByDefaultPriority(components: readonly string[]): string[] {
@@ -244,7 +255,15 @@ export const InspectorPlugin: IPlugin = {
   descriptor: {
     id: 'app.inspector',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties', 'app.ecs-scene', 'app.inspector-filters', 'app.asset-catalog', 'app.prefab'],
+    dependencies: [
+      'editrix.layout',
+      'editrix.view',
+      'editrix.properties',
+      'app.ecs-scene',
+      'app.inspector-filters',
+      'app.asset-catalog',
+      'app.prefab',
+    ],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
@@ -260,7 +279,11 @@ export const InspectorPlugin: IPlugin = {
     // which activates after us. Resolved on demand inside the click
     // handler (by which point it exists).
     const tryReveal = (): IAssetRevealService | undefined => {
-      try { return ctx.services.get(IAssetRevealService); } catch { return undefined; }
+      try {
+        return ctx.services.get(IAssetRevealService);
+      } catch {
+        return undefined;
+      }
     };
 
     // Resolved lazily — IConsoleService is registered by ProjectPanelsPlugin
@@ -327,14 +350,19 @@ export const InspectorPlugin: IPlugin = {
     };
 
     const updatePrefabHeader = (info: PrefabInstanceInfo | undefined): void => {
-      if (!prefabHeaderEl || !prefabHeaderTitleEl || !prefabHeaderRevertBtn || !prefabHeaderApplyBtn) return;
+      if (
+        !prefabHeaderEl ||
+        !prefabHeaderTitleEl ||
+        !prefabHeaderRevertBtn ||
+        !prefabHeaderApplyBtn
+      )
+        return;
       if (!info) {
         prefabHeaderEl.style.display = 'none';
         return;
       }
       prefabHeaderEl.style.display = 'flex';
-      prefabHeaderTitleEl.textContent =
-        `Prefab: ${info.sourceName} · ${String(info.overrideCount)} override${info.overrideCount === 1 ? '' : 's'}`;
+      prefabHeaderTitleEl.textContent = `Prefab: ${info.sourceName} · ${String(info.overrideCount)} override${info.overrideCount === 1 ? '' : 's'}`;
       // Disable Apply / Revert when there's nothing to apply or revert.
       const hasOverrides = info.overrideCount > 0;
       prefabHeaderRevertBtn.disabled = !hasOverrides;
@@ -395,29 +423,59 @@ export const InspectorPlugin: IPlugin = {
         if (sourceValue === undefined) continue;
         sourceValueTooltips.set(key, `Source: ${formatSourceValue(sourceValue)}`);
       }
-      inspectorGrid.setData(groups, values, { overriddenKeys, overriddenComponentIds, sourceValueTooltips });
+      inspectorGrid.setData(groups, values, {
+        overriddenKeys,
+        overriddenComponentIds,
+        sourceValueTooltips,
+      });
       updatePrefabHeader(prefabService.getInstanceInfo(entityId));
     };
 
-    ctx.subscriptions.add(presence.onDidBind((ecs) => {
-      ctx.subscriptions.add(ecs.onPropertyChanged(refreshInspector));
-      ctx.subscriptions.add(ecs.onComponentAdded(refreshInspector));
-      ctx.subscriptions.add(ecs.onComponentRemoved(refreshInspector));
-      ctx.subscriptions.add(ecs.onMetadataChanged(() => { refreshInspector(); }));
-      refreshInspector();
-    }));
+    ctx.subscriptions.add(
+      presence.onDidBind((ecs) => {
+        ctx.subscriptions.add(ecs.onPropertyChanged(refreshInspector));
+        ctx.subscriptions.add(ecs.onComponentAdded(refreshInspector));
+        ctx.subscriptions.add(ecs.onComponentRemoved(refreshInspector));
+        ctx.subscriptions.add(
+          ecs.onMetadataChanged(() => {
+            refreshInspector();
+          }),
+        );
+        refreshInspector();
+      }),
+    );
 
-    ctx.subscriptions.add(selection.onDidChangeSelection(() => {
-      refreshInspector();
-      renderContextSvc.context.requestRender(); // update Scene View selection highlight
-    }));
+    ctx.subscriptions.add(
+      selection.onDidChangeSelection(() => {
+        refreshInspector();
+        renderContextSvc.context.requestRender(); // update Scene View selection highlight
+      }),
+    );
 
-    ctx.subscriptions.add(catalog.onDidChange(() => { refreshInspector(); }));
-    ctx.subscriptions.add(catalog.onDidChangeImporter(() => { refreshInspector(); }));
-    ctx.subscriptions.add(prefabService.onDidHotReload(() => { refreshInspector(); }));
-    ctx.subscriptions.add(prefabService.onDidCreateInstance(() => { refreshInspector(); }));
+    ctx.subscriptions.add(
+      catalog.onDidChange(() => {
+        refreshInspector();
+      }),
+    );
+    ctx.subscriptions.add(
+      catalog.onDidChangeImporter(() => {
+        refreshInspector();
+      }),
+    );
+    ctx.subscriptions.add(
+      prefabService.onDidHotReload(() => {
+        refreshInspector();
+      }),
+    );
+    ctx.subscriptions.add(
+      prefabService.onDidCreateInstance(() => {
+        refreshInspector();
+      }),
+    );
 
-    ctx.subscriptions.add(layout.registerPanel({ id: 'inspector', title: 'Inspector', defaultRegion: 'right' }));
+    ctx.subscriptions.add(
+      layout.registerPanel({ id: 'inspector', title: 'Inspector', defaultRegion: 'right' }),
+    );
     ctx.subscriptions.add(
       view.registerFactory('inspector', (id) => {
         // Inject one-shot CSS for the host container's view switching.
@@ -461,7 +519,8 @@ export const InspectorPlugin: IPlugin = {
             // anim-clips for SpriteAnimator.clip, etc. Undefined = no
             // field-kind info, show every asset.
             const wanted = pickerAssetType(args.assetType);
-            const items = catalog.getAll()
+            const items = catalog
+              .getAll()
               .filter((a) => wanted === undefined || a.type === wanted)
               .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
             showQuickPick({
@@ -474,7 +533,9 @@ export const InspectorPlugin: IPlugin = {
                 ...(a.type === 'image' ? { iconUrl: assetUrl(a.relativePath) } : {}),
                 ...(args.currentRef === a.uuid ? { disabled: true } : {}),
               })),
-              onSelect: (item) => { args.setValue(item.id); },
+              onSelect: (item) => {
+                args.setValue(item.id);
+              },
             });
           },
         };
@@ -523,26 +584,31 @@ export const InspectorPlugin: IPlugin = {
             : fieldPath;
           // Sub-keys the user is reverting/applying as a unit — axes of a
           // vec/color composite plus the primary key. Dedup via Set.
-          const affectedKeys = [...new Set([
-            fieldPath,
-            ...['x', 'y', 'z', 'w', 'r', 'g', 'b', 'a'].map(s => `${parentField}.${s}`),
-          ])];
+          const affectedKeys = [
+            ...new Set([
+              fieldPath,
+              ...['x', 'y', 'z', 'w', 'r', 'g', 'b', 'a'].map((s) => `${parentField}.${s}`),
+            ]),
+          ];
           showContextMenu({
-            x, y,
+            x,
+            y,
             items: [
               {
                 label: `Apply "${parentField}" to Source`,
                 icon: 'save',
                 onSelect: () => {
-                  const refs = affectedKeys.map(k => ({
+                  const refs = affectedKeys.map((k) => ({
                     prefabEntityId: ecs.getEntityMetadata(entityId, 'prefab:entityId') as string,
                     type: 'property' as const,
                     componentType: comp,
                     propertyName: k,
                   }));
                   prefabService.applyToSource(entityId, refs).catch((err: unknown) => {
-                    logError(`Apply ${parentField}: ${err instanceof Error ? err.message : String(err)}`,
-                      'prefab');
+                    logError(
+                      `Apply ${parentField}: ${err instanceof Error ? err.message : String(err)}`,
+                      'prefab',
+                    );
                   });
                 },
               },
@@ -567,9 +633,13 @@ export const InspectorPlugin: IPlugin = {
           if (entityId === undefined || !ecs) return;
           const grid = inspectorGrid;
           const existing = new Set(ecs.getComponents(entityId));
-          const available = ecs.getAvailableComponents().filter((c) => !componentFilter.isHidden(c));
+          const available = ecs
+            .getAvailableComponents()
+            .filter((c) => !componentFilter.isHidden(c));
 
-          const anchor = grid?.getRootElement()?.querySelector('.editrix-inspector-add-btn') as HTMLElement | null;
+          const anchor = grid
+            ?.getRootElement()
+            ?.querySelector('.editrix-inspector-add-btn') as HTMLElement | null;
           if (!anchor) return;
 
           showQuickPick({
@@ -588,15 +658,19 @@ export const InspectorPlugin: IPlugin = {
               try {
                 ecs.addComponent(entityId, item.id);
               } catch (err) {
-                logError(`Add ${item.id}: ${err instanceof Error ? err.message : String(err)}`,
-                  'add-component');
+                logError(
+                  `Add ${item.id}: ${err instanceof Error ? err.message : String(err)}`,
+                  'add-component',
+                );
                 return;
               }
               // Pin the new card to the end of the inspector for this entity.
               appendToInspectorOrder(entityId, item.id);
               undoRedo.push({
                 label: `Add ${item.id}`,
-                undo: () => { ecs.removeComponent(entityId, item.id); },
+                undo: () => {
+                  ecs.removeComponent(entityId, item.id);
+                },
                 redo: () => {
                   ecs.addComponent(entityId, item.id);
                   appendToInspectorOrder(entityId, item.id);
@@ -620,7 +694,8 @@ export const InspectorPlugin: IPlugin = {
             y: rect.bottom,
             items: [
               {
-                label: 'Reset to Default', icon: 'refresh',
+                label: 'Reset to Default',
+                icon: 'refresh',
                 onSelect: () => {
                   const schema = ecs.getComponentSchema(componentId);
                   if (schema.length === 0) return;
@@ -650,7 +725,9 @@ export const InspectorPlugin: IPlugin = {
               },
               { separator: true, label: '' },
               {
-                label: 'Remove Component', icon: 'x', destructive: true,
+                label: 'Remove Component',
+                icon: 'x',
+                destructive: true,
                 disabled: isTransform,
                 onSelect: () => {
                   const data = ecs.getComponentData(entityId, componentId);
@@ -721,7 +798,9 @@ export const InspectorPlugin: IPlugin = {
               setInspectorOrder(entityId, cur);
               refreshInspector();
             },
-            redo: () => { reorderTo(before); },
+            redo: () => {
+              reorderTo(before);
+            },
           });
         });
 
@@ -736,7 +815,9 @@ export const InspectorPlugin: IPlugin = {
         const hostAsset = assetInspector;
         const host = {
           id,
-          get hasFocus(): boolean { return hostGrid.hasFocus || hostAsset.hasFocus; },
+          get hasFocus(): boolean {
+            return hostGrid.hasFocus || hostAsset.hasFocus;
+          },
           mount(container: unknown): void {
             const parent = container as HTMLElement;
             const root = document.createElement('div');
@@ -780,7 +861,8 @@ export const InspectorPlugin: IPlugin = {
               if (entityId !== undefined) prefabService.revertAll(entityId);
             });
             prefabHeaderApplyBtn = document.createElement('button');
-            prefabHeaderApplyBtn.className = 'editrix-prefab-header__btn editrix-prefab-header__btn--primary';
+            prefabHeaderApplyBtn.className =
+              'editrix-prefab-header__btn editrix-prefab-header__btn--primary';
             prefabHeaderApplyBtn.textContent = 'Apply...';
             prefabHeaderApplyBtn.addEventListener('click', () => {
               const sel = selection.getSelection()[0];
@@ -796,8 +878,10 @@ export const InspectorPlugin: IPlugin = {
                   try {
                     await prefabService.applyToSource(entityId, selected);
                   } catch (err) {
-                    logError(`Apply to source: ${err instanceof Error ? err.message : String(err)}`,
-                      'prefab');
+                    logError(
+                      `Apply to source: ${err instanceof Error ? err.message : String(err)}`,
+                      'prefab',
+                    );
                   }
                 },
               });

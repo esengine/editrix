@@ -102,10 +102,7 @@ export interface LauncherConfig {
 /**
  * Create a default project config for a given template.
  */
-export function createDefaultProjectConfig(
-  name: string,
-  template: string,
-): ProjectConfig {
+export function createDefaultProjectConfig(name: string, template: string): ProjectConfig {
   const base: ProjectConfig = {
     name,
     version: '0.1.0',
@@ -125,7 +122,7 @@ export function createDefaultProjectConfig(
   // Template-specific plugin sets — currently no template requires extra
   // packages because the runtime (ECS, scene, layout) is built into the editor.
   const templatePlugins: Record<string, readonly string[]> = {
-    'empty': [],
+    empty: [],
     '2d-game': [],
     '3d-game': [],
     'ui-app': [],

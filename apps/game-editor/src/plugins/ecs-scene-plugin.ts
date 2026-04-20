@@ -21,9 +21,7 @@ export const ECSScenePlugin: IPlugin = {
     const renderContext = renderContextSvc.context;
 
     const filter = ctx.services.get(IInspectorComponentFilter);
-    ctx.subscriptions.add(
-      filter.register((name) => ESTELLA_STRUCTURAL_COMPONENTS.has(name)),
-    );
+    ctx.subscriptions.add(filter.register((name) => ESTELLA_STRUCTURAL_COMPONENTS.has(name)));
 
     const onDidBind = new Emitter<IECSSceneService>();
     ctx.subscriptions.add(onDidBind);
@@ -43,7 +41,9 @@ export const ECSScenePlugin: IPlugin = {
       const registry = renderContext.registry;
       if (!registry) return;
 
-      const ecs = new ECSSceneService(module, registry, () => { renderContext.requestRender(); });
+      const ecs = new ECSSceneService(module, registry, () => {
+        renderContext.requestRender();
+      });
       ctx.subscriptions.add(ecs);
       ctx.subscriptions.add(ctx.services.register(IECSSceneService, ecs));
       current = ecs;

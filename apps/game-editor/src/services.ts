@@ -188,7 +188,9 @@ export interface IInspectorComponentFilter {
   isHidden(componentName: string): boolean;
 }
 
-export const IInspectorComponentFilter = createServiceId<IInspectorComponentFilter>('IInspectorComponentFilter');
+export const IInspectorComponentFilter = createServiceId<IInspectorComponentFilter>(
+  'IInspectorComponentFilter',
+);
 
 export type AssetType = 'image' | 'scene' | 'audio' | 'font' | 'prefab' | 'anim-clip' | 'unknown';
 
@@ -316,10 +318,13 @@ export interface IPrefabService {
    * scene. Optional {@link parent} attaches the instance root as a child.
    * Returns the instance root entity id.
    */
-  instantiate(sourceUuid: string, options?: {
-    parent?: number;
-    position?: { x: number; y: number };
-  }): Promise<number>;
+  instantiate(
+    sourceUuid: string,
+    options?: {
+      parent?: number;
+      position?: { x: number; y: number };
+    },
+  ): Promise<number>;
 
   /** True when {@link entityId} is the root of a prefab instance subtree. */
   isInstanceRoot(entityId: number): boolean;
@@ -391,7 +396,10 @@ export interface IPrefabService {
    * Returns the number of other instances that will be affected — the
    * caller can display this in the confirmation dialog.
    */
-  applyToSource(entityId: number, selectedOverrides?: readonly PrefabOverrideRef[]): Promise<{ affectedOtherInstances: number }>;
+  applyToSource(
+    entityId: number,
+    selectedOverrides?: readonly PrefabOverrideRef[],
+  ): Promise<{ affectedOtherInstances: number }>;
 
   /** Cheap "how many instances of this prefab exist in the current scene". */
   countInstancesOf(sourceUuid: string): number;
@@ -448,8 +456,15 @@ export interface IPrefabService {
  */
 export interface PrefabOverrideRef {
   readonly prefabEntityId: string;
-  readonly type: 'property' | 'component_added' | 'component_replaced' | 'component_removed'
-    | 'name' | 'visibility' | 'metadata_set' | 'metadata_removed';
+  readonly type:
+    | 'property'
+    | 'component_added'
+    | 'component_replaced'
+    | 'component_removed'
+    | 'name'
+    | 'visibility'
+    | 'metadata_set'
+    | 'metadata_removed';
   readonly componentType?: string;
   readonly propertyName?: string;
   readonly metadataKey?: string;

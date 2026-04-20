@@ -40,14 +40,30 @@ const LEVEL_CLASSES: Record<LogLevel, string> = {
 function extToIcon(ext: string, isDir: boolean): string {
   if (isDir) return 'folder';
   switch (ext) {
-    case '.esprefab': return 'prefab-instance'; // blue cube, matches hierarchy badge
-    case '.esanim': return 'anim-clip'; // film strip, matches animation tab icon
-    case '.json': return 'file';
-    case '.ts': case '.js': return 'file';
-    case '.png': case '.jpg': case '.jpeg': case '.webp': return 'grid';
-    case '.gltf': case '.glb': case '.fbx': case '.obj': return 'box';
-    case '.editrix-scene': case '.scene': return 'layers';
-    default: return 'file';
+    case '.esprefab':
+      return 'prefab-instance'; // blue cube, matches hierarchy badge
+    case '.esanim':
+      return 'anim-clip'; // film strip, matches animation tab icon
+    case '.json':
+      return 'file';
+    case '.ts':
+    case '.js':
+      return 'file';
+    case '.png':
+    case '.jpg':
+    case '.jpeg':
+    case '.webp':
+      return 'grid';
+    case '.gltf':
+    case '.glb':
+    case '.fbx':
+    case '.obj':
+      return 'box';
+    case '.editrix-scene':
+    case '.scene':
+      return 'layers';
+    default:
+      return 'file';
   }
 }
 
@@ -89,14 +105,18 @@ export class ContentBrowserWidget extends BaseWidget {
   private readonly _onDidSelectAsset = new Emitter<string>();
   readonly onDidSelectAsset: Event<string> = this._onDidSelectAsset.event;
 
-  private readonly _onDidDropTreeNodes = new Emitter<{ nodeIds: readonly string[]; targetDirPath: string }>();
+  private readonly _onDidDropTreeNodes = new Emitter<{
+    nodeIds: readonly string[];
+    targetDirPath: string;
+  }>();
   /**
    * Fired when the user drags nodes out of the Hierarchy (or any other
    * widget that speaks `text/x-editrix-tree-node`) onto a folder card or
    * the empty area of the asset grid. `targetDirPath` is the absolute
    * path of the directory that should receive the drop.
    */
-  readonly onDidDropTreeNodes: Event<{ nodeIds: readonly string[]; targetDirPath: string }> = this._onDidDropTreeNodes.event;
+  readonly onDidDropTreeNodes: Event<{ nodeIds: readonly string[]; targetDirPath: string }> =
+    this._onDidDropTreeNodes.event;
 
   /**
    * Optional per-asset context menu extender. Called when the user
@@ -115,7 +135,9 @@ export class ContentBrowserWidget extends BaseWidget {
    * above the widget's defaults. `targetDirPath` is the directory the user
    * is currently browsing — the place new files would land in.
    */
-  private readonly _buildEmptyAreaMenu: ((targetDirPath: string) => readonly ContextMenuItem[]) | undefined;
+  private readonly _buildEmptyAreaMenu:
+    | ((targetDirPath: string) => readonly ContextMenuItem[])
+    | undefined;
 
   constructor(
     id: string,
@@ -203,12 +225,14 @@ export class ContentBrowserWidget extends BaseWidget {
     // Refresh the visible grid when the watched filesystem reports changes
     // inside the current directory (ignoring .meta sidecars so UUID writes
     // don't cause double-renders).
-    this.subscriptions.add(this._fileSystem.onDidChangeFile((e) => {
-      if (e.path.endsWith('.meta')) return;
-      if (!e.path.startsWith(this._currentDirPath)) return;
-      if (this._activeView !== 'assets') return;
-      void this._loadAndRenderGrid();
-    }));
+    this.subscriptions.add(
+      this._fileSystem.onDidChangeFile((e) => {
+        if (e.path.endsWith('.meta')) return;
+        if (!e.path.startsWith(this._currentDirPath)) return;
+        if (this._activeView !== 'assets') return;
+        void this._loadAndRenderGrid();
+      }),
+    );
 
     const outer = this.appendElement(root, 'div', 'editrix-cb-outer');
 
@@ -218,12 +242,20 @@ export class ContentBrowserWidget extends BaseWidget {
     this._termBtn = this.appendElement(sidebar, 'div', 'editrix-cb-sidebar-btn');
     this._termBtn.title = 'Console';
     this._termBtn.appendChild(createIconElement('terminal', 16));
-    this._termBtn.addEventListener('click', () => { this.showView('console'); });
+    this._termBtn.addEventListener('click', () => {
+      this.showView('console');
+    });
 
-    this._folderBtn = this.appendElement(sidebar, 'div', 'editrix-cb-sidebar-btn editrix-cb-sidebar-btn--active');
+    this._folderBtn = this.appendElement(
+      sidebar,
+      'div',
+      'editrix-cb-sidebar-btn editrix-cb-sidebar-btn--active',
+    );
     this._folderBtn.title = 'Asset Browser';
     this._folderBtn.appendChild(createIconElement('folder', 16));
-    this._folderBtn.addEventListener('click', () => { this.showView('assets'); });
+    this._folderBtn.addEventListener('click', () => {
+      this.showView('assets');
+    });
 
     const spacer = this.appendElement(sidebar, 'div');
     spacer.style.flex = '1';
@@ -247,7 +279,11 @@ export class ContentBrowserWidget extends BaseWidget {
     this._buildAssetView(this._assetContainer);
 
     // Console view (hidden initially)
-    this._consoleContainer = this.appendElement(content, 'div', 'editrix-cb-view editrix-cb-view--hidden');
+    this._consoleContainer = this.appendElement(
+      content,
+      'div',
+      'editrix-cb-view editrix-cb-view--hidden',
+    );
     this._buildConsoleView(this._consoleContainer);
   }
 
@@ -312,7 +348,9 @@ export class ContentBrowserWidget extends BaseWidget {
     try {
       const parsed = JSON.parse(raw) as unknown;
       if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === 'string');
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
     return [];
   }
 
@@ -328,7 +366,9 @@ export class ContentBrowserWidget extends BaseWidget {
     const rootCrumb = document.createElement('span');
     rootCrumb.className = 'editrix-cb-crumb';
     rootCrumb.textContent = 'project';
-    rootCrumb.addEventListener('click', () => { this.navigateTo(root); });
+    rootCrumb.addEventListener('click', () => {
+      this.navigateTo(root);
+    });
     el.appendChild(rootCrumb);
 
     // Build segments from project root to currentDirPath
@@ -353,7 +393,9 @@ export class ContentBrowserWidget extends BaseWidget {
       const crumb = document.createElement('span');
       crumb.className = 'editrix-cb-crumb';
       crumb.textContent = part;
-      crumb.addEventListener('click', () => { this.navigateTo(segPath); });
+      crumb.addEventListener('click', () => {
+        this.navigateTo(segPath);
+      });
       el.appendChild(crumb);
     }
   }
@@ -431,7 +473,9 @@ export class ContentBrowserWidget extends BaseWidget {
 
       const iconWrap = document.createElement('div');
       iconWrap.className = 'editrix-cb-card-icon';
-      iconWrap.appendChild(createIconElement(extToIcon(item.extension, item.type === 'directory'), 32));
+      iconWrap.appendChild(
+        createIconElement(extToIcon(item.extension, item.type === 'directory'), 32),
+      );
       card.appendChild(iconWrap);
 
       const label = document.createElement('div');
@@ -446,30 +490,41 @@ export class ContentBrowserWidget extends BaseWidget {
       });
 
       if (item.type === 'directory') {
-        card.addEventListener('dblclick', () => { this.navigateTo(item.path); });
+        card.addEventListener('dblclick', () => {
+          this.navigateTo(item.path);
+        });
       } else {
-        card.addEventListener('dblclick', () => { this._onDidOpenFile.fire(item.path); });
+        card.addEventListener('dblclick', () => {
+          this._onDidOpenFile.fire(item.path);
+        });
       }
 
       card.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         this._selectCard(item.path);
         const extra = this._buildCardMenu ? this._buildCardMenu(item.path) : [];
-        const items: ContextMenuItem[] = extra.length > 0
-          ? [
-              ...extra,
-              { separator: true, label: '' },
-              {
-                label: REVEAL_LABEL, icon: 'folder',
-                onSelect: () => { void revealApi()?.revealInFinder(item.path); },
-              },
-            ]
-          : [
-              {
-                label: REVEAL_LABEL, icon: 'folder',
-                onSelect: () => { void revealApi()?.revealInFinder(item.path); },
-              },
-            ];
+        const items: ContextMenuItem[] =
+          extra.length > 0
+            ? [
+                ...extra,
+                { separator: true, label: '' },
+                {
+                  label: REVEAL_LABEL,
+                  icon: 'folder',
+                  onSelect: () => {
+                    void revealApi()?.revealInFinder(item.path);
+                  },
+                },
+              ]
+            : [
+                {
+                  label: REVEAL_LABEL,
+                  icon: 'folder',
+                  onSelect: () => {
+                    void revealApi()?.revealInFinder(item.path);
+                  },
+                },
+              ];
         showContextMenu({ x: e.clientX, y: e.clientY, items });
       });
 

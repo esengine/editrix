@@ -64,7 +64,9 @@ export const PlayModePlugin: IPlugin = {
     let resetDemoOrbitState: (() => void) | undefined;
 
     const runtimePresence: IRuntimeAppPresenceShape = {
-      get current() { return runtimeApp; },
+      get current() {
+        return runtimeApp;
+      },
       onDidBind: onDidBindApp.event,
       onDidUnbind: onDidUnbindApp.event,
     };
@@ -73,7 +75,11 @@ export const PlayModePlugin: IPlugin = {
     const stringifyErr = (err: unknown): string => {
       if (err instanceof Error) return err.message;
       if (typeof err === 'string') return err;
-      try { return JSON.stringify(err); } catch { return 'unknown error'; }
+      try {
+        return JSON.stringify(err);
+      } catch {
+        return 'unknown error';
+      }
     };
     const warn = (msg: string, err?: unknown): void => {
       const text = err !== undefined ? `${msg}: ${stringifyErr(err)}` : msg;
@@ -149,7 +155,8 @@ export const PlayModePlugin: IPlugin = {
         if (mode === 'edit') {
           snapshot = ecs.serialize();
           if (app?.setPaused) app.setPaused(false);
-          if (!app) warn('Play started before runtime App was ready — will be render-only this session.');
+          if (!app)
+            warn('Play started before runtime App was ready — will be render-only this session.');
           // Fresh entity ids after the snapshot is taken — drop any stale
           // demo-orbit baselines so the next session captures from current.
           resetDemoOrbitState?.();
@@ -162,14 +169,22 @@ export const PlayModePlugin: IPlugin = {
       pause(): void {
         if (mode !== 'playing') return;
         stopLoop();
-        try { app?.setPaused?.(true); } catch { /* empty */ }
+        try {
+          app?.setPaused?.(true);
+        } catch {
+          /* empty */
+        }
         setEnginePlayMode?.(false);
         transition('paused');
       },
 
       resume(): void {
         if (mode !== 'paused') return;
-        try { app?.setPaused?.(false); } catch { /* empty */ }
+        try {
+          app?.setPaused?.(false);
+        } catch {
+          /* empty */
+        }
         setEnginePlayMode?.(true);
         transition('playing');
         startLoop();
@@ -185,7 +200,11 @@ export const PlayModePlugin: IPlugin = {
         stopLoop();
         // Keep the App alive across play/stop — the resolver and bound texture
         // handles stay valid for edit mode. Just pause ticking.
-        try { app?.setPaused?.(true); } catch (err) { warn('setPaused threw', err); }
+        try {
+          app?.setPaused?.(true);
+        } catch (err) {
+          warn('setPaused threw', err);
+        }
         setEnginePlayMode?.(false);
         const ecs = presence.current;
         if (ecs && snapshot) {
@@ -219,9 +238,10 @@ export const PlayModePlugin: IPlugin = {
         const handle = ecs.getCppHandle();
         const sdkRec = sdk as unknown as Record<string, unknown>;
         const factory = sdkRec['createWebApp'];
-        const created = typeof factory === 'function'
-          ? (factory as (m: unknown) => EstellaApp)(wasmModule)
-          : new (sdkRec['App'] as new () => EstellaApp)();
+        const created =
+          typeof factory === 'function'
+            ? (factory as (m: unknown) => EstellaApp)(wasmModule)
+            : new (sdkRec['App'] as new () => EstellaApp)();
         created.connectCpp(handle.registry, handle.module);
         created.setPaused?.(true);
         app = created;
@@ -250,19 +270,33 @@ export const PlayModePlugin: IPlugin = {
       }
     };
 
-    ctx.subscriptions.add(presence.onDidBind(() => { tryCreateApp(); }));
+    ctx.subscriptions.add(
+      presence.onDidBind(() => {
+        tryCreateApp();
+      }),
+    );
 
     // loadSDK rejects if loadCore hasn't run — renderer.ts fires it after
     // createEditor, so at activate we must defer.
     const kickLoadSDK = (): void => {
-      estella.loadSDK()
-        .then(() => { tryCreateApp(); })
-        .catch((err: unknown) => { warn('loadSDK failed', err); });
+      estella
+        .loadSDK()
+        .then(() => {
+          tryCreateApp();
+        })
+        .catch((err: unknown) => {
+          warn('loadSDK failed', err);
+        });
     };
     if (estella.isReady) {
       kickLoadSDK();
     } else {
-      ctx.subscriptions.add(estella.onReady(() => { tryCreateApp(); kickLoadSDK(); }));
+      ctx.subscriptions.add(
+        estella.onReady(() => {
+          tryCreateApp();
+          kickLoadSDK();
+        }),
+      );
     }
     tryCreateApp();
 
@@ -275,13 +309,21 @@ export const PlayModePlugin: IPlugin = {
             onDidUnbindApp.fire();
             runtimeApp = undefined;
           }
-          try { app.disconnectCpp?.(); } catch { /* empty */ }
+          try {
+            app.disconnectCpp?.();
+          } catch {
+            /* empty */
+          }
           app = undefined;
         }
         if (mode !== 'edit') {
           const ecs = presence.current;
           if (ecs && snapshot) {
-            try { ecs.deserialize(snapshot); } catch { /* empty */ }
+            try {
+              ecs.deserialize(snapshot);
+            } catch {
+              /* empty */
+            }
           }
           snapshot = undefined;
         }
@@ -296,7 +338,11 @@ export const PlayModePlugin: IPlugin = {
 // baseline is captured the first frame the entity is seen, then the position
 // is driven relative to that baseline so user-set positions are preserved.
 interface DemoOrbitDeps {
-  defineSystem: (params: unknown[], fn: (...args: unknown[]) => void, opts?: { name?: string }) => unknown;
+  defineSystem: (
+    params: unknown[],
+    fn: (...args: unknown[]) => void,
+    opts?: { name?: string },
+  ) => unknown;
   Schedule: { Update: number };
   playModeOnly: () => boolean;
   Res: (resource: unknown) => unknown;
@@ -314,10 +360,16 @@ function readDemoOrbitDeps(sdkRec: Record<string, unknown>): DemoOrbitDeps | und
   const Time = sdkRec['Time'];
   const Transform = sdkRec['Transform'];
   if (
-    typeof defineSystem !== 'function' || typeof Schedule !== 'object' || Schedule === null
-    || typeof playModeOnly !== 'function' || typeof Res !== 'function'
-    || typeof GetWorld !== 'function' || Time === undefined || Transform === undefined
-  ) return undefined;
+    typeof defineSystem !== 'function' ||
+    typeof Schedule !== 'object' ||
+    Schedule === null ||
+    typeof playModeOnly !== 'function' ||
+    typeof Res !== 'function' ||
+    typeof GetWorld !== 'function' ||
+    Time === undefined ||
+    Transform === undefined
+  )
+    return undefined;
   const sched = Schedule as { Update?: number };
   if (typeof sched.Update !== 'number') return undefined;
   return {
@@ -326,7 +378,8 @@ function readDemoOrbitDeps(sdkRec: Record<string, unknown>): DemoOrbitDeps | und
     playModeOnly: playModeOnly as () => boolean,
     Res: Res as (r: unknown) => unknown,
     GetWorld: GetWorld as () => unknown,
-    Time, Transform,
+    Time,
+    Transform,
   };
 }
 
@@ -345,15 +398,22 @@ function installDemoOrbitSystem(
   }
 
   const baselines = new Map<number, { x: number; y: number; z: number }>();
-  registerReset(() => { baselines.clear(); });
+  registerReset(() => {
+    baselines.clear();
+  });
 
   interface WorldLike {
     getEntitiesWithComponents: (defs: unknown[]) => number[];
     get: (entity: number, def: unknown) => unknown;
     insert: (entity: number, def: unknown, data: unknown) => void;
   }
-  interface TransformLike { position: { x: number; y: number; z: number } }
-  interface TimeLike { elapsed: number; delta: number }
+  interface TransformLike {
+    position: { x: number; y: number; z: number };
+  }
+  interface TimeLike {
+    elapsed: number;
+    delta: number;
+  }
 
   const sysDef = deps.defineSystem(
     [deps.Res(deps.Time), deps.GetWorld()],

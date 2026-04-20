@@ -128,12 +128,12 @@ export class AssetInspectorWidget extends BaseWidget {
     const currentMipmaps = tex.mipmaps ?? true;
 
     const filterRow = buildSelectRow(body, 'Filter', currentFilter, [
-      { value: 'linear',  label: 'Linear (smooth)' },
+      { value: 'linear', label: 'Linear (smooth)' },
       { value: 'nearest', label: 'Nearest (pixel)' },
     ]);
     const wrapRow = buildSelectRow(body, 'Wrap', currentWrap, [
       { value: 'repeat', label: 'Repeat' },
-      { value: 'clamp',  label: 'Clamp to edge' },
+      { value: 'clamp', label: 'Clamp to edge' },
       { value: 'mirror', label: 'Mirrored' },
     ]);
     const mipmapsRow = buildCheckboxRow(body, 'Generate Mipmaps', currentMipmaps);
@@ -142,7 +142,7 @@ export class AssetInspectorWidget extends BaseWidget {
       const patch: ImporterSettings = {
         texture: {
           filter: filterRow.value as 'linear' | 'nearest',
-          wrap:   wrapRow.value as 'repeat' | 'clamp' | 'mirror',
+          wrap: wrapRow.value as 'repeat' | 'clamp' | 'mirror',
           mipmaps: mipmapsRow.checked,
         },
       };
@@ -293,43 +293,70 @@ function formatTime(iso: string): string {
 
 function glyphFor(type: AssetEntry['type']): string {
   switch (type) {
-    case 'scene':   return '\u2606';
-    case 'audio':   return '\u266B';
-    case 'font':    return '\u0041';
-    case 'image':     return '\u25A0';
-    case 'prefab':    return '\u25C6';
-    case 'anim-clip': return '\u25B6';
-    case 'unknown':   return '?';
+    case 'scene':
+      return '\u2606';
+    case 'audio':
+      return '\u266B';
+    case 'font':
+      return '\u0041';
+    case 'image':
+      return '\u25A0';
+    case 'prefab':
+      return '\u25C6';
+    case 'anim-clip':
+      return '\u25B6';
+    case 'unknown':
+      return '?';
   }
 }
 
 function importPlaceholderFor(type: AssetEntry['type']): string {
   switch (type) {
-    case 'image':     return 'Filter / wrap / compression settings coming soon.';
-    case 'audio':     return 'Compression / loop settings coming soon.';
-    case 'font':      return 'Atlas size / glyph range settings coming soon.';
-    case 'scene':     return 'No import settings for scenes.';
-    case 'prefab':    return 'No import settings for prefabs.';
-    case 'anim-clip': return 'No import settings for animation clips.';
-    case 'unknown':   return 'No import settings available.';
+    case 'image':
+      return 'Filter / wrap / compression settings coming soon.';
+    case 'audio':
+      return 'Compression / loop settings coming soon.';
+    case 'font':
+      return 'Atlas size / glyph range settings coming soon.';
+    case 'scene':
+      return 'No import settings for scenes.';
+    case 'prefab':
+      return 'No import settings for prefabs.';
+    case 'anim-clip':
+      return 'No import settings for animation clips.';
+    case 'unknown':
+      return 'No import settings available.';
   }
 }
 
-function appendRow(table: HTMLElement, label: string, value: string, opts?: { mono?: boolean }): void {
+function appendRow(
+  table: HTMLElement,
+  label: string,
+  value: string,
+  opts?: { mono?: boolean },
+): void {
   const l = document.createElement('div');
   l.className = 'editrix-ai-prop-label';
   l.textContent = label;
   const v = document.createElement('div');
-  v.className = opts?.mono ? 'editrix-ai-prop-value editrix-ai-prop-value--mono' : 'editrix-ai-prop-value';
+  v.className = opts?.mono
+    ? 'editrix-ai-prop-value editrix-ai-prop-value--mono'
+    : 'editrix-ai-prop-value';
   v.textContent = value;
   table.appendChild(l);
   table.appendChild(v);
 }
 
-interface SelectOption { value: string; label: string }
+interface SelectOption {
+  value: string;
+  label: string;
+}
 
 function buildSelectRow(
-  parent: HTMLElement, label: string, current: string, options: readonly SelectOption[],
+  parent: HTMLElement,
+  label: string,
+  current: string,
+  options: readonly SelectOption[],
 ): { select: HTMLSelectElement; get value(): string } {
   const row = document.createElement('div');
   row.className = 'editrix-ai-import-row';
@@ -348,11 +375,18 @@ function buildSelectRow(
   }
   row.appendChild(select);
   parent.appendChild(row);
-  return { select, get value(): string { return select.value; } };
+  return {
+    select,
+    get value(): string {
+      return select.value;
+    },
+  };
 }
 
 function buildCheckboxRow(
-  parent: HTMLElement, label: string, current: boolean,
+  parent: HTMLElement,
+  label: string,
+  current: boolean,
 ): { checkbox: HTMLInputElement; get checked(): boolean } {
   const row = document.createElement('div');
   row.className = 'editrix-ai-import-row';
@@ -366,5 +400,10 @@ function buildCheckboxRow(
   checkbox.checked = current;
   row.appendChild(checkbox);
   parent.appendChild(row);
-  return { checkbox, get checked(): boolean { return checkbox.checked } };
+  return {
+    checkbox,
+    get checked(): boolean {
+      return checkbox.checked;
+    },
+  };
 }

@@ -87,9 +87,10 @@ export function showApplyPrefabDialog(options: ApplyPrefabDialogOptions): void {
 
   const subtitle = document.createElement('div');
   subtitle.style.cssText = SUBTITLE_STYLE;
-  subtitle.textContent = otherCount > 0
-    ? `Selected overrides will modify the source prefab. ${String(otherCount)} other instance${otherCount === 1 ? '' : 's'} will be affected.`
-    : 'Selected overrides will modify the source prefab. No other instances exist.';
+  subtitle.textContent =
+    otherCount > 0
+      ? `Selected overrides will modify the source prefab. ${String(otherCount)} other instance${otherCount === 1 ? '' : 's'} will be affected.`
+      : 'Selected overrides will modify the source prefab. No other instances exist.';
   dialog.appendChild(subtitle);
 
   const listEl = document.createElement('div');
@@ -101,7 +102,8 @@ export function showApplyPrefabDialog(options: ApplyPrefabDialogOptions): void {
 
   const appendGroupHeader = (label: string, hint: string): void => {
     const header = document.createElement('div');
-    header.style.cssText = 'padding:6px 8px 4px;font-size:11px;color:#8a8a92;text-transform:uppercase;letter-spacing:0.04em;';
+    header.style.cssText =
+      'padding:6px 8px 4px;font-size:11px;color:#8a8a92;text-transform:uppercase;letter-spacing:0.04em;';
     header.textContent = label;
     listEl.appendChild(header);
     if (hint) {
@@ -115,8 +117,12 @@ export function showApplyPrefabDialog(options: ApplyPrefabDialogOptions): void {
   const appendOverrideRow = (override: PrefabOverride, defaultChecked: boolean): void => {
     const row = document.createElement('label');
     row.style.cssText = ROW_STYLE;
-    row.addEventListener('mouseenter', () => { row.style.cssText = ROW_STYLE + ROW_HOVER; });
-    row.addEventListener('mouseleave', () => { row.style.cssText = ROW_STYLE; });
+    row.addEventListener('mouseenter', () => {
+      row.style.cssText = ROW_STYLE + ROW_HOVER;
+    });
+    row.addEventListener('mouseleave', () => {
+      row.style.cssText = ROW_STYLE;
+    });
 
     const cb = document.createElement('input');
     cb.type = 'checkbox';
@@ -150,7 +156,9 @@ export function showApplyPrefabDialog(options: ApplyPrefabDialogOptions): void {
   const cancelBtn = document.createElement('button');
   cancelBtn.textContent = 'Cancel';
   cancelBtn.style.cssText = BTN_CANCEL;
-  cancelBtn.addEventListener('click', () => { overlay.remove(); });
+  cancelBtn.addEventListener('click', () => {
+    overlay.remove();
+  });
   buttons.appendChild(cancelBtn);
 
   const applyBtn = document.createElement('button');
@@ -174,7 +182,9 @@ export function showApplyPrefabDialog(options: ApplyPrefabDialogOptions): void {
   dialog.appendChild(buttons);
 
   overlay.appendChild(dialog);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
   document.body.appendChild(overlay);
 }
 
@@ -200,7 +210,8 @@ function toRef(o: PrefabOverride): PrefabOverrideRef {
     type: o.type,
     ...(o.componentType !== undefined ? { componentType: o.componentType } : {}),
     ...(o.componentData?.type !== undefined && o.componentType === undefined
-      ? { componentType: o.componentData.type } : {}),
+      ? { componentType: o.componentData.type }
+      : {}),
     ...(o.propertyName !== undefined ? { propertyName: o.propertyName } : {}),
     ...(o.metadataKey !== undefined ? { metadataKey: o.metadataKey } : {}),
   };
@@ -232,5 +243,9 @@ function formatValue(v: unknown): string {
   if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(3);
   if (typeof v === 'string') return `"${v}"`;
   if (typeof v === 'boolean') return String(v);
-  try { return JSON.stringify(v); } catch { return Object.prototype.toString.call(v); }
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return Object.prototype.toString.call(v);
+  }
 }

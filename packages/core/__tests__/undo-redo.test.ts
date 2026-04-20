@@ -48,8 +48,20 @@ describe('UndoRedoService', () => {
     const service = new UndoRedoService();
     const order: string[] = [];
 
-    service.push(makeOp('A', () => order.push('undo-A'), () => order.push('redo-A')));
-    service.push(makeOp('B', () => order.push('undo-B'), () => order.push('redo-B')));
+    service.push(
+      makeOp(
+        'A',
+        () => order.push('undo-A'),
+        () => order.push('redo-A'),
+      ),
+    );
+    service.push(
+      makeOp(
+        'B',
+        () => order.push('undo-B'),
+        () => order.push('redo-B'),
+      ),
+    );
 
     service.undo();
     service.undo();
@@ -281,9 +293,11 @@ describe('UndoRedoService', () => {
       const service = new UndoRedoService();
       const errors: unknown[] = [];
       service.onError((e) => errors.push(e));
-      service.push(makeOp('Bad', () => {
-        throw new Error('undo blew up');
-      }));
+      service.push(
+        makeOp('Bad', () => {
+          throw new Error('undo blew up');
+        }),
+      );
 
       service.undo();
 
@@ -298,9 +312,11 @@ describe('UndoRedoService', () => {
       const service = new UndoRedoService();
       const errors: unknown[] = [];
       service.onError((e) => errors.push(e));
-      service.push(makeOp('Bad', vi.fn(), () => {
-        throw new Error('redo blew up');
-      }));
+      service.push(
+        makeOp('Bad', vi.fn(), () => {
+          throw new Error('redo blew up');
+        }),
+      );
       service.undo();
 
       service.redo();
@@ -317,9 +333,11 @@ describe('UndoRedoService', () => {
 
       service.beginGroup('G');
       service.push(makeOp('1', () => order.push('u1')));
-      service.push(makeOp('2', () => {
-        throw new Error('boom');
-      }));
+      service.push(
+        makeOp('2', () => {
+          throw new Error('boom');
+        }),
+      );
       service.push(makeOp('3', () => order.push('u3')));
       service.endGroup();
 

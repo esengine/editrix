@@ -55,7 +55,9 @@ function loadWindowState() {
     if (fs.existsSync(WINDOW_STATE_PATH)) {
       return JSON.parse(fs.readFileSync(WINDOW_STATE_PATH, 'utf-8'));
     }
-  } catch (_) { /* fall through */ }
+  } catch (_) {
+    /* fall through */
+  }
   return null;
 }
 
@@ -63,7 +65,9 @@ function saveWindowState(state) {
   ensureDir(EDITRIX_HOME);
   try {
     fs.writeFileSync(WINDOW_STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
-  } catch (_) { /* non-fatal */ }
+  } catch (_) {
+    /* non-fatal */
+  }
 }
 
 function resolveEditorWindowOptions(saved) {
@@ -71,10 +75,7 @@ function resolveEditorWindowOptions(saved) {
   if (!saved || typeof saved !== 'object') return { options: defaults, shouldMaximize: false };
 
   const { x, y, width, height, isMaximized } = saved;
-  if (
-    typeof width !== 'number' || width < 400 ||
-    typeof height !== 'number' || height < 300
-  ) {
+  if (typeof width !== 'number' || width < 400 || typeof height !== 'number' || height < 300) {
     return { options: defaults, shouldMaximize: !!isMaximized };
   }
 
@@ -85,7 +86,8 @@ function resolveEditorWindowOptions(saved) {
     const display = screen.getDisplayMatching({ x, y, width, height });
     if (display && display.bounds) {
       const db = display.bounds;
-      const within = x < db.x + db.width && x + width > db.x && y < db.y + db.height && y + height > db.y;
+      const within =
+        x < db.x + db.width && x + width > db.x && y < db.y + db.height && y + height > db.y;
       if (within) {
         options.x = x;
         options.y = y;
@@ -103,10 +105,12 @@ const EDITRIX_API_VERSION = 1;
 // ── Project version classification ──────────────────────
 
 function parseSemver(v) {
-  const parts = String(v).split('.').map((s) => {
-    const n = parseInt(s, 10);
-    return Number.isFinite(n) ? n : 0;
-  });
+  const parts = String(v)
+    .split('.')
+    .map((s) => {
+      const n = parseInt(s, 10);
+      return Number.isFinite(n) ? n : 0;
+    });
   return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
 }
 
@@ -472,13 +476,9 @@ function createProjectOnDisk(projectPath, projectConfig) {
   // Write .gitignore
   fs.writeFileSync(
     path.join(projectPath, '.gitignore'),
-    [
-      '.editrix/settings.json',
-      '.editrix/cache/',
-      '.editrix/types/',
-      'node_modules/',
-      '',
-    ].join('\n'),
+    ['.editrix/settings.json', '.editrix/cache/', '.editrix/types/', 'node_modules/', ''].join(
+      '\n',
+    ),
     'utf-8',
   );
 
@@ -492,11 +492,15 @@ function createProjectOnDisk(projectPath, projectConfig) {
   // user has a tab to save into.
   fs.writeFileSync(
     path.join(projectPath, 'scenes', 'main.scene.json'),
-    JSON.stringify({
-      version: 1,
-      name: 'Main Scene',
-      entities: [],
-    }, null, 2),
+    JSON.stringify(
+      {
+        version: 1,
+        name: 'Main Scene',
+        entities: [],
+      },
+      null,
+      2,
+    ),
     'utf-8',
   );
 
@@ -623,11 +627,14 @@ function persistEditorWindowState() {
   try {
     const isMaximized = mainWindow.isMaximized();
     // getNormalBounds preserves the pre-maximize rect when maximized.
-    const bounds = isMaximized && typeof mainWindow.getNormalBounds === 'function'
-      ? mainWindow.getNormalBounds()
-      : mainWindow.getBounds();
+    const bounds =
+      isMaximized && typeof mainWindow.getNormalBounds === 'function'
+        ? mainWindow.getNormalBounds()
+        : mainWindow.getBounds();
     saveWindowState({ ...bounds, isMaximized });
-  } catch (_) { /* teardown race */ }
+  } catch (_) {
+    /* teardown race */
+  }
 }
 
 // ── IPC: System ─────────────────────────────────────────
@@ -756,55 +763,69 @@ ipcMain.handle('create-plugin', async (_e, { projectPath: projPath, pluginId, pl
     // plugin.json — editor reads this
     fs.writeFileSync(
       path.join(pluginDir, 'plugin.json'),
-      JSON.stringify({
-        id: pluginId,
-        name: pluginName,
-        version: '1.0.0',
-        main: 'dist/index.js',
-        source: 'src/index.ts',
-        description: `${pluginName} plugin`,
-        dependencies: ['editrix.layout', 'editrix.view', 'editrix.commands'],
-        editrix: `>=${EDITRIX_VERSION}`,
-        apiVersion: EDITRIX_API_VERSION,
-      }, null, 2),
+      JSON.stringify(
+        {
+          id: pluginId,
+          name: pluginName,
+          version: '1.0.0',
+          main: 'dist/index.js',
+          source: 'src/index.ts',
+          description: `${pluginName} plugin`,
+          dependencies: ['editrix.layout', 'editrix.view', 'editrix.commands'],
+          editrix: `>=${EDITRIX_VERSION}`,
+          apiVersion: EDITRIX_API_VERSION,
+        },
+        null,
+        2,
+      ),
       'utf-8',
     );
 
     // package.json — developer uses this
     fs.writeFileSync(
       path.join(pluginDir, 'package.json'),
-      JSON.stringify({
-        name: pluginId,
-        private: true,
-        version: '1.0.0',
-        type: 'module',
-        scripts: {
-          build: 'esbuild src/index.ts --bundle --outfile=dist/index.js --format=esm --platform=browser --target=es2022 --external:@editrix/*',
-          watch: 'esbuild src/index.ts --bundle --outfile=dist/index.js --format=esm --platform=browser --target=es2022 --external:@editrix/* --watch',
+      JSON.stringify(
+        {
+          name: pluginId,
+          private: true,
+          version: '1.0.0',
+          type: 'module',
+          scripts: {
+            build:
+              'esbuild src/index.ts --bundle --outfile=dist/index.js --format=esm --platform=browser --target=es2022 --external:@editrix/*',
+            watch:
+              'esbuild src/index.ts --bundle --outfile=dist/index.js --format=esm --platform=browser --target=es2022 --external:@editrix/* --watch',
+          },
+          devDependencies: {
+            esbuild: '^0.27.0',
+          },
         },
-        devDependencies: {
-          esbuild: '^0.27.0',
-        },
-      }, null, 2),
+        null,
+        2,
+      ),
       'utf-8',
     );
 
     // tsconfig.json — IDE type checking, references project-level .d.ts
     fs.writeFileSync(
       path.join(pluginDir, 'tsconfig.json'),
-      JSON.stringify({
-        compilerOptions: {
-          target: 'ES2022',
-          module: 'ESNext',
-          moduleResolution: 'bundler',
-          strict: true,
-          esModuleInterop: true,
-          outDir: 'dist',
-          rootDir: 'src',
-          declaration: false,
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: 'ES2022',
+            module: 'ESNext',
+            moduleResolution: 'bundler',
+            strict: true,
+            esModuleInterop: true,
+            outDir: 'dist',
+            rootDir: 'src',
+            declaration: false,
+          },
+          include: ['src', '../../.editrix/types'],
         },
-        include: ['src', '../../.editrix/types'],
-      }, null, 2),
+        null,
+        2,
+      ),
       'utf-8',
     );
 
@@ -951,7 +972,9 @@ ipcMain.on('open-project', (_e, projectPath) => {
       return;
     }
     if (status === 'project-older') {
-      console.warn(`[editrix] Opening older project (${version} < ${EDITRIX_VERSION}); scene format will be upgraded on next save.`);
+      console.warn(
+        `[editrix] Opening older project (${version} < ${EDITRIX_VERSION}); scene format will be upgraded on next save.`,
+      );
     }
   }
 
@@ -1102,9 +1125,12 @@ ipcMain.handle('fs:watch', (e, dirPath) => {
     const watcher = fs.watch(dirPath, { recursive: true }, (eventType, filename) => {
       if (!filename) return;
       const fullPath = normalizeFsPath(path.join(dirPath, filename));
-      const kind = eventType === 'rename'
-        ? (fs.existsSync(path.join(dirPath, filename)) ? 'created' : 'deleted')
-        : 'modified';
+      const kind =
+        eventType === 'rename'
+          ? fs.existsSync(path.join(dirPath, filename))
+            ? 'created'
+            : 'deleted'
+          : 'modified';
       // Send change event to the renderer that requested the watch
       try {
         e.sender.send('fs:change', { kind, path: fullPath });
@@ -1131,7 +1157,10 @@ ipcMain.handle('fs:unwatch', (_e, watchId) => {
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'estella', privileges: { secure: true, supportFetchAPI: true, corsEnabled: true } },
-  { scheme: 'project-asset', privileges: { secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
+  {
+    scheme: 'project-asset',
+    privileges: { secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+  },
 ]);
 
 // ── App Lifecycle ───────────────────────────────────────
@@ -1158,7 +1187,9 @@ app.whenReady().then(() => {
     const parsed = new URL(request.url);
     const rel = decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
     const abs = path.normalize(path.join(currentProjectPath, rel));
-    const rootWithSep = currentProjectPath.endsWith(path.sep) ? currentProjectPath : currentProjectPath + path.sep;
+    const rootWithSep = currentProjectPath.endsWith(path.sep)
+      ? currentProjectPath
+      : currentProjectPath + path.sep;
     if (abs !== currentProjectPath && !abs.startsWith(rootWithSep)) {
       return new Response(null, { status: 403 });
     }

@@ -13,7 +13,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Single-listener slot so hot reload doesn't accumulate handlers.
   onRequestClose: (handler) => {
     ipcRenderer.removeAllListeners('app:request-close');
-    ipcRenderer.on('app:request-close', () => { handler(); });
+    ipcRenderer.on('app:request-close', () => {
+      handler();
+    });
   },
   closeAck: (shouldClose) => ipcRenderer.send('app:close-ack', shouldClose),
 

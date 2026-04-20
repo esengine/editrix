@@ -5,7 +5,16 @@ import importPlugin from 'eslint-plugin-import-x';
 
 export default tseslint.config(
   // Global ignores
-  { ignores: ['**/dist/', '**/dist-renderer/', '**/node_modules/', '**/*.js', '**/*.cjs', '!eslint.config.js'] },
+  {
+    ignores: [
+      '**/dist/',
+      '**/dist-renderer/',
+      '**/node_modules/',
+      '**/*.js',
+      '**/*.cjs',
+      '!eslint.config.js',
+    ],
+  },
 
   // Base JS rules
   eslint.configs.recommended,
@@ -28,12 +37,7 @@ export default tseslint.config(
   // Running them through the default project trips tseslint's glob guard,
   // so skip them at the lint level — they're checked by `vitest` instead.
   {
-    ignores: [
-      '**/__tests__/**/*.ts',
-      '**/*.test.ts',
-      '**/*.spec.ts',
-      '**/vitest.config.ts',
-    ],
+    ignores: ['**/__tests__/**/*.ts', '**/*.test.ts', '**/*.spec.ts', '**/vitest.config.ts'],
   },
 
   // Project rules
@@ -54,16 +58,9 @@ export default tseslint.config(
       'import-x/order': [
         'error',
         {
-          'groups': [
-            'builtin',
-            'external',
-            'internal',
-            'parent',
-            'sibling',
-            'index',
-          ],
+          groups: ['builtin', 'external', 'internal', 'parent', 'sibling', 'index'],
           'newlines-between': 'never',
-          'alphabetize': { order: 'asc', caseInsensitive: true },
+          alphabetize: { order: 'asc', caseInsensitive: true },
         },
       ],
       'import-x/no-duplicates': 'error',
@@ -78,10 +75,7 @@ export default tseslint.config(
           allowHigherOrderFunctions: true,
         },
       ],
-      '@typescript-eslint/explicit-member-accessibility': [
-        'error',
-        { accessibility: 'no-public' },
-      ],
+      '@typescript-eslint/explicit-member-accessibility': ['error', { accessibility: 'no-public' }],
       '@typescript-eslint/no-non-null-assertion': 'error',
       '@typescript-eslint/no-unnecessary-condition': 'error',
       '@typescript-eslint/prefer-readonly': 'error',

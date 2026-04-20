@@ -1,43 +1,45 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Editrix</title>
-  <style>
-    html, body, #app {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-    }
+  <head>
+    <meta charset="UTF-8" />
+    <title>Editrix</title>
+    <style>
+      html,
+      body,
+      #app {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
 
-    /* ── Play mode visual cues ──────────────────────────────────────────── */
-    /* Status bar mode indicator: subtle in edit, loud in play/paused so
+      /* ── Play mode visual cues ──────────────────────────────────────────── */
+      /* Status bar mode indicator: subtle in edit, loud in play/paused so
        the user always knows when changes are about to revert. */
-    .editrix-statusbar-item[data-item-id="play-mode"] {
-      font-weight: 600;
-      letter-spacing: 0.02em;
-    }
-    body[data-play-mode="playing"] .editrix-statusbar-item[data-item-id="play-mode"] {
-      color: #98c379;
-    }
-    body[data-play-mode="paused"] .editrix-statusbar-item[data-item-id="play-mode"] {
-      color: #e5c07b;
-    }
+      .editrix-statusbar-item[data-item-id='play-mode'] {
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      body[data-play-mode='playing'] .editrix-statusbar-item[data-item-id='play-mode'] {
+        color: #98c379;
+      }
+      body[data-play-mode='paused'] .editrix-statusbar-item[data-item-id='play-mode'] {
+        color: #e5c07b;
+      }
 
-    /* Scene View gets a colored top border in play/paused so it's obvious
+      /* Scene View gets a colored top border in play/paused so it's obvious
        the viewport is showing simulation state, not authored state. */
-    body[data-play-mode="playing"] .editrix-widget-viewport {
-      box-shadow: inset 0 2px 0 0 #98c379;
-    }
-    body[data-play-mode="paused"] .editrix-widget-viewport {
-      box-shadow: inset 0 2px 0 0 #e5c07b;
-    }
-  </style>
-</head>
-<body>
-  <div id="app"></div>
-  <script type="module" src="../dist/renderer.js"></script>
-</body>
+      body[data-play-mode='playing'] .editrix-widget-viewport {
+        box-shadow: inset 0 2px 0 0 #98c379;
+      }
+      body[data-play-mode='paused'] .editrix-widget-viewport {
+        box-shadow: inset 0 2px 0 0 #e5c07b;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="../dist/renderer.js"></script>
+  </body>
 </html>

@@ -59,7 +59,12 @@ export type { PluginInfo, PluginStatusChangeEvent } from './plugin-manager.js';
 export { IPluginManager, PluginManager } from './plugin-manager.js';
 
 // ── Settings service: typed, persisted key/value config ────────────────────
-export type { SettingChangeEvent, SettingDescriptor, SettingGroup, SettingType } from './settings.js';
+export type {
+  SettingChangeEvent,
+  SettingDescriptor,
+  SettingGroup,
+  SettingType,
+} from './settings.js';
 export { ISettingsService, SettingsService } from './settings.js';
 
 // ── Document service: open/close/save for editor documents ─────────────────
@@ -67,12 +72,7 @@ export type { DocumentHandler, DocumentInfo } from './document.js';
 export { DocumentService, IDocumentService } from './document.js';
 
 // ── Filesystem abstraction: pluggable backend for file IO ──────────────────
-export type {
-  FileChangeEvent,
-  FileEntry,
-  FileEntryType,
-  FileStat,
-} from './filesystem.js';
+export type { FileChangeEvent, FileEntry, FileEntryType, FileStat } from './filesystem.js';
 export {
   IFileSystemService,
   getBaseName,

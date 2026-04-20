@@ -101,7 +101,9 @@ export class DocumentTabBar implements IDisposable {
     } else {
       addBtn.textContent = '+';
     }
-    addBtn.addEventListener('click', () => { this._onDidRequestAdd.fire(); });
+    addBtn.addEventListener('click', () => {
+      this._onDidRequestAdd.fire();
+    });
     strip.appendChild(addBtn);
 
     this._container.appendChild(strip);
@@ -144,7 +146,9 @@ export class DocumentTabBar implements IDisposable {
     });
     tab.appendChild(close);
 
-    tab.addEventListener('click', () => { this._onDidSelect.fire(item.id); });
+    tab.addEventListener('click', () => {
+      this._onDidSelect.fire(item.id);
+    });
     // Middle-click closes — common convention from web browsers.
     tab.addEventListener('auxclick', (e) => {
       if ((e as MouseEvent).button === 1) {

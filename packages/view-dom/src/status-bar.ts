@@ -80,9 +80,7 @@ export class StatusBar implements IDisposable {
     this._leftSection.innerHTML = '';
     this._rightSection.innerHTML = '';
 
-    const sorted = [...this._items.values()].sort(
-      (a, b) => (a.priority ?? 0) - (b.priority ?? 0),
-    );
+    const sorted = [...this._items.values()].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
 
     for (const item of sorted) {
       const el = createElement('span', 'editrix-statusbar-item');

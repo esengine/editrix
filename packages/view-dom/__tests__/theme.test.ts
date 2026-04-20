@@ -4,9 +4,19 @@ import { DARK_THEME } from '../src/theme.js';
 describe('DARK_THEME', () => {
   it('should have all required color slots', () => {
     const required = [
-      'background', 'surface', 'border', 'text', 'textDim',
-      'accent', 'accentText', 'panelBackground', 'tabActive',
-      'tabInactive', 'statusBar', 'statusBarText', 'overlay',
+      'background',
+      'surface',
+      'border',
+      'text',
+      'textDim',
+      'accent',
+      'accentText',
+      'panelBackground',
+      'tabActive',
+      'tabInactive',
+      'statusBar',
+      'statusBarText',
+      'overlay',
     ];
 
     for (const key of required) {

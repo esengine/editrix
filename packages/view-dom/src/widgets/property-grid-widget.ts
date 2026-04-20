@@ -50,7 +50,10 @@ export class PropertyGridWidget extends BaseWidget {
   private _draggingComponentId: string | null = null;
 
   private readonly _onDidRequestAddComponent = new Emitter<void>();
-  private readonly _onDidRequestComponentMenu = new Emitter<{ componentId: string; anchor: HTMLElement }>();
+  private readonly _onDidRequestComponentMenu = new Emitter<{
+    componentId: string;
+    anchor: HTMLElement;
+  }>();
   private readonly _onDidReorderComponent = new Emitter<ComponentReorderEvent>();
   private readonly _onDidRequestFieldMenu = new Emitter<FieldMenuEvent>();
 
@@ -132,7 +135,9 @@ export class PropertyGridWidget extends BaseWidget {
     const addLabel = createElement('span');
     addLabel.textContent = 'Add Component';
     this._addBtnEl.appendChild(addLabel);
-    this._addBtnEl.addEventListener('click', () => { this._onDidRequestAddComponent.fire(); });
+    this._addBtnEl.addEventListener('click', () => {
+      this._onDidRequestAddComponent.fire();
+    });
 
     this._contentEl = this.appendElement(root, 'div', 'editrix-inspector');
     this._renderGrid();
@@ -223,11 +228,16 @@ export class PropertyGridWidget extends BaseWidget {
       this._draggingComponentId = null;
       header.classList.remove('editrix-inspector-card-header--dragging');
       // Clear any drop indicator that lingered past dragleave.
-      this._contentEl?.querySelectorAll('.editrix-inspector-card-header--drop-above, .editrix-inspector-card-header--drop-below')
-        .forEach((el) => { el.classList.remove(
-          'editrix-inspector-card-header--drop-above',
-          'editrix-inspector-card-header--drop-below',
-        ); });
+      this._contentEl
+        ?.querySelectorAll(
+          '.editrix-inspector-card-header--drop-above, .editrix-inspector-card-header--drop-below',
+        )
+        .forEach((el) => {
+          el.classList.remove(
+            'editrix-inspector-card-header--drop-above',
+            'editrix-inspector-card-header--drop-below',
+          );
+        });
     });
     header.addEventListener('dragover', (e) => {
       const sourceId = this._draggingComponentId;
@@ -254,7 +264,8 @@ export class PropertyGridWidget extends BaseWidget {
       );
       if (!sourceId || sourceId === group.id) return;
       const rect = header.getBoundingClientRect();
-      const position: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+      const position: 'before' | 'after' =
+        e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
       this._onDidReorderComponent.fire({ componentId: sourceId, targetId: group.id, position });
     });
 
@@ -286,7 +297,9 @@ export class PropertyGridWidget extends BaseWidget {
           const pZ = props[i + 2];
           const pW = props[i + 3];
           if (pY?.key === `${base}.y` && pZ?.key === `${base}.z` && pW?.key === `${base}.w`) {
-            body.appendChild(this._renderVectorNRow(base.split('.').pop() ?? base, [p, pY, pZ, pW]));
+            body.appendChild(
+              this._renderVectorNRow(base.split('.').pop() ?? base, [p, pY, pZ, pW]),
+            );
             i += 4;
           } else if (pY?.key === `${base}.y` && pZ?.key === `${base}.z`) {
             body.appendChild(this._renderVectorNRow(base.split('.').pop() ?? base, [p, pY, pZ]));
@@ -311,8 +324,10 @@ export class PropertyGridWidget extends BaseWidget {
 
   /** Axis colors by index: X=red, Y=green, Z=blue, W=purple */
   private static readonly _axisColors = [
-    'var(--editrix-axis-x)', 'var(--editrix-axis-y)',
-    'var(--editrix-axis-z)', 'var(--editrix-axis-w, #b080ff)',
+    'var(--editrix-axis-x)',
+    'var(--editrix-axis-y)',
+    'var(--editrix-axis-z)',
+    'var(--editrix-axis-w, #b080ff)',
   ];
   private static readonly _axisLabels = ['X', 'Y', 'Z', 'W'];
 
@@ -341,7 +356,10 @@ export class PropertyGridWidget extends BaseWidget {
       row.appendChild(fields);
     }
 
-    this._decorateOverrideRow(row, props.map(p => p.key));
+    this._decorateOverrideRow(
+      row,
+      props.map((p) => p.key),
+    );
     return row;
   }
 
@@ -356,7 +374,9 @@ export class PropertyGridWidget extends BaseWidget {
     const input = createElement('input', 'editrix-inspector-input editrix-inspector-vector-input');
     input.type = 'number';
     input.value = String(parseFloat(Number(this._values[prop.key] ?? 0).toPrecision(7)));
-    input.addEventListener('change', () => { this._fireChange(prop.key, parseFloat(input.value)); });
+    input.addEventListener('change', () => {
+      this._fireChange(prop.key, parseFloat(input.value));
+    });
 
     this._setupDragAdjust(axisLabel, prop);
 
@@ -380,7 +400,9 @@ export class PropertyGridWidget extends BaseWidget {
     // Color swatch (preview) — click to open custom picker
     const swatch = createElement('div', 'editrix-inspector-color-swatch');
 
-    const pR = props[0], pG2 = props[1], pB2 = props[2];
+    const pR = props[0],
+      pG2 = props[1],
+      pB2 = props[2];
     const getRGB = (): [number, number, number] => [
       Number(this._values[pR?.key ?? ''] ?? 1),
       Number(this._values[pG2?.key ?? ''] ?? 1),
@@ -429,7 +451,10 @@ export class PropertyGridWidget extends BaseWidget {
       axisLabel.textContent = labels[idx] ?? '';
       field.appendChild(axisLabel);
 
-      const input = createElement('input', 'editrix-inspector-input editrix-inspector-vector-input');
+      const input = createElement(
+        'input',
+        'editrix-inspector-input editrix-inspector-vector-input',
+      );
       input.type = 'number';
       input.step = '0.01';
       input.min = '0';
@@ -452,7 +477,10 @@ export class PropertyGridWidget extends BaseWidget {
 
     container.appendChild(grid);
     row.appendChild(container);
-    this._decorateOverrideRow(row, props.map(p => p.key));
+    this._decorateOverrideRow(
+      row,
+      props.map((p) => p.key),
+    );
     return row;
   }
 
@@ -467,7 +495,7 @@ export class PropertyGridWidget extends BaseWidget {
    * the parent field name.
    */
   private _decorateOverrideRow(row: HTMLElement, fieldKeys: readonly string[]): void {
-    const overridden = fieldKeys.some(k => this._overriddenKeys.has(k));
+    const overridden = fieldKeys.some((k) => this._overriddenKeys.has(k));
     if (overridden) {
       row.classList.add('editrix-inspector-row--overridden');
       // Tooltip pulls from whichever sub-key has a source value
@@ -475,7 +503,10 @@ export class PropertyGridWidget extends BaseWidget {
       // tooltip, which is what the user wants (they're reverting as a unit).
       for (const key of fieldKeys) {
         const tooltip = this._sourceValueTooltips.get(key);
-        if (tooltip !== undefined) { row.title = tooltip; break; }
+        if (tooltip !== undefined) {
+          row.title = tooltip;
+          break;
+        }
       }
     }
 
@@ -546,7 +577,9 @@ export class PropertyGridWidget extends BaseWidget {
         cb.type = 'checkbox';
         cb.checked = value as boolean;
         cb.disabled = readOnly;
-        cb.addEventListener('change', () => { this._fireChange(prop.key, cb.checked); });
+        cb.addEventListener('change', () => {
+          this._fireChange(prop.key, cb.checked);
+        });
         wrapper.appendChild(cb);
         break;
       }
@@ -556,7 +589,9 @@ export class PropertyGridWidget extends BaseWidget {
         input.type = 'number';
         input.value = String(parseFloat(Number(value ?? 0).toPrecision(7)));
         input.readOnly = readOnly;
-        input.addEventListener('change', () => { this._fireChange(prop.key, parseFloat(input.value)); });
+        input.addEventListener('change', () => {
+          this._fireChange(prop.key, parseFloat(input.value));
+        });
         wrapper.appendChild(input);
         break;
       }
@@ -566,7 +601,9 @@ export class PropertyGridWidget extends BaseWidget {
         input.type = 'text';
         input.value = (value as string | undefined) ?? '';
         input.readOnly = readOnly;
-        input.addEventListener('change', () => { this._fireChange(prop.key, input.value); });
+        input.addEventListener('change', () => {
+          this._fireChange(prop.key, input.value);
+        });
         wrapper.appendChild(input);
         break;
       }
@@ -582,7 +619,9 @@ export class PropertyGridWidget extends BaseWidget {
           if (ei === value) opt.selected = true;
           select.appendChild(opt);
         }
-        select.addEventListener('change', () => { this._fireChange(prop.key, parseInt(select.value, 10)); });
+        select.addEventListener('change', () => {
+          this._fireChange(prop.key, parseInt(select.value, 10));
+        });
         wrapper.appendChild(select);
         break;
       }
@@ -682,9 +721,10 @@ export class PropertyGridWidget extends BaseWidget {
       ref.textContent = '— none —';
       ref.classList.add('editrix-inspector-readonly--empty');
     } else {
-      const display = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-        ? String(value)
-        : JSON.stringify(value);
+      const display =
+        typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+          ? String(value)
+          : JSON.stringify(value);
       ref.textContent = `${prop.type}:${display}`;
     }
     return ref;
@@ -758,7 +798,10 @@ export class PropertyGridWidget extends BaseWidget {
         anchor: chip,
         currentRef,
         assetType: prop.assetType,
-        setValue: (next) => { this._fireChange(prop.key, next); this._renderGrid(); },
+        setValue: (next) => {
+          this._fireChange(prop.key, next);
+          this._renderGrid();
+        },
       });
     });
     clearBtn.addEventListener('click', (e) => {
@@ -806,15 +849,21 @@ export class PropertyGridWidget extends BaseWidget {
   private _colorPickerEl: HTMLElement | undefined;
 
   private _openColorPicker(
-    anchor: HTMLElement, r: number, g: number, b: number,
+    anchor: HTMLElement,
+    r: number,
+    g: number,
+    b: number,
     onChange: (r: number, g: number, b: number) => void,
   ): void {
     this._colorPickerEl?.remove();
 
     // ── Color conversion helpers ──
     const rgbToHsv = (rr: number, gg: number, bb: number): [number, number, number] => {
-      const max = Math.max(rr, gg, bb), min = Math.min(rr, gg, bb), d = max - min;
-      const s = max === 0 ? 0 : d / max, v = max;
+      const max = Math.max(rr, gg, bb),
+        min = Math.min(rr, gg, bb),
+        d = max - min;
+      const s = max === 0 ? 0 : d / max,
+        v = max;
       let h = 0;
       if (d !== 0) {
         if (max === rr) h = ((gg - bb) / d + 6) % 6;
@@ -825,19 +874,35 @@ export class PropertyGridWidget extends BaseWidget {
       return [h, s, v];
     };
     const hsvToRgb = (h: number, s: number, v: number): [number, number, number] => {
-      const i = Math.floor(h * 6), f = h * 6 - i;
-      const p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+      const i = Math.floor(h * 6),
+        f = h * 6 - i;
+      const p = v * (1 - s),
+        q = v * (1 - f * s),
+        t = v * (1 - (1 - f) * s);
       switch (i % 6) {
-        case 0: return [v, t, p];
-        case 1: return [q, v, p];
-        case 2: return [p, v, t];
-        case 3: return [p, q, v];
-        case 4: return [t, p, v];
-        default: return [v, p, q];
+        case 0:
+          return [v, t, p];
+        case 1:
+          return [q, v, p];
+        case 2:
+          return [p, v, t];
+        case 3:
+          return [p, q, v];
+        case 4:
+          return [t, p, v];
+        default:
+          return [v, p, q];
       }
     };
     const rgbToHex = (rr: number, gg: number, bb: number): string =>
-      '#' + [rr, gg, bb].map(c => Math.round(c * 255).toString(16).padStart(2, '0')).join('');
+      '#' +
+      [rr, gg, bb]
+        .map((c) =>
+          Math.round(c * 255)
+            .toString(16)
+            .padStart(2, '0'),
+        )
+        .join('');
 
     let [hue, sat, val] = rgbToHsv(r, g, b);
     let mode: 'hex' | 'rgb' | 'hsv' = 'hex';
@@ -864,10 +929,17 @@ export class PropertyGridWidget extends BaseWidget {
       update();
     };
     svArea.addEventListener('mousedown', (e) => {
-      e.preventDefault(); handleSV(e);
-      const onMove = (ev: MouseEvent): void => { handleSV(ev); };
-      const onUp = (): void => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
-      document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+      e.preventDefault();
+      handleSV(e);
+      const onMove = (ev: MouseEvent): void => {
+        handleSV(ev);
+      };
+      const onUp = (): void => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
     });
     popup.appendChild(svArea);
 
@@ -881,10 +953,17 @@ export class PropertyGridWidget extends BaseWidget {
       update();
     };
     hueBar.addEventListener('mousedown', (e) => {
-      e.preventDefault(); handleHue(e);
-      const onMove = (ev: MouseEvent): void => { handleHue(ev); };
-      const onUp = (): void => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
-      document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+      e.preventDefault();
+      handleHue(e);
+      const onMove = (ev: MouseEvent): void => {
+        handleHue(ev);
+      };
+      const onUp = (): void => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
     });
     popup.appendChild(hueBar);
 
@@ -912,21 +991,27 @@ export class PropertyGridWidget extends BaseWidget {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     const hasEyeDropper = typeof (window as any).EyeDropper === 'function';
     const eyedropperBtn = createElement('button', 'editrix-cp-eyedropper-btn');
-    eyedropperBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3L15 6"/></svg>';
+    eyedropperBtn.innerHTML =
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3L15 6"/></svg>';
     eyedropperBtn.title = hasEyeDropper ? 'Pick color from screen' : 'Eyedropper not supported';
     if (!hasEyeDropper) eyedropperBtn.classList.add('editrix-cp-eyedropper-btn--disabled');
     else {
       eyedropperBtn.addEventListener('click', () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
         const ED = (window as any).EyeDropper as new () => { open(): Promise<{ sRGBHex: string }> };
-        new ED().open().then((result) => {
-          const hex = result.sRGBHex;
-          const nr = parseInt(hex.slice(1, 3), 16) / 255;
-          const ng = parseInt(hex.slice(3, 5), 16) / 255;
-          const nb = parseInt(hex.slice(5, 7), 16) / 255;
-          [hue, sat, val] = rgbToHsv(nr, ng, nb);
-          update();
-        }).catch(() => { /* user cancelled */ });
+        new ED()
+          .open()
+          .then((result) => {
+            const hex = result.sRGBHex;
+            const nr = parseInt(hex.slice(1, 3), 16) / 255;
+            const ng = parseInt(hex.slice(3, 5), 16) / 255;
+            const nb = parseInt(hex.slice(5, 7), 16) / 255;
+            [hue, sat, val] = rgbToHsv(nr, ng, nb);
+            update();
+          })
+          .catch(() => {
+            /* user cancelled */
+          });
       });
     }
     toolbar.appendChild(eyedropperBtn);
@@ -944,7 +1029,8 @@ export class PropertyGridWidget extends BaseWidget {
         const label = createElement('span', 'editrix-cp-field-label');
         label.textContent = '#';
         const input = createElement('input', 'editrix-cp-field-input');
-        input.type = 'text'; input.maxLength = 7;
+        input.type = 'text';
+        input.maxLength = 7;
         input.addEventListener('change', () => {
           const hex = input.value.trim();
           if (/^#?[0-9a-fA-F]{6}$/.test(hex)) {
@@ -957,7 +1043,8 @@ export class PropertyGridWidget extends BaseWidget {
           }
         });
         currentInputs.push(input);
-        row.appendChild(label); row.appendChild(input);
+        row.appendChild(label);
+        row.appendChild(input);
         inputArea.appendChild(row);
       } else {
         const labels = mode === 'rgb' ? ['R', 'G', 'B'] : ['H', 'S', 'V'];
@@ -967,8 +1054,15 @@ export class PropertyGridWidget extends BaseWidget {
           label.textContent = labels[i] ?? '';
           const input = createElement('input', 'editrix-cp-field-input');
           input.type = 'number';
-          if (mode === 'rgb') { input.min = '0'; input.max = '255'; input.step = '1'; }
-          else { input.min = '0'; input.max = i === 0 ? '360' : '100'; input.step = '1'; }
+          if (mode === 'rgb') {
+            input.min = '0';
+            input.max = '255';
+            input.step = '1';
+          } else {
+            input.min = '0';
+            input.max = i === 0 ? '360' : '100';
+            input.step = '1';
+          }
           const idx = i;
           input.addEventListener('change', () => {
             const v = parseFloat(input.value) || 0;
@@ -985,7 +1079,8 @@ export class PropertyGridWidget extends BaseWidget {
             update();
           });
           currentInputs.push(input);
-          row.appendChild(label); row.appendChild(input);
+          row.appendChild(label);
+          row.appendChild(input);
         }
         inputArea.appendChild(row);
       }
@@ -1038,8 +1133,12 @@ export class PropertyGridWidget extends BaseWidget {
     const popupRect = popup.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const left = anchorRect.left + popupRect.width > vw ? vw - popupRect.width - 4 : anchorRect.left;
-    const top = anchorRect.bottom + 4 + popupRect.height > vh ? anchorRect.top - popupRect.height - 4 : anchorRect.bottom + 4;
+    const left =
+      anchorRect.left + popupRect.width > vw ? vw - popupRect.width - 4 : anchorRect.left;
+    const top =
+      anchorRect.bottom + 4 + popupRect.height > vh
+        ? anchorRect.top - popupRect.height - 4
+        : anchorRect.bottom + 4;
     popup.style.left = `${Math.max(0, left)}px`;
     popup.style.top = `${Math.max(0, top)}px`;
     popup.style.visibility = '';
@@ -1052,7 +1151,9 @@ export class PropertyGridWidget extends BaseWidget {
         document.removeEventListener('mousedown', closeOnClick);
       }
     };
-    requestAnimationFrame(() => { document.addEventListener('mousedown', closeOnClick); });
+    requestAnimationFrame(() => {
+      document.addEventListener('mousedown', closeOnClick);
+    });
   }
 
   override dispose(): void {

@@ -302,7 +302,10 @@ export class LayoutRenderer implements IDisposable {
       const panelDraggable = this._draggableResolver?.(panelId) ?? true;
       tab.draggable = panelDraggable;
       tab.addEventListener('dragstart', (e) => {
-        if (!panelDraggable) { e.preventDefault(); return; }
+        if (!panelDraggable) {
+          e.preventDefault();
+          return;
+        }
         e.dataTransfer?.setData('text/x-editrix-panel', panelId);
         tab.classList.add('editrix-tab--dragging');
       });
@@ -469,7 +472,9 @@ export class LayoutRenderer implements IDisposable {
       const lbl = createElement('span');
       lbl.textContent = item.label ?? '';
       row.appendChild(lbl);
-      row.addEventListener('click', () => { menu.remove(); });
+      row.addEventListener('click', () => {
+        menu.remove();
+      });
       menu.appendChild(row);
     }
 
@@ -490,7 +495,9 @@ export class LayoutRenderer implements IDisposable {
       menu.remove();
       document.removeEventListener('mousedown', close);
     };
-    setTimeout(() => { document.addEventListener('mousedown', close); }, 0);
+    setTimeout(() => {
+      document.addEventListener('mousedown', close);
+    }, 0);
   }
 
   private _mountWidget(panelId: string, container: HTMLElement): void {

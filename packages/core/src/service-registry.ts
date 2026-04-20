@@ -7,11 +7,7 @@ import { ServiceScope } from './types.js';
  */
 export interface IServiceRegistry {
   /** Register a service instance or class. Returns a disposable to unregister. */
-  register<T>(
-    id: ServiceIdentifier<T>,
-    impl: T,
-    scope?: ServiceScope,
-  ): IDisposable;
+  register<T>(id: ServiceIdentifier<T>, impl: T, scope?: ServiceScope): IDisposable;
 
   /** Resolve a service. Throws if not registered. */
   get<T>(id: ServiceIdentifier<T>): T;

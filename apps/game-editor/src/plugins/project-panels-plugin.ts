@@ -2,12 +2,26 @@ import { IFileSystemService } from '@editrix/core';
 import type { LogLevel } from '@editrix/plugin-console';
 import { IConsoleService } from '@editrix/plugin-console';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import { ICommandRegistry, IDocumentService, ILayoutService, ISelectionService, IViewService } from '@editrix/shell';
+import {
+  ICommandRegistry,
+  IDocumentService,
+  ILayoutService,
+  ISelectionService,
+  IViewService,
+} from '@editrix/shell';
 import type { ContextMenuItem } from '@editrix/view-dom';
 import { ContentBrowserWidget } from '../content-browser-widget.js';
 import { showConfirmDialog, showInputDialog } from '../dialogs.js';
 import { ProjectFilesWidget } from '../project-files-widget.js';
-import { assetRef, IAssetCatalogService, IAssetRevealService, IECSScenePresence, IPrefabService, IProjectService, parseSelectionRef } from '../services.js';
+import {
+  assetRef,
+  IAssetCatalogService,
+  IAssetRevealService,
+  IECSScenePresence,
+  IPrefabService,
+  IProjectService,
+  parseSelectionRef,
+} from '../services.js';
 
 const CONSOLE_BUFFER_MAX = 500;
 
@@ -43,7 +57,16 @@ export const ProjectPanelsPlugin: IPlugin = {
   descriptor: {
     id: 'app.project-panels',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'app.document-sync', 'app.filesystem', 'app.project', 'app.asset-catalog', 'app.prefab', 'app.animation'],
+    dependencies: [
+      'editrix.layout',
+      'editrix.view',
+      'app.document-sync',
+      'app.filesystem',
+      'app.project',
+      'app.asset-catalog',
+      'app.prefab',
+      'app.animation',
+    ],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
@@ -59,7 +82,11 @@ export const ProjectPanelsPlugin: IPlugin = {
 
     let contentBrowserWidget: ContentBrowserWidget | undefined;
 
-    interface PendingLog { readonly level: LogLevel; readonly message: string; readonly source: string | undefined }
+    interface PendingLog {
+      readonly level: LogLevel;
+      readonly message: string;
+      readonly source: string | undefined;
+    }
     const pending: PendingLog[] = [];
 
     const consoleService: IConsoleService = {
@@ -79,13 +106,15 @@ export const ProjectPanelsPlugin: IPlugin = {
     };
     ctx.subscriptions.add(ctx.services.register(IConsoleService, consoleService));
 
-    ctx.subscriptions.add(ctx.services.register(IAssetRevealService, {
-      revealByUuid(uuid: string): void {
-        const entry = catalog.getByUuid(uuid);
-        if (!entry) return;
-        contentBrowserWidget?.revealAsset(entry.absolutePath);
-      },
-    }));
+    ctx.subscriptions.add(
+      ctx.services.register(IAssetRevealService, {
+        revealByUuid(uuid: string): void {
+          const entry = catalog.getByUuid(uuid);
+          if (!entry) return;
+          contentBrowserWidget?.revealAsset(entry.absolutePath);
+        },
+      }),
+    );
 
     /**
      * Resolve an incoming batch of Hierarchy drag node ids into entity
@@ -102,7 +131,10 @@ export const ProjectPanelsPlugin: IPlugin = {
     const createVariantFromAsset = async (baseUuid: string, basePath: string): Promise<void> => {
       const slash = basePath.lastIndexOf('/');
       const dir = slash >= 0 ? basePath.slice(0, slash) : basePath;
-      const baseLeaf = (slash >= 0 ? basePath.slice(slash + 1) : basePath).replace(/\.esprefab$/, '');
+      const baseLeaf = (slash >= 0 ? basePath.slice(slash + 1) : basePath).replace(
+        /\.esprefab$/,
+        '',
+      );
       const suggested = `${baseLeaf}_variant.esprefab`;
 
       const entered = await showInputDialog('Create Variant', {
@@ -117,10 +149,10 @@ export const ProjectPanelsPlugin: IPlugin = {
       const filePath = `${dir}/${filename}`;
 
       if (await fileSystem.exists(filePath)) {
-        const ok = await showConfirmDialog(
-          `${filename} already exists. Overwrite?`,
-          { okLabel: 'Overwrite', destructive: true },
-        );
+        const ok = await showConfirmDialog(`${filename} already exists. Overwrite?`, {
+          okLabel: 'Overwrite',
+          destructive: true,
+        });
         if (!ok) return;
       }
 
@@ -189,8 +221,11 @@ export const ProjectPanelsPlugin: IPlugin = {
     // ── Content Browser ──
     ctx.subscriptions.add(
       layout.registerPanel({
-        id: 'content-browser', title: 'Content Browser', defaultRegion: 'center',
-        closable: false, draggable: false,
+        id: 'content-browser',
+        title: 'Content Browser',
+        defaultRegion: 'center',
+        closable: false,
+        draggable: false,
       }),
     );
     ctx.subscriptions.add(
@@ -204,20 +239,29 @@ export const ProjectPanelsPlugin: IPlugin = {
           if (rel === undefined) return [];
           const asset = catalog.getByPath(rel);
           if (!asset) return [];
-          return [{
-            label: 'Create Variant...', icon: 'plus-circle',
-            onSelect: () => { void createVariantFromAsset(asset.uuid, path); },
-          }];
+          return [
+            {
+              label: 'Create Variant...',
+              icon: 'plus-circle',
+              onSelect: () => {
+                void createVariantFromAsset(asset.uuid, path);
+              },
+            },
+          ];
         };
         const buildEmptyAreaMenu = (targetDirPath: string): readonly ContextMenuItem[] => [
           {
-            label: 'New Animation Clip...', icon: 'plus-circle',
+            label: 'New Animation Clip...',
+            icon: 'plus-circle',
             onSelect: () => {
               void commands.execute('animation.newClip', { targetDirPath });
             },
           },
         ];
-        contentBrowserWidget = new ContentBrowserWidget(id, fileSystem, project, { buildCardMenu, buildEmptyAreaMenu });
+        contentBrowserWidget = new ContentBrowserWidget(id, fileSystem, project, {
+          buildCardMenu,
+          buildEmptyAreaMenu,
+        });
         // Flush logs that arrived before the widget mounted.
         for (const entry of pending) {
           contentBrowserWidget.log(entry.level, entry.message, entry.source);
@@ -225,7 +269,12 @@ export const ProjectPanelsPlugin: IPlugin = {
         pending.length = 0;
         contentBrowserWidget.onDidOpenFile((filePath) => {
           documentService.open(filePath).catch((err: unknown) => {
-            const reason = err instanceof Error ? (err.cause instanceof Error ? err.cause.message : err.message) : String(err);
+            const reason =
+              err instanceof Error
+                ? err.cause instanceof Error
+                  ? err.cause.message
+                  : err.message
+                : String(err);
             consoleService.log('error', `Failed to open ${filePath}: ${reason}`);
           });
         });

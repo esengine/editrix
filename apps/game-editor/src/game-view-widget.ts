@@ -38,8 +38,12 @@ export class GameViewWidget extends BaseWidget {
         module.renderFrame(_registry, w, h);
       },
       target: ctx2d,
-      get width() { return canvasRef.clientWidth; },
-      get height() { return canvasRef.clientHeight; },
+      get width() {
+        return canvasRef.clientWidth;
+      },
+      get height() {
+        return canvasRef.clientHeight;
+      },
     };
     this._renderContext.registerView(this._view);
 
@@ -56,7 +60,11 @@ export class GameViewWidget extends BaseWidget {
       this._renderContext.requestRender();
     });
     ro.observe(this._canvas);
-    this.subscriptions.add({ dispose: () => { ro.disconnect(); } });
+    this.subscriptions.add({
+      dispose: () => {
+        ro.disconnect();
+      },
+    });
   }
 
   override dispose(): void {

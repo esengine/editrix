@@ -61,7 +61,11 @@ export interface ILayoutService extends IDisposable {
   movePanelToGroup(panelId: string, targetPath: readonly number[], insertIndex?: number): void;
 
   /** Move a panel to a new split beside a target. */
-  movePanelToSplit(panelId: string, targetPath: readonly number[], side: 'left' | 'right' | 'top' | 'bottom'): void;
+  movePanelToSplit(
+    panelId: string,
+    targetPath: readonly number[],
+    side: 'left' | 'right' | 'top' | 'bottom',
+  ): void;
 
   /** Get all panel IDs currently visible in the layout. */
   getOpenPanelIds(): readonly string[];
@@ -176,7 +180,11 @@ export class LayoutService implements ILayoutService {
     this._onDidChangeLayout.fire(this._layout);
   }
 
-  movePanelToSplit(panelId: string, targetPath: readonly number[], side: 'left' | 'right' | 'top' | 'bottom'): void {
+  movePanelToSplit(
+    panelId: string,
+    targetPath: readonly number[],
+    side: 'left' | 'right' | 'top' | 'bottom',
+  ): void {
     this._layout = movePanelToSplitOp(this._layout, panelId, targetPath, side);
     this._onDidChangeLayout.fire(this._layout);
   }

@@ -27,9 +27,9 @@ describe('ViewService', () => {
     const service = new ViewService();
     service.registerFactory('scene', (id) => createMockWidget(id));
 
-    expect(() =>
-      service.registerFactory('scene', (id) => createMockWidget(id)),
-    ).toThrow('Widget factory for panel "scene" is already registered.');
+    expect(() => service.registerFactory('scene', (id) => createMockWidget(id))).toThrow(
+      'Widget factory for panel "scene" is already registered.',
+    );
   });
 
   it('should throw when creating widget without factory', () => {

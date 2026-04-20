@@ -70,19 +70,25 @@ export const DocumentTabsPlugin: IPlugin = {
     ctx.subscriptions.add(documentService.onDidChangeDirty(refresh));
 
     // User clicks a tab → activate that document.
-    ctx.subscriptions.add(tabBar.onDidSelect((id) => {
-      documentService.setActive(id);
-    }));
+    ctx.subscriptions.add(
+      tabBar.onDidSelect((id) => {
+        documentService.setActive(id);
+      }),
+    );
 
     // User clicks × → confirm if dirty, then close.
-    ctx.subscriptions.add(tabBar.onDidRequestClose((id) => {
-      void closeWithConfirm(id);
-    }));
+    ctx.subscriptions.add(
+      tabBar.onDidRequestClose((id) => {
+        void closeWithConfirm(id);
+      }),
+    );
 
     // User clicks + → native file picker scoped to scene files.
-    ctx.subscriptions.add(tabBar.onDidRequestAdd(() => {
-      void openFilePicker();
-    }));
+    ctx.subscriptions.add(
+      tabBar.onDidRequestAdd(() => {
+        void openFilePicker();
+      }),
+    );
 
     async function closeWithConfirm(filePath: string): Promise<void> {
       const doc = documentService.getOpenDocuments().find((d) => d.filePath === filePath);
@@ -114,10 +120,9 @@ export const DocumentTabsPlugin: IPlugin = {
         await documentService.open(picked);
       } catch (err) {
         // The document handler chain wraps errors with context; surface that.
-        await showConfirmDialog(
-          err instanceof Error ? err.message : String(err),
-          { okLabel: 'OK' },
-        );
+        await showConfirmDialog(err instanceof Error ? err.message : String(err), {
+          okLabel: 'OK',
+        });
       }
     }
   },

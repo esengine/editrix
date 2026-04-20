@@ -35,10 +35,12 @@ export const OSDropImportPlugin: IPlugin = {
 
     document.addEventListener('dragover', onDragOver);
     document.addEventListener('drop', onDrop);
-    ctx.subscriptions.add(toDisposable(() => {
-      document.removeEventListener('dragover', onDragOver);
-      document.removeEventListener('drop', onDrop);
-    }));
+    ctx.subscriptions.add(
+      toDisposable(() => {
+        document.removeEventListener('dragover', onDragOver);
+        document.removeEventListener('drop', onDrop);
+      }),
+    );
   },
 };
 
@@ -53,11 +55,20 @@ async function importFiles(
   ctx: IPluginContext,
 ): Promise<void> {
   const log = (level: 'info' | 'warn' | 'error', msg: string): void => {
-    try { ctx.services.get(IConsoleService).log(level, msg, 'asset-import'); } catch { /* console may not be up yet */ }
+    try {
+      ctx.services.get(IConsoleService).log(level, msg, 'asset-import');
+    } catch {
+      /* console may not be up yet */
+    }
   };
   // Electron 34+ removed File.path; resolve via preload-exposed webUtils.
-  const api = (window as unknown as { electronAPI?: { getPathForFile?(f: File): string } }).electronAPI;
-  try { await fs.mkdir(targetDir); } catch { /* already exists is fine */ }
+  const api = (window as unknown as { electronAPI?: { getPathForFile?(f: File): string } })
+    .electronAPI;
+  try {
+    await fs.mkdir(targetDir);
+  } catch {
+    /* already exists is fine */
+  }
 
   for (const file of files) {
     const src = api?.getPathForFile?.(file);
@@ -70,7 +81,10 @@ async function importFiles(
       await fs.copy(src, dest);
       log('info', `Imported ${file.name} → ${relativeTail(dest)}`);
     } catch (err) {
-      log('error', `Import ${file.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+      log(
+        'error',
+        `Import ${file.name} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 }

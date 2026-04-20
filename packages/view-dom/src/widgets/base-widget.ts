@@ -32,7 +32,10 @@ export abstract class BaseWidget implements IWidget {
   protected root: HTMLElement | undefined;
   private _hasFocus = false;
 
-  constructor(id: string, private readonly _cssClass: string) {
+  constructor(
+    id: string,
+    private readonly _cssClass: string,
+  ) {
     this.id = id;
   }
 

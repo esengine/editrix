@@ -52,9 +52,9 @@ describe('ServiceRegistry', () => {
     const registry = new ServiceRegistry();
     registry.register(ICounter, { count: 0, increment() {} });
 
-    expect(() =>
-      registry.register(ICounter, { count: 0, increment() {} }),
-    ).toThrow('Service "ICounter" is already registered.');
+    expect(() => registry.register(ICounter, { count: 0, increment() {} })).toThrow(
+      'Service "ICounter" is already registered.',
+    );
   });
 
   it('should unregister when the returned disposable is disposed', () => {

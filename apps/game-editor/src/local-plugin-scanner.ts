@@ -88,7 +88,9 @@ export class LocalPluginScanner implements IPluginScanner {
             ...(manifest.description !== undefined ? { description: manifest.description } : {}),
             main: mainFile,
             ...(manifest.dependencies !== undefined ? { dependencies: manifest.dependencies } : {}),
-            ...(manifest.activationEvents !== undefined ? { activationEvents: manifest.activationEvents } : {}),
+            ...(manifest.activationEvents !== undefined
+              ? { activationEvents: manifest.activationEvents }
+              : {}),
             ...(manifest.editrix !== undefined ? { editrix: manifest.editrix } : {}),
             ...(manifest.apiVersion !== undefined ? { apiVersion: manifest.apiVersion } : {}),
             ...(manifest.author !== undefined ? { author: manifest.author } : {}),

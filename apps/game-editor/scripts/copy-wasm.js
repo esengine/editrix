@@ -28,8 +28,8 @@ mkdirSync(wasmDir, { recursive: true });
 
 // [source absolute path, destination filename inside wasm/]
 const copies = [
-  [join(vendor, 'desktop/public/wasm/esengine.js'),       'esengine.js'],
-  [join(vendor, 'desktop/public/wasm/esengine.wasm'),     'esengine.wasm'],
+  [join(vendor, 'desktop/public/wasm/esengine.js'), 'esengine.js'],
+  [join(vendor, 'desktop/public/wasm/esengine.wasm'), 'esengine.wasm'],
   [join(vendor, 'desktop/public/sdk/esm/esengine.bundled.js'), 'esengine.bundled.js'],
 ];
 

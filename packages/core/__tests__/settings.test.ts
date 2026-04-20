@@ -10,7 +10,13 @@ describe('SettingsService', () => {
       settings: [
         { key: 'editor.fontSize', label: 'Font Size', type: 'number', defaultValue: 14 },
         { key: 'editor.wordWrap', label: 'Word Wrap', type: 'boolean', defaultValue: true },
-        { key: 'editor.theme', label: 'Theme', type: 'enum', defaultValue: 'dark', enumValues: ['dark', 'light'] },
+        {
+          key: 'editor.theme',
+          label: 'Theme',
+          type: 'enum',
+          defaultValue: 'dark',
+          enumValues: ['dark', 'light'],
+        },
       ],
     });
     return service;
@@ -152,7 +158,14 @@ describe('SettingsService', () => {
         id: 'audio',
         label: 'Audio',
         settings: [
-          { key: 'audio.volume', label: 'Volume', type: 'range', defaultValue: 50, min: 0, max: 100 },
+          {
+            key: 'audio.volume',
+            label: 'Volume',
+            type: 'range',
+            defaultValue: 50,
+            min: 0,
+            max: 100,
+          },
         ],
       });
       const errors: unknown[] = [];

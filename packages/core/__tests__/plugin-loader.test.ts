@@ -98,8 +98,8 @@ describe('PluginLoader', () => {
 
     const invalidManifest = { id: '', name: 'X', version: '1.0.0' } as PluginManifest;
 
-    await expect(
-      loader.loadFromPath('test.js', invalidManifest),
-    ).rejects.toThrow('Invalid manifest');
+    await expect(loader.loadFromPath('test.js', invalidManifest)).rejects.toThrow(
+      'Invalid manifest',
+    );
   });
 });

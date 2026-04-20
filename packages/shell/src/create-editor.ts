@@ -1,6 +1,21 @@
 import { CommandsPlugin, ICommandRegistry } from '@editrix/commands';
-import type { IKernel, IPlugin, IPluginManager, IPluginScanner, ISettingsService, IUndoRedoService } from '@editrix/core';
-import { createKernel, IPluginManager as IPluginManagerId, ISettingsService as ISettingsServiceId, IUndoRedoService as IUndoRedoServiceId, PluginManager, SettingsService, UndoRedoService } from '@editrix/core';
+import type {
+  IKernel,
+  IPlugin,
+  IPluginManager,
+  IPluginScanner,
+  ISettingsService,
+  IUndoRedoService,
+} from '@editrix/core';
+import {
+  createKernel,
+  IPluginManager as IPluginManagerId,
+  ISettingsService as ISettingsServiceId,
+  IUndoRedoService as IUndoRedoServiceId,
+  PluginManager,
+  SettingsService,
+  UndoRedoService,
+} from '@editrix/core';
 import { ILayoutService, LayoutPlugin } from '@editrix/layout';
 import { PropertiesPlugin } from '@editrix/properties';
 import { IViewAdapter, ViewPlugin } from '@editrix/view';
@@ -168,14 +183,18 @@ function registerBuiltinCommands(
     id: 'editrix.undo',
     title: 'Undo',
     category: 'Edit',
-    execute() { undoRedo.undo(); },
+    execute() {
+      undoRedo.undo();
+    },
   });
 
   commands.register({
     id: 'editrix.redo',
     title: 'Redo',
     category: 'Edit',
-    execute() { undoRedo.redo(); },
+    execute() {
+      undoRedo.redo();
+    },
   });
 
   commands.register({
@@ -204,16 +223,65 @@ function registerBuiltinCommands(
 /**
  * Register editor-wide settings and bind them reactively to CSS variables.
  */
-function registerEditorSettings(settings: ISettingsService, container: HTMLElement): SettingsBinding {
+function registerEditorSettings(
+  settings: ISettingsService,
+  container: HTMLElement,
+): SettingsBinding {
   settings.registerGroup({
     id: 'editrix.editor',
     label: 'Editor',
     settings: [
-      { key: 'editrix.editor.fontSize', label: 'Font Size', type: 'range', defaultValue: 13, min: 10, max: 24, step: 1, description: 'Base font size for the editor UI' },
-      { key: 'editrix.editor.fontFamily', label: 'Font Family', type: 'enum', defaultValue: 'system-ui', enumValues: ['system-ui', 'Segoe UI', 'Microsoft YaHei UI', 'Inter', 'Roboto', 'Arial', 'Helvetica'], description: 'Font family for the editor UI' },
-      { key: 'editrix.editor.monoFont', label: 'Monospace Font', type: 'enum', defaultValue: 'Consolas', enumValues: ['Consolas', 'Cascadia Code', 'Cascadia Mono', 'Courier New', 'monospace'], description: 'Monospace font for console, code, and IDs' },
-      { key: 'editrix.editor.sidebarWidth', label: 'Sidebar Width', type: 'range', defaultValue: 260, min: 180, max: 500, step: 10, description: 'Width of the sidebar panel in pixels' },
-      { key: 'editrix.editor.maxUndoSteps', label: 'Max Undo Steps', type: 'number', defaultValue: 100, description: 'Maximum number of undo steps to keep in history' },
+      {
+        key: 'editrix.editor.fontSize',
+        label: 'Font Size',
+        type: 'range',
+        defaultValue: 13,
+        min: 10,
+        max: 24,
+        step: 1,
+        description: 'Base font size for the editor UI',
+      },
+      {
+        key: 'editrix.editor.fontFamily',
+        label: 'Font Family',
+        type: 'enum',
+        defaultValue: 'system-ui',
+        enumValues: [
+          'system-ui',
+          'Segoe UI',
+          'Microsoft YaHei UI',
+          'Inter',
+          'Roboto',
+          'Arial',
+          'Helvetica',
+        ],
+        description: 'Font family for the editor UI',
+      },
+      {
+        key: 'editrix.editor.monoFont',
+        label: 'Monospace Font',
+        type: 'enum',
+        defaultValue: 'Consolas',
+        enumValues: ['Consolas', 'Cascadia Code', 'Cascadia Mono', 'Courier New', 'monospace'],
+        description: 'Monospace font for console, code, and IDs',
+      },
+      {
+        key: 'editrix.editor.sidebarWidth',
+        label: 'Sidebar Width',
+        type: 'range',
+        defaultValue: 260,
+        min: 180,
+        max: 500,
+        step: 10,
+        description: 'Width of the sidebar panel in pixels',
+      },
+      {
+        key: 'editrix.editor.maxUndoSteps',
+        label: 'Max Undo Steps',
+        type: 'number',
+        defaultValue: 100,
+        description: 'Maximum number of undo steps to keep in history',
+      },
     ],
   });
 

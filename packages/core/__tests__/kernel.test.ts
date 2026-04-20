@@ -123,9 +123,7 @@ describe('Kernel', () => {
 
     it('should throw on missing required dependency', async () => {
       const kernel = createKernel();
-      kernel.registerPlugin(
-        createPlugin('child', { dependencies: ['missing.dep'] }),
-      );
+      kernel.registerPlugin(createPlugin('child', { dependencies: ['missing.dep'] }));
 
       await expect(kernel.activatePlugin('child')).rejects.toThrow(
         'Plugin "child" requires "missing.dep", but it is not registered.',
@@ -439,9 +437,7 @@ describe('Kernel', () => {
       kernel.registerPlugin(
         createPlugin('provider', {
           activate: (ctx) => {
-            ctx.subscriptions.add(
-              ctx.services.register(IGreeter, { greet: () => 'hello' }),
-            );
+            ctx.subscriptions.add(ctx.services.register(IGreeter, { greet: () => 'hello' }));
           },
         }),
       );
@@ -475,9 +471,7 @@ describe('Kernel', () => {
         createPlugin('dark-theme', {
           dependencies: ['theme-host'],
           activate: (ctx) => {
-            ctx.subscriptions.add(
-              ctx.extensionPoints.contribute(ThemesEP, { name: 'dark' }),
-            );
+            ctx.subscriptions.add(ctx.extensionPoints.contribute(ThemesEP, { name: 'dark' }));
           },
         }),
       );

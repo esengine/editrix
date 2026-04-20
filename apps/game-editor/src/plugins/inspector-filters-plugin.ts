@@ -8,7 +8,9 @@ class InspectorComponentFilter implements IInspectorComponentFilter {
 
   register(predicate: (componentName: string) => boolean): IDisposable {
     this._predicates.add(predicate);
-    return toDisposable(() => { this._predicates.delete(predicate); });
+    return toDisposable(() => {
+      this._predicates.delete(predicate);
+    });
   }
 
   isHidden(componentName: string): boolean {

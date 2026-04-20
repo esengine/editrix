@@ -6,7 +6,9 @@
   "exports": {
     "./main": "./src/main.cjs"
   },
-  "files": ["src/main.cjs"],
+  "files": [
+    "src/main.cjs"
+  ],
   "scripts": {
     "clean": "rm -rf dist dist-renderer *.tsbuildinfo"
   },

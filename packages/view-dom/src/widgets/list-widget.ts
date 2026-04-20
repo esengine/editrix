@@ -176,14 +176,13 @@ export class ListWidget extends BaseWidget {
 
     this._listContainer.innerHTML = '';
 
-    let filtered = this._externalFilter
-      ? this._items.filter(this._externalFilter)
-      : this._items;
+    let filtered = this._externalFilter ? this._items.filter(this._externalFilter) : this._items;
 
     if (this._filterText) {
-      filtered = filtered.filter((i) =>
-        i.text.toLowerCase().includes(this._filterText) ||
-        (i.detail?.toLowerCase().includes(this._filterText) ?? false)
+      filtered = filtered.filter(
+        (i) =>
+          i.text.toLowerCase().includes(this._filterText) ||
+          (i.detail?.toLowerCase().includes(this._filterText) ?? false),
       );
     }
 

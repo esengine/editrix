@@ -1,11 +1,6 @@
 import type { Event, IDisposable } from '@editrix/common';
 import { Emitter, toDisposable } from '@editrix/common';
-import type {
-  FileChangeEvent,
-  FileEntry,
-  FileStat,
-  IFileSystemService,
-} from '@editrix/core';
+import type { FileChangeEvent, FileEntry, FileStat, IFileSystemService } from '@editrix/core';
 
 /**
  * Shape of the Electron preload bridge under window.electronAPI.fs.

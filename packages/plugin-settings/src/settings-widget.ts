@@ -34,7 +34,9 @@ export class SettingsWidget extends BaseWidget {
 
     // Re-render when settings change
     this.subscriptions.add(
-      this._settings.onDidChangeAny(() => { this._render(); }),
+      this._settings.onDidChangeAny(() => {
+        this._render();
+      }),
     );
 
     this._render();
@@ -48,10 +50,11 @@ export class SettingsWidget extends BaseWidget {
 
     for (const group of groups) {
       const matchingSettings = this._filterText
-        ? group.settings.filter((s) =>
-            s.label.toLowerCase().includes(this._filterText) ||
-            s.key.toLowerCase().includes(this._filterText) ||
-            (s.description?.toLowerCase().includes(this._filterText) ?? false)
+        ? group.settings.filter(
+            (s) =>
+              s.label.toLowerCase().includes(this._filterText) ||
+              s.key.toLowerCase().includes(this._filterText) ||
+              (s.description?.toLowerCase().includes(this._filterText) ?? false),
           )
         : group.settings;
 
@@ -129,7 +132,9 @@ export class SettingsWidget extends BaseWidget {
         cb.type = 'checkbox';
         cb.checked = value as boolean;
         cb.className = 'editrix-settings-checkbox';
-        cb.addEventListener('change', () => { this._settings.set(desc.key, cb.checked); });
+        cb.addEventListener('change', () => {
+          this._settings.set(desc.key, cb.checked);
+        });
         wrapper.appendChild(cb);
         break;
       }
@@ -138,7 +143,9 @@ export class SettingsWidget extends BaseWidget {
         const input = createElement('input', 'editrix-settings-input');
         input.type = 'number';
         input.value = String(value);
-        input.addEventListener('change', () => { this._settings.set(desc.key, parseFloat(input.value)); });
+        input.addEventListener('change', () => {
+          this._settings.set(desc.key, parseFloat(input.value));
+        });
         wrapper.appendChild(input);
         break;
       }
@@ -147,7 +154,9 @@ export class SettingsWidget extends BaseWidget {
         const input = createElement('input', 'editrix-settings-input');
         input.type = 'text';
         input.value = value as string;
-        input.addEventListener('change', () => { this._settings.set(desc.key, input.value); });
+        input.addEventListener('change', () => {
+          this._settings.set(desc.key, input.value);
+        });
         wrapper.appendChild(input);
         break;
       }
@@ -161,7 +170,9 @@ export class SettingsWidget extends BaseWidget {
           if (v === value) opt.selected = true;
           select.appendChild(opt);
         }
-        select.addEventListener('change', () => { this._settings.set(desc.key, select.value); });
+        select.addEventListener('change', () => {
+          this._settings.set(desc.key, select.value);
+        });
         wrapper.appendChild(select);
         break;
       }
@@ -195,7 +206,9 @@ export class SettingsWidget extends BaseWidget {
         input.type = 'color';
         input.value = value as string;
         input.className = 'editrix-settings-color';
-        input.addEventListener('input', () => { this._settings.set(desc.key, input.value); });
+        input.addEventListener('input', () => {
+          this._settings.set(desc.key, input.value);
+        });
         wrapper.appendChild(input);
         break;
       }

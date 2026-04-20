@@ -150,10 +150,7 @@ function removePanelInner(node: LayoutNode, panelId: string): LayoutNode {
  * Set the active tab in a tab group.
  * Returns a new tree (immutable operation).
  */
-export function setActiveTab(
-  root: LayoutNode,
-  panelId: string,
-): LayoutNode {
+export function setActiveTab(root: LayoutNode, panelId: string): LayoutNode {
   const found = findPanel(root, panelId);
   if (!found) return root;
 
@@ -225,11 +222,7 @@ function pathsEqual(a: readonly number[], b: readonly number[]): boolean {
  * Reorder a panel within its tab group.
  * Returns a new tree (immutable operation).
  */
-export function reorderPanel(
-  root: LayoutNode,
-  panelId: string,
-  newIndex: number,
-): LayoutNode {
+export function reorderPanel(root: LayoutNode, panelId: string, newIndex: number): LayoutNode {
   const found = findPanel(root, panelId);
   if (!found) return root;
 
@@ -298,7 +291,7 @@ export function movePanelToSplit(
 
   let tree = removePanel(root, panelId);
 
-  const direction = (side === 'left' || side === 'right') ? 'horizontal' : 'vertical';
+  const direction = side === 'left' || side === 'right' ? 'horizontal' : 'vertical';
   const isAfter = side === 'right' || side === 'bottom';
   const newTab: TabGroupNode = { type: 'tab-group', panels: [panelId], activeIndex: 0 };
 

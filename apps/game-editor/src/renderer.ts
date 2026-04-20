@@ -138,11 +138,14 @@ async function main(): Promise<void> {
 
   // Preload the runtime SDK so the first Play doesn't wait on a 368KB fetch.
   const estellaService = editor.kernel.services.get(IEstellaService);
-  estellaService.loadCore('estella:///').then(() => {
-    return estellaService.loadSDK();
-  }).catch((err: unknown) => {
-    consoleService.log('error', `Failed to load estella: ${String(err)}`, 'estella');
-  });
+  estellaService
+    .loadCore('estella:///')
+    .then(() => {
+      return estellaService.loadSDK();
+    })
+    .catch((err: unknown) => {
+      consoleService.log('error', `Failed to load estella: ${String(err)}`, 'estella');
+    });
 
   // Check plugin API version compatibility
   for (const info of editor.pluginManager.getAll()) {
@@ -160,94 +163,180 @@ async function main(): Promise<void> {
   // ── Menu bar ──
   editor.view.menuBar.setAppIcon('extensions');
   editor.view.menuBar.addMenu({
-    id: 'file', label: 'File', items: [
-      { id: 'file.newScene', label: 'New Scene', onClick: () => {
-        void editor.commands.execute('scene.new');
-      } },
-      { id: 'file.openScene', label: 'Open Scene...', onClick: () => {
-        void editor.commands.execute('scene.open');
-      } },
-      { id: 'sep0', label: '', separator: true },
-      { id: 'file.save', label: 'Save', shortcut: 'Mod+S', onClick: () => {
-        void editor.commands.execute('file.save');
-      } },
-      { id: 'sep1', label: '', separator: true },
-      { id: 'file.exit', label: 'Exit', shortcut: 'Mod+Q', onClick: () => { window.close(); } },
-    ],
-  });
-  editor.view.menuBar.addMenu({
-    id: 'edit-menu', label: 'Edit', items: [
-      { id: 'edit.undo', label: 'Undo', shortcut: 'Mod+Z', onClick: () => { editor.undoRedo.undo(); } },
-      { id: 'edit.redo', label: 'Redo', shortcut: 'Mod+Shift+Z', onClick: () => { editor.undoRedo.redo(); } },
-      { id: 'sep2', label: '', separator: true },
-      { id: 'edit.prefs', label: 'Settings...', shortcut: 'Mod+,', onClick: () => { void editor.commands.execute('settings.show'); } },
-    ],
-  });
-  editor.view.menuBar.addMenu({
-    id: 'debug', label: 'Debug', items: [
-      { id: 'debug.cmd', label: 'Command Palette', shortcut: 'Mod+Shift+P', onClick: () => { editor.view.commandPalette.open(); } },
-    ],
-  });
-  editor.view.menuBar.addMenu({
-    id: 'project', label: 'Project', items: [
+    id: 'file',
+    label: 'File',
+    items: [
       {
-        id: 'project.createPlugin', label: 'Create Plugin...', onClick: () => {
+        id: 'file.newScene',
+        label: 'New Scene',
+        onClick: () => {
+          void editor.commands.execute('scene.new');
+        },
+      },
+      {
+        id: 'file.openScene',
+        label: 'Open Scene...',
+        onClick: () => {
+          void editor.commands.execute('scene.open');
+        },
+      },
+      { id: 'sep0', label: '', separator: true },
+      {
+        id: 'file.save',
+        label: 'Save',
+        shortcut: 'Mod+S',
+        onClick: () => {
+          void editor.commands.execute('file.save');
+        },
+      },
+      { id: 'sep1', label: '', separator: true },
+      {
+        id: 'file.exit',
+        label: 'Exit',
+        shortcut: 'Mod+Q',
+        onClick: () => {
+          window.close();
+        },
+      },
+    ],
+  });
+  editor.view.menuBar.addMenu({
+    id: 'edit-menu',
+    label: 'Edit',
+    items: [
+      {
+        id: 'edit.undo',
+        label: 'Undo',
+        shortcut: 'Mod+Z',
+        onClick: () => {
+          editor.undoRedo.undo();
+        },
+      },
+      {
+        id: 'edit.redo',
+        label: 'Redo',
+        shortcut: 'Mod+Shift+Z',
+        onClick: () => {
+          editor.undoRedo.redo();
+        },
+      },
+      { id: 'sep2', label: '', separator: true },
+      {
+        id: 'edit.prefs',
+        label: 'Settings...',
+        shortcut: 'Mod+,',
+        onClick: () => {
+          void editor.commands.execute('settings.show');
+        },
+      },
+    ],
+  });
+  editor.view.menuBar.addMenu({
+    id: 'debug',
+    label: 'Debug',
+    items: [
+      {
+        id: 'debug.cmd',
+        label: 'Command Palette',
+        shortcut: 'Mod+Shift+P',
+        onClick: () => {
+          editor.view.commandPalette.open();
+        },
+      },
+    ],
+  });
+  editor.view.menuBar.addMenu({
+    id: 'project',
+    label: 'Project',
+    items: [
+      {
+        id: 'project.createPlugin',
+        label: 'Create Plugin...',
+        onClick: () => {
           void showInputDialog('Create Plugin', {
             placeholder: 'Plugin name (e.g. My Tool)',
             okLabel: 'Create',
           }).then((name) => {
             if (!name) return;
-            const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            const slug = name
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-|-$/g, '');
             if (!slug) return;
             const electronApi = getApi() as unknown as {
-              createPlugin(p: string, id: string, n: string): Promise<{ success: boolean; error?: string }>;
+              createPlugin(
+                p: string,
+                id: string,
+                n: string,
+              ): Promise<{ success: boolean; error?: string }>;
             };
-            void electronApi.createPlugin(projectPath, slug, name).then(async (result: { success: boolean; error?: string }) => {
-              if (!result.success) {
-                consoleService.log('error', `Failed to create plugin: ${result.error ?? 'unknown'}`);
-                return;
-              }
-              consoleService.log('info', `Plugin "${name}" created at plugins/${slug}/`);
-              // Hot-load: read plugin.json to get the main entry path
-              try {
-                const pluginDir = project.resolve(`plugins/${slug}`);
-                const manifestRaw = await fileSystem.readFile(`${pluginDir}/plugin.json`);
-                const manifest = JSON.parse(manifestRaw) as { main?: string };
-                const mainFile = manifest.main ?? 'dist/index.js';
-                const entryUrl = `file:///${pluginDir}/${mainFile}`;
-                const mod = await import(/* webpackIgnore: true */ entryUrl) as Record<string, unknown>;
-                const plugin = (mod['default'] ?? mod['plugin']) as { descriptor?: { id: string }; activate?: unknown } | undefined;
-                if (plugin?.descriptor && typeof plugin.activate === 'function') {
-                  editor.kernel.registerPlugin(plugin as unknown as IPlugin);
-                  await editor.kernel.activatePlugin(plugin.descriptor.id);
-                  consoleService.log('info', `Plugin "${name}" loaded and activated.`);
+            void electronApi
+              .createPlugin(projectPath, slug, name)
+              .then(async (result: { success: boolean; error?: string }) => {
+                if (!result.success) {
+                  consoleService.log(
+                    'error',
+                    `Failed to create plugin: ${result.error ?? 'unknown'}`,
+                  );
+                  return;
                 }
-              } catch (err) {
-                consoleService.log('warn', `Plugin created but could not hot-load: ${String(err)}`);
-                consoleService.log('info', 'Restart the editor to load the plugin.');
-              }
-            });
+                consoleService.log('info', `Plugin "${name}" created at plugins/${slug}/`);
+                // Hot-load: read plugin.json to get the main entry path
+                try {
+                  const pluginDir = project.resolve(`plugins/${slug}`);
+                  const manifestRaw = await fileSystem.readFile(`${pluginDir}/plugin.json`);
+                  const manifest = JSON.parse(manifestRaw) as { main?: string };
+                  const mainFile = manifest.main ?? 'dist/index.js';
+                  const entryUrl = `file:///${pluginDir}/${mainFile}`;
+                  const mod = (await import(/* webpackIgnore: true */ entryUrl)) as Record<
+                    string,
+                    unknown
+                  >;
+                  const plugin = (mod['default'] ?? mod['plugin']) as
+                    | { descriptor?: { id: string }; activate?: unknown }
+                    | undefined;
+                  if (plugin?.descriptor && typeof plugin.activate === 'function') {
+                    editor.kernel.registerPlugin(plugin as unknown as IPlugin);
+                    await editor.kernel.activatePlugin(plugin.descriptor.id);
+                    consoleService.log('info', `Plugin "${name}" loaded and activated.`);
+                  }
+                } catch (err) {
+                  consoleService.log(
+                    'warn',
+                    `Plugin created but could not hot-load: ${String(err)}`,
+                  );
+                  consoleService.log('info', 'Restart the editor to load the plugin.');
+                }
+              });
           });
         },
       },
     ],
   });
   const DEFAULT_PANELS: readonly string[] = [
-    'viewport', 'hierarchy', 'inspector', 'project-files', 'content-browser',
+    'viewport',
+    'hierarchy',
+    'inspector',
+    'project-files',
+    'content-browser',
   ];
   const openDefaultPanels = (): void => {
     for (const id of DEFAULT_PANELS) editor.layout.openPanel(id);
   };
 
   editor.commands.register({
-    id: 'view.openPanel', title: 'Open Panel...', category: 'View',
+    id: 'view.openPanel',
+    title: 'Open Panel...',
+    category: 'View',
     execute() {
       const adapter = editor.kernel.services.get(IViewAdapter);
       if (adapter instanceof DomViewAdapter) adapter.showPanelPicker();
     },
   });
   editor.commands.register({
-    id: 'view.resetLayout', title: 'Reset Layout', category: 'View',
+    id: 'view.resetLayout',
+    title: 'Reset Layout',
+    category: 'View',
     execute() {
       editor.layout.setLayout({ type: 'tab-group', panels: [], activeIndex: 0 });
       openDefaultPanels();
@@ -255,9 +344,23 @@ async function main(): Promise<void> {
   });
 
   editor.view.menuBar.addMenu({
-    id: 'view-menu', label: 'View', items: [
-      { id: 'view.openPanel', label: 'Open Panel...', onClick: () => { void editor.commands.execute('view.openPanel'); } },
-      { id: 'view.resetLayout', label: 'Reset Layout', onClick: () => { void editor.commands.execute('view.resetLayout'); } },
+    id: 'view-menu',
+    label: 'View',
+    items: [
+      {
+        id: 'view.openPanel',
+        label: 'Open Panel...',
+        onClick: () => {
+          void editor.commands.execute('view.openPanel');
+        },
+      },
+      {
+        id: 'view.resetLayout',
+        label: 'Reset Layout',
+        onClick: () => {
+          void editor.commands.execute('view.resetLayout');
+        },
+      },
     ],
   });
 
@@ -267,7 +370,9 @@ async function main(): Promise<void> {
 
   const keybindings = editor.kernel.services.get(IKeybindingService);
   editor.commands.register({
-    id: 'file.save', title: 'Save', category: 'File',
+    id: 'file.save',
+    title: 'Save',
+    category: 'File',
     execute() {
       const active = documentService.activeDocument;
       if (!active) return;
@@ -277,19 +382,29 @@ async function main(): Promise<void> {
     },
   });
   editor.commands.register({
-    id: 'view.commandPalette', title: 'Command Palette', category: 'View',
+    id: 'view.commandPalette',
+    title: 'Command Palette',
+    category: 'View',
     execute() {
       if (editor.view.commandPalette.isOpen) editor.view.commandPalette.close();
       else editor.view.commandPalette.open();
     },
   });
   editor.commands.register({
-    id: 'edit.undo', title: 'Undo', category: 'Edit',
-    execute() { editor.undoRedo.undo(); },
+    id: 'edit.undo',
+    title: 'Undo',
+    category: 'Edit',
+    execute() {
+      editor.undoRedo.undo();
+    },
   });
   editor.commands.register({
-    id: 'edit.redo', title: 'Redo', category: 'Edit',
-    execute() { editor.undoRedo.redo(); },
+    id: 'edit.redo',
+    title: 'Redo',
+    category: 'Edit',
+    execute() {
+      editor.undoRedo.redo();
+    },
   });
   keybindings.register({ key: 'Mod+S', commandId: 'file.save' });
   keybindings.register({ key: 'Mod+Z', commandId: 'edit.undo' });
@@ -305,9 +420,10 @@ async function main(): Promise<void> {
         return;
       }
 
-      const message = dirty.length === 1
-        ? `"${dirty[0]?.name ?? ''}" has unsaved changes.\nSave before closing?`
-        : `${String(dirty.length)} files have unsaved changes:\n\n${dirty.map((d) => `• ${d.name}`).join('\n')}\n\nSave before closing?`;
+      const message =
+        dirty.length === 1
+          ? `"${dirty[0]?.name ?? ''}" has unsaved changes.\nSave before closing?`
+          : `${String(dirty.length)} files have unsaved changes:\n\n${dirty.map((d) => `• ${d.name}`).join('\n')}\n\nSave before closing?`;
 
       const choice = await showThreeChoiceDialog(message);
       if (choice === 'cancel') {
@@ -347,9 +463,15 @@ async function main(): Promise<void> {
     playBtn.title = 'Play (F5)';
     playBtn.addEventListener('click', () => {
       switch (playMode.mode) {
-        case 'edit': playMode.play(); break;
-        case 'playing': playMode.pause(); break;
-        case 'paused': playMode.resume(); break;
+        case 'edit':
+          playMode.play();
+          break;
+        case 'playing':
+          playMode.pause();
+          break;
+        case 'paused':
+          playMode.resume();
+          break;
       }
     });
     rightSection.appendChild(playBtn);
@@ -359,7 +481,9 @@ async function main(): Promise<void> {
     stopBtn.appendChild(createIconElement('x', 16));
     stopBtn.title = 'Stop (Shift+F5)';
     stopBtn.style.display = 'none';
-    stopBtn.addEventListener('click', () => { playMode.stop(); });
+    stopBtn.addEventListener('click', () => {
+      playMode.stop();
+    });
     rightSection.appendChild(stopBtn);
 
     const stepBtn = document.createElement('button');
@@ -367,7 +491,9 @@ async function main(): Promise<void> {
     stepBtn.appendChild(createIconElement('refresh', 16));
     stepBtn.title = 'Step one frame (F6)';
     stepBtn.style.display = 'none';
-    stepBtn.addEventListener('click', () => { playMode.step(); });
+    stepBtn.addEventListener('click', () => {
+      playMode.step();
+    });
     rightSection.appendChild(stepBtn);
 
     // Play is meaningful only for `.scene.json` docs. When the user has a
@@ -386,16 +512,26 @@ async function main(): Promise<void> {
       playBtn.disabled = blocked;
       playBtn.title = blocked
         ? 'Play is disabled for this document type'
-        : mode === 'playing' ? 'Pause (F5)' : mode === 'paused' ? 'Resume (F5)' : 'Play (F5)';
+        : mode === 'playing'
+          ? 'Pause (F5)'
+          : mode === 'paused'
+            ? 'Resume (F5)'
+            : 'Play (F5)';
       stopBtn.style.display = mode === 'edit' ? 'none' : '';
       stepBtn.style.display = mode === 'paused' ? '' : 'none';
     };
     updatePlayButtons(playMode.mode);
-    playMode.onDidChangeMode(({ current }) => { updatePlayButtons(current); });
+    playMode.onDidChangeMode(({ current }) => {
+      updatePlayButtons(current);
+    });
     // Repaint on document switch so the Play button's disabled state
     // tracks whatever tab is active.
-    documentService.onDidChangeActive(() => { updatePlayButtons(playMode.mode); });
-    documentService.onDidChangeDocuments(() => { updatePlayButtons(playMode.mode); });
+    documentService.onDidChangeActive(() => {
+      updatePlayButtons(playMode.mode);
+    });
+    documentService.onDidChangeDocuments(() => {
+      updatePlayButtons(playMode.mode);
+    });
 
     // Keyboard: F5 toggles play/pause, Shift+F5 stops, F6 steps.
     document.addEventListener('keydown', (e) => {
@@ -406,9 +542,15 @@ async function main(): Promise<void> {
           playMode.stop();
         } else {
           switch (playMode.mode) {
-            case 'edit': playMode.play(); break;
-            case 'playing': playMode.pause(); break;
-            case 'paused': playMode.resume(); break;
+            case 'edit':
+              playMode.play();
+              break;
+            case 'playing':
+              playMode.pause();
+              break;
+            case 'paused':
+              playMode.resume();
+              break;
           }
         }
       } else if (e.key === 'F6' && playMode.mode === 'paused') {
@@ -436,7 +578,11 @@ async function main(): Promise<void> {
   }
 
   // ── Status bar ──
-  editor.view.statusBar.addItem({ id: 'branch', text: '\u{2387} main (a1b2c3d)', alignment: 'left' });
+  editor.view.statusBar.addItem({
+    id: 'branch',
+    text: '\u{2387} main (a1b2c3d)',
+    alignment: 'left',
+  });
   editor.view.statusBar.addItem({ id: 'version', text: 'editrix-0.1.0', alignment: 'left' });
 
   // Mode indicator — quietly says EDIT, loudly says PLAY/PAUSED so the user
@@ -448,8 +594,10 @@ async function main(): Promise<void> {
         const { frame, avgDtMs } = playModeService.frameStats;
         return frame > 0 ? `▶ PLAY  ${String(frame)}f · ${avgDtMs.toFixed(1)}ms` : '▶ PLAY';
       }
-      case 'paused':  return '❚❚ PAUSED';
-      case 'edit':    return 'EDIT';
+      case 'paused':
+        return '❚❚ PAUSED';
+      case 'edit':
+        return 'EDIT';
     }
   };
   editor.view.statusBar.addItem({
@@ -481,8 +629,12 @@ async function main(): Promise<void> {
   document.body.dataset['playMode'] = playModeService.mode;
 
   editor.view.statusBar.addItem({
-    id: 'cmd-hint', text: formatKeyForDisplay('Mod+Shift+P'), alignment: 'right',
-    onClick: () => { editor.view.commandPalette.open(); },
+    id: 'cmd-hint',
+    text: formatKeyForDisplay('Mod+Shift+P'),
+    alignment: 'right',
+    onClick: () => {
+      editor.view.commandPalette.open();
+    },
   });
 
   // ── Layout ──
@@ -572,7 +724,7 @@ async function main(): Promise<void> {
         try {
           // Re-import with cache-busting timestamp
           const entryUrl = `file:///${event.path}?t=${Date.now()}`;
-          const mod = await import(/* webpackIgnore: true */ entryUrl) as Record<string, unknown>;
+          const mod = (await import(/* webpackIgnore: true */ entryUrl)) as Record<string, unknown>;
           const plugin = (mod['default'] ?? mod['plugin']) as IPlugin | undefined;
           if (plugin && typeof plugin.activate === 'function') {
             editor.kernel.registerPlugin(plugin);

@@ -50,10 +50,14 @@ export class PluginManagerWidget extends BaseWidget {
     this._listEl = this.appendElement(root, 'div', 'editrix-pm-list');
 
     this.subscriptions.add(
-      this._manager.onDidChangePlugin(() => { this._renderList(); }),
+      this._manager.onDidChangePlugin(() => {
+        this._renderList();
+      }),
     );
     this.subscriptions.add(
-      this._manager.onDidChangePluginList(() => { this._renderList(); }),
+      this._manager.onDidChangePluginList(() => {
+        this._renderList();
+      }),
     );
 
     this._renderList();
@@ -65,10 +69,11 @@ export class PluginManagerWidget extends BaseWidget {
 
     const all = this._manager.getAll();
     const filtered = this._filterText
-      ? all.filter((p) =>
-          p.manifest.name.toLowerCase().includes(this._filterText) ||
-          p.manifest.id.toLowerCase().includes(this._filterText) ||
-          (p.manifest.description?.toLowerCase().includes(this._filterText) ?? false)
+      ? all.filter(
+          (p) =>
+            p.manifest.name.toLowerCase().includes(this._filterText) ||
+            p.manifest.id.toLowerCase().includes(this._filterText) ||
+            (p.manifest.description?.toLowerCase().includes(this._filterText) ?? false),
         )
       : all;
 
@@ -147,17 +152,23 @@ export class PluginManagerWidget extends BaseWidget {
     if (!info.builtin) {
       const actions = createElement('div', 'editrix-pm-actions');
       if (info.disabled) {
-        actions.appendChild(this._actionBtn('Enable', '#4ec9b0', () => {
-          void this._manager.enablePlugin(info.manifest.id);
-        }));
+        actions.appendChild(
+          this._actionBtn('Enable', '#4ec9b0', () => {
+            void this._manager.enablePlugin(info.manifest.id);
+          }),
+        );
       } else {
-        actions.appendChild(this._actionBtn('Disable', '#858585', () => {
-          void this._manager.disablePlugin(info.manifest.id);
-        }));
+        actions.appendChild(
+          this._actionBtn('Disable', '#858585', () => {
+            void this._manager.disablePlugin(info.manifest.id);
+          }),
+        );
       }
-      actions.appendChild(this._actionBtn('Remove', '#f14c4c', () => {
-        void this._manager.uninstallPlugin(info.manifest.id);
-      }));
+      actions.appendChild(
+        this._actionBtn('Remove', '#f14c4c', () => {
+          void this._manager.uninstallPlugin(info.manifest.id);
+        }),
+      );
       row.appendChild(actions);
     }
 
@@ -168,7 +179,10 @@ export class PluginManagerWidget extends BaseWidget {
     const btn = createElement('button', 'editrix-pm-btn');
     btn.textContent = label;
     btn.style.setProperty('--hover-color', hoverColor);
-    btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onClick();
+    });
     return btn;
   }
 

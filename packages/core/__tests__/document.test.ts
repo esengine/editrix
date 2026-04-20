@@ -266,9 +266,7 @@ describe('DocumentService', () => {
 
       reg.dispose();
 
-      await expect(service.open('/proj/a.scene.json')).rejects.toThrow(
-        'No document handler',
-      );
+      await expect(service.open('/proj/a.scene.json')).rejects.toThrow('No document handler');
     });
   });
 });

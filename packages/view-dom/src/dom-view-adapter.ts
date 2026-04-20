@@ -173,7 +173,9 @@ export class DomViewAdapter implements IViewAdapter {
       if (!e.dataTransfer?.types.includes('text/x-editrix-panel')) return;
       this._container?.classList.add('editrix-root--dragging');
     };
-    const onDragEnd = (): void => { this._container?.classList.remove('editrix-root--dragging'); };
+    const onDragEnd = (): void => {
+      this._container?.classList.remove('editrix-root--dragging');
+    };
     document.addEventListener('dragstart', onDragStart);
     document.addEventListener('dragend', onDragEnd);
     this._subscriptions.add({
@@ -190,8 +192,12 @@ export class DomViewAdapter implements IViewAdapter {
     this._layoutRenderer = new LayoutRenderer(
       this._layoutContainer,
       (panelId) => this._viewService.createWidget(panelId),
-      (panelId) => { this._layoutService.activatePanel(panelId); },
-      (panelId) => { this._layoutService.closePanel(panelId); },
+      (panelId) => {
+        this._layoutService.activatePanel(panelId);
+      },
+      (panelId) => {
+        this._layoutService.closePanel(panelId);
+      },
       (panelId, targetPath, position) => {
         if (position === 'center') {
           this._layoutService.movePanelToGroup(panelId, targetPath);
@@ -202,7 +208,9 @@ export class DomViewAdapter implements IViewAdapter {
       // onTabAdd: show a quick-pick of all panels not currently open in any
       // group, scoped to the group the user clicked + on. App plugins
       // register their panels via ILayoutService; we just present the list.
-      (_groupPath, anchor) => { this.showPanelPicker(anchor); },
+      (_groupPath, anchor) => {
+        this.showPanelPicker(anchor);
+      },
       (panelId) => this._layoutService.getDescriptor(panelId)?.title ?? panelId,
       (panelId) => this._layoutService.getDescriptor(panelId)?.draggable !== false,
       (panelId) => this._layoutService.getDescriptor(panelId)?.closable !== false,
@@ -298,7 +306,8 @@ export class DomViewAdapter implements IViewAdapter {
     const openIds = new Set(this._layoutService.getOpenPanelIds());
     const closed = all.filter((d) => !openIds.has(d.id));
     if (closed.length === 0) return;
-    const resolvedAnchor = anchor ?? this._container?.querySelector('.editrix-menubar') as HTMLElement | null;
+    const resolvedAnchor =
+      anchor ?? (this._container?.querySelector('.editrix-menubar') as HTMLElement | null);
     if (!resolvedAnchor) return;
     showQuickPick({
       items: closed.map((d) => ({
@@ -308,7 +317,9 @@ export class DomViewAdapter implements IViewAdapter {
       })),
       anchor: resolvedAnchor,
       placeholder: 'Open panel...',
-      onSelect: (item) => { this._layoutService.openPanel(item.id); },
+      onSelect: (item) => {
+        this._layoutService.openPanel(item.id);
+      },
     });
   }
 
@@ -326,12 +337,18 @@ export class DomViewAdapter implements IViewAdapter {
       this._onInput.fire({
         type: 'keydown',
         key: this._buildKeyString(e),
-        preventDefault: () => { e.preventDefault(); },
+        preventDefault: () => {
+          e.preventDefault();
+        },
       });
     };
 
     document.addEventListener('keydown', handler);
-    return { dispose: () => { document.removeEventListener('keydown', handler); } };
+    return {
+      dispose: () => {
+        document.removeEventListener('keydown', handler);
+      },
+    };
   }
 
   private _buildKeyString(e: KeyboardEvent): string {
@@ -385,7 +402,7 @@ export class DomViewAdapter implements IViewAdapter {
   private _rootDrop(panelId: string, side: 'left' | 'right' | 'top' | 'bottom'): void {
     const tree = removePanel(this._layoutService.getLayout(), panelId);
 
-    const direction = (side === 'left' || side === 'right') ? 'horizontal' : 'vertical';
+    const direction = side === 'left' || side === 'right' ? 'horizontal' : 'vertical';
     const isAfter = side === 'right' || side === 'bottom';
     const newTab = { type: 'tab-group' as const, panels: [panelId], activeIndex: 0 };
     const sideWeight = side === 'left' || side === 'right' ? 0.2 : 0.25;

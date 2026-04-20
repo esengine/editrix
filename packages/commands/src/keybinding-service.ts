@@ -142,10 +142,7 @@ export class KeybindingService implements IKeybindingService {
  */
 function normalizeKey(key: string): string {
   // Handle chord sequences (e.g. 'Ctrl+K Ctrl+C')
-  return key
-    .split(' ')
-    .map(normalizeChord)
-    .join(' ');
+  return key.split(' ').map(normalizeChord).join(' ');
 }
 
 function normalizeChord(chord: string): string {

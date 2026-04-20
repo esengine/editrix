@@ -7,13 +7,13 @@ ESLint 自动检查的规则用 `[lint]` 标记，需人工遵守的用 `[review
 
 ## 1. 语言与编译
 
-| 规则 | 说明 |
-|------|------|
-| TypeScript 版本 | ≥ 5.7，使用 ES2022 目标 |
-| 模块系统 | ESM only (`"type": "module"`) |
-| 严格模式 | `strict: true` + 所有额外严格选项均开启 |
-| Import 后缀 | 所有相对导入必须带 `.js` 后缀 `[lint]` |
-| verbatimModuleSyntax | 启用，强制 `import type` 分离 `[lint]` |
+| 规则                 | 说明                                    |
+| -------------------- | --------------------------------------- |
+| TypeScript 版本      | ≥ 5.7，使用 ES2022 目标                 |
+| 模块系统             | ESM only (`"type": "module"`)           |
+| 严格模式             | `strict: true` + 所有额外严格选项均开启 |
+| Import 后缀          | 所有相对导入必须带 `.js` 后缀 `[lint]`  |
+| verbatimModuleSyntax | 启用，强制 `import type` 分离 `[lint]`  |
 
 ---
 
@@ -32,29 +32,31 @@ camelCase.ts        ✗ serviceRegistry.ts
 
 ### 2.2 标识符命名
 
-| 类型 | 格式 | 示例 | 检查 |
-|------|------|------|------|
-| 接口（服务/行为） | `I` + PascalCase | `IServiceRegistry`, `IKernel` | `[review]` |
-| 接口（数据/内部） | PascalCase | `PluginEntry`, `ServiceEntry` | `[lint]` |
-| 类型别名 | PascalCase | `Event<T>`, `StepResult` | `[lint]` |
-| 品牌类型 | PascalCase | `ServiceIdentifier<T>` | `[lint]` |
-| 类 | PascalCase | `EventBus`, `Emitter<T>` | `[lint]` |
-| 枚举 | PascalCase | `PluginState`, `ServiceScope` | `[lint]` |
-| 枚举成员 | PascalCase | `PluginState.Active` | `[lint]` |
-| 函数 | camelCase | `createKernel()` | `[lint]` |
-| 变量 | camelCase / UPPER_CASE | `const result`, `const MAX_RETRIES` | `[lint]` |
-| 服务 ID 常量 | PascalCase（与接口同名） | `const ILogger = createServiceId<ILogger>('ILogger')` | `[lint]` |
-| 私有成员 | `_` + camelCase | `private _listeners` | `[lint]` |
-| 参数 | camelCase | `pluginId`, `eventId` | `[lint]` |
+| 类型              | 格式                     | 示例                                                  | 检查       |
+| ----------------- | ------------------------ | ----------------------------------------------------- | ---------- |
+| 接口（服务/行为） | `I` + PascalCase         | `IServiceRegistry`, `IKernel`                         | `[review]` |
+| 接口（数据/内部） | PascalCase               | `PluginEntry`, `ServiceEntry`                         | `[lint]`   |
+| 类型别名          | PascalCase               | `Event<T>`, `StepResult`                              | `[lint]`   |
+| 品牌类型          | PascalCase               | `ServiceIdentifier<T>`                                | `[lint]`   |
+| 类                | PascalCase               | `EventBus`, `Emitter<T>`                              | `[lint]`   |
+| 枚举              | PascalCase               | `PluginState`, `ServiceScope`                         | `[lint]`   |
+| 枚举成员          | PascalCase               | `PluginState.Active`                                  | `[lint]`   |
+| 函数              | camelCase                | `createKernel()`                                      | `[lint]`   |
+| 变量              | camelCase / UPPER_CASE   | `const result`, `const MAX_RETRIES`                   | `[lint]`   |
+| 服务 ID 常量      | PascalCase（与接口同名） | `const ILogger = createServiceId<ILogger>('ILogger')` | `[lint]`   |
+| 私有成员          | `_` + camelCase          | `private _listeners`                                  | `[lint]`   |
+| 参数              | camelCase                | `pluginId`, `eventId`                                 | `[lint]`   |
 
 ### 2.3 `I` 前缀规则 `[review]`
 
 **使用 `I` 前缀的场景：**
+
 - 定义服务合约（消费者依赖的抽象）：`IKernel`, `IServiceRegistry`, `IEventBus`
 - 定义插件上下文：`IPlugin`, `IPluginContext`
 - 可被外部替换/mock 的接口
 
 **不使用 `I` 前缀的场景：**
+
 - 数据结构 / DTO：`PluginEntry`, `ServiceEntry`
 - 品牌类型：`ServiceIdentifier<T>`, `ExtensionPointId<T>`
 - 函数类型别名：`Event<T>`
@@ -107,18 +109,20 @@ export { createKernel } from './kernel.js';
 ### 4.1 JSDoc — 何时写 `[review]`
 
 **必须写 JSDoc 的：**
+
 - 所有 `export` 的接口、类型、类、函数
 - 接口的每个方法/属性
 - 复杂的业务逻辑
 
 **不需要 JSDoc 的：**
+
 - 私有实现细节（名字已自解释的）
 - 测试代码
 - 类型已经完全自解释的简单 getter/setter
 
 ### 4.2 JSDoc 格式 `[review]`
 
-```typescript
+````typescript
 /**
  * 一句话描述做什么（必须）。
  *
@@ -130,9 +134,10 @@ export { createKernel } from './kernel.js';
  * await kernel.start();
  * ```
  */
-```
+````
 
 规则：
+
 - 第一行是摘要，以句号结尾
 - 摘要和详情之间空一行
 - 用 `@example` 展示用法（公共 API 必须有）
@@ -161,13 +166,13 @@ for (const [pattern, handlers] of this._wildcards) { ... }
 
 ### 5.1 格式化 — Prettier `[lint]`
 
-| 规则 | 值 |
-|------|-----|
-| 分号 | 总是 |
-| 引号 | 单引号 |
-| 尾逗号 | 总是 |
-| 行宽 | 100 |
-| 缩进 | 2 空格 |
+| 规则   | 值     |
+| ------ | ------ |
+| 分号   | 总是   |
+| 引号   | 单引号 |
+| 尾逗号 | 总是   |
+| 行宽   | 100    |
+| 缩进   | 2 空格 |
 
 ### 5.2 类结构 `[review]`
 
@@ -257,15 +262,15 @@ common ← core ← 其他所有包
 
 ### 6.4 禁止项 `[lint]` / `[review]`
 
-| 禁止 | 原因 |
-|------|------|
-| `any` | 使用 `unknown` + 类型守卫 `[lint]` |
-| `console.log` | 使用框架日志系统 `[lint]` |
-| `eval` / `Function()` | 安全风险 `[lint]` |
-| `require()` | ESM only `[lint]` |
-| 装饰器 | 不用 `reflect-metadata`，保持零依赖 `[review]` |
-| 类继承 > 2 层 | 优先组合 `[review]` |
-| 循环引用 | 重构为单向依赖 `[review]` |
+| 禁止                  | 原因                                           |
+| --------------------- | ---------------------------------------------- |
+| `any`                 | 使用 `unknown` + 类型守卫 `[lint]`             |
+| `console.log`         | 使用框架日志系统 `[lint]`                      |
+| `eval` / `Function()` | 安全风险 `[lint]`                              |
+| `require()`           | ESM only `[lint]`                              |
+| 装饰器                | 不用 `reflect-metadata`，保持零依赖 `[review]` |
+| 类继承 > 2 层         | 优先组合 `[review]`                            |
+| 循环引用              | 重构为单向依赖 `[review]`                      |
 
 ---
 
@@ -312,6 +317,7 @@ type: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`
 scope: 包名（`common`, `core`, `document` 等）
 
 示例：
+
 ```
 feat(core): add lazy plugin activation via activationEvents
 

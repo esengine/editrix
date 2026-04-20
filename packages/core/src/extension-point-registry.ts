@@ -23,10 +23,7 @@ export interface IExtensionPoint<T> {
  */
 export interface IExtensionPointAccess {
   /** Declare a new extension point. */
-  declare<T>(
-    id: ExtensionPointId<T>,
-    options?: ExtensionPointOptions<T>,
-  ): IExtensionPoint<T>;
+  declare<T>(id: ExtensionPointId<T>, options?: ExtensionPointOptions<T>): IExtensionPoint<T>;
 
   /** Contribute to a declared extension point. */
   contribute<T>(id: ExtensionPointId<T>, contribution: T): IDisposable;
@@ -73,10 +70,7 @@ export class ExtensionPointRegistry implements IExtensionPointAccess, IDisposabl
   private readonly _points = new Map<string, ExtensionPointEntry>();
   private readonly _pending = new Map<string, PendingSubscriber[]>();
 
-  declare<T>(
-    id: ExtensionPointId<T>,
-    options?: ExtensionPointOptions<T>,
-  ): IExtensionPoint<T> {
+  declare<T>(id: ExtensionPointId<T>, options?: ExtensionPointOptions<T>): IExtensionPoint<T> {
     if (this._points.has(id.id)) {
       throw new Error(`Extension point "${id.id}" is already declared.`);
     }

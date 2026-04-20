@@ -24,7 +24,13 @@
  * do its fields expect".
  */
 
-import { createServiceId, Emitter, toDisposable, type Event, type IDisposable } from '@editrix/common';
+import {
+  createServiceId,
+  Emitter,
+  toDisposable,
+  type Event,
+  type IDisposable,
+} from '@editrix/common';
 
 /**
  * Subset of the SDK's `ComponentDef<T>` shape that the editor depends on.
@@ -101,7 +107,9 @@ export class ComponentCatalog implements IComponentCatalog, IDisposable {
   register(info: SdkComponentInfo): IDisposable {
     this._byName.set(info.name, info);
     this._onDidChange.fire();
-    return toDisposable(() => { this.unregister(info.name); });
+    return toDisposable(() => {
+      this.unregister(info.name);
+    });
   }
 
   unregister(name: string): void {

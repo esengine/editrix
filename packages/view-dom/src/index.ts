@@ -1,5 +1,11 @@
 // Icons
-export { createIconElement, defaultIconRegistry, getIcon, IconRegistry, registerIcon } from './icons.js';
+export {
+  createIconElement,
+  defaultIconRegistry,
+  getIcon,
+  IconRegistry,
+  registerIcon,
+} from './icons.js';
 
 // DOM utilities
 export { clearChildren, createElement, setCssVars } from './dom-utils.js';
@@ -21,7 +27,14 @@ export type { DocumentTabItem } from './document-tab-bar.js';
 export { DocumentTabBar } from './document-tab-bar.js';
 
 // Layout renderer
-export type { PanelCloseHandler, TabAddHandler, TabClickHandler, TabDropHandler, TitleResolver, WidgetResolver } from './layout-renderer.js';
+export type {
+  PanelCloseHandler,
+  TabAddHandler,
+  TabClickHandler,
+  TabDropHandler,
+  TitleResolver,
+  WidgetResolver,
+} from './layout-renderer.js';
 export { LayoutRenderer } from './layout-renderer.js';
 
 // Command palette

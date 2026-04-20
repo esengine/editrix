@@ -1,7 +1,13 @@
 import { IFileSystemService } from '@editrix/core';
 import type { IECSSceneService } from '@editrix/estella';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import { IDocumentService, ILayoutService, ISelectionService, IUndoRedoService, IViewService } from '@editrix/shell';
+import {
+  IDocumentService,
+  ILayoutService,
+  ISelectionService,
+  IUndoRedoService,
+  IViewService,
+} from '@editrix/shell';
 import type { TreeNode } from '@editrix/view-dom';
 import { registerIcon, showContextMenu, TreeWidget } from '@editrix/view-dom';
 import { showConfirmDialog, showInputDialog } from '../dialogs.js';
@@ -22,11 +28,11 @@ registerIcon(
   'prefab-instance',
   // Isometric-ish cube silhouette, hardcoded blue so the icon stays distinctive
   // regardless of the row's selection/hover text color.
-  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5aa4ff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
-  + '<path d="M12 3 3 7.5v9L12 21l9-4.5v-9L12 3Z"/>'
-  + '<path d="M3 7.5 12 12l9-4.5"/>'
-  + '<path d="M12 12v9"/>'
-  + '</svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5aa4ff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M12 3 3 7.5v9L12 21l9-4.5v-9L12 3Z"/>' +
+    '<path d="M3 7.5 12 12l9-4.5"/>' +
+    '<path d="M12 12v9"/>' +
+    '</svg>',
 );
 
 // Blue label color for prefab instance roots — one-time stylesheet injection
@@ -63,12 +69,15 @@ interface EntitySnapshot {
 function ecsToTreeNodes(ecs: IECSSceneService, entityIds: readonly number[]): TreeNode[] {
   return entityIds.map((id) => {
     const children = ecs.getChildren(id);
-    const isInstanceRoot = typeof ecs.getEntityMetadata(id, PREFAB_METADATA_KEYS.SOURCE) === 'string';
+    const isInstanceRoot =
+      typeof ecs.getEntityMetadata(id, PREFAB_METADATA_KEYS.SOURCE) === 'string';
     const label = ecs.getName(id) || `Entity ${String(id)}`;
     return {
       id: entityRef(id),
       label,
-      ...(isInstanceRoot ? { icon: 'prefab-instance', labelClassName: 'editrix-prefab-label' } : {}),
+      ...(isInstanceRoot
+        ? { icon: 'prefab-instance', labelClassName: 'editrix-prefab-label' }
+        : {}),
       ...(children.length > 0 ? { children: ecsToTreeNodes(ecs, children) } : {}),
     };
   });
@@ -123,7 +132,15 @@ export const HierarchyPlugin: IPlugin = {
   descriptor: {
     id: 'app.hierarchy',
     version: '1.0.0',
-    dependencies: ['editrix.layout', 'editrix.view', 'editrix.properties', 'app.ecs-scene', 'app.document-sync', 'app.prefab', 'app.asset-catalog'],
+    dependencies: [
+      'editrix.layout',
+      'editrix.view',
+      'editrix.properties',
+      'app.ecs-scene',
+      'app.document-sync',
+      'app.prefab',
+      'app.asset-catalog',
+    ],
   },
   activate(ctx: IPluginContext) {
     const layout = ctx.services.get(ILayoutService);
@@ -149,20 +166,26 @@ export const HierarchyPlugin: IPlugin = {
       hierarchyTree.setRoots(ecsToTreeNodes(ecs, ecs.getRootEntities()));
     };
 
-    ctx.subscriptions.add(presence.onDidBind((ecs) => {
-      ctx.subscriptions.add(ecs.onHierarchyChanged(refreshHierarchy));
-      // The prefab badge in the tree is derived from `prefab:source` metadata,
-      // so any time that key flips on/off (instantiate, hot-reload, undo of a
-      // create-prefab) we redraw the affected row by refreshing wholesale.
-      ctx.subscriptions.add(ecs.onMetadataChanged((ev) => {
-        if (ev.key === PREFAB_METADATA_KEYS.SOURCE) refreshHierarchy();
-      }));
-      refreshHierarchy();
-    }));
+    ctx.subscriptions.add(
+      presence.onDidBind((ecs) => {
+        ctx.subscriptions.add(ecs.onHierarchyChanged(refreshHierarchy));
+        // The prefab badge in the tree is derived from `prefab:source` metadata,
+        // so any time that key flips on/off (instantiate, hot-reload, undo of a
+        // create-prefab) we redraw the affected row by refreshing wholesale.
+        ctx.subscriptions.add(
+          ecs.onMetadataChanged((ev) => {
+            if (ev.key === PREFAB_METADATA_KEYS.SOURCE) refreshHierarchy();
+          }),
+        );
+        refreshHierarchy();
+      }),
+    );
     ctx.subscriptions.add(prefabService.onDidCreateInstance(refreshHierarchy));
     ctx.subscriptions.add(prefabService.onDidHotReload(refreshHierarchy));
 
-    ctx.subscriptions.add(layout.registerPanel({ id: 'hierarchy', title: 'Hierarchy', defaultRegion: 'left' }));
+    ctx.subscriptions.add(
+      layout.registerPanel({ id: 'hierarchy', title: 'Hierarchy', defaultRegion: 'left' }),
+    );
 
     const refreshAddButtonState = (): void => {
       const root = hierarchyTree?.getRootElement();
@@ -216,12 +239,14 @@ export const HierarchyPlugin: IPlugin = {
           selection.select(ids);
         });
 
-        ctx.subscriptions.add(selection.onDidChangeSelection((ids) => {
-          if (!hierarchyTree) return;
-          syncingSelection = true;
-          hierarchyTree.setSelection(ids);
-          syncingSelection = false;
-        }));
+        ctx.subscriptions.add(
+          selection.onDidChangeSelection((ids) => {
+            if (!hierarchyTree) return;
+            syncingSelection = true;
+            hierarchyTree.setSelection(ids);
+            syncingSelection = false;
+          }),
+        );
 
         hierarchyTree.onDidRequestAdd(() => {
           const ecs = presence.current;
@@ -231,7 +256,10 @@ export const HierarchyPlugin: IPlugin = {
           selection.select([entityRef(entityId)]);
           undoRedo.push({
             label: 'Create Entity',
-            undo: () => { ecs.destroyEntity(entityId); selection.clearSelection(); },
+            undo: () => {
+              ecs.destroyEntity(entityId);
+              selection.clearSelection();
+            },
             redo: () => {
               const newId = ecs.createEntity('New Entity');
               selection.select([entityRef(newId)]);
@@ -261,14 +289,14 @@ export const HierarchyPlugin: IPlugin = {
           // children deletion work normally.
           if (documentService.activeDocument?.endsWith('.esprefab') === true) {
             const rootsBeforeDelete = ecs.getRootEntities();
-            const deletingRoot = toDelete.filter(id => rootsBeforeDelete.includes(id));
-            const remainingRoots = rootsBeforeDelete.filter(id => !toDelete.includes(id));
+            const deletingRoot = toDelete.filter((id) => rootsBeforeDelete.includes(id));
+            const remainingRoots = rootsBeforeDelete.filter((id) => !toDelete.includes(id));
             if (deletingRoot.length > 0 && remainingRoots.length === 0) {
               void showConfirmDialog(
                 'A prefab must have exactly one root entity. Delete its children instead, or exit Prefab Mode to edit a scene.',
                 { okLabel: 'OK' },
               );
-              toDelete = toDelete.filter(id => !deletingRoot.includes(id));
+              toDelete = toDelete.filter((id) => !deletingRoot.includes(id));
               if (toDelete.length === 0) return;
             }
           }
@@ -279,7 +307,10 @@ export const HierarchyPlugin: IPlugin = {
           }
           selection.clearSelection();
           undoRedo.push({
-            label: toDelete.length === 1 ? 'Delete Entity' : `Delete ${String(toDelete.length)} Entities`,
+            label:
+              toDelete.length === 1
+                ? 'Delete Entity'
+                : `Delete ${String(toDelete.length)} Entities`,
             undo: () => {
               const newRefs: string[] = [];
               for (const snapshot of snapshots) {
@@ -301,7 +332,9 @@ export const HierarchyPlugin: IPlugin = {
           });
         };
 
-        hierarchyTree.onDidRequestDelete((ids) => { deleteEntities(ids); });
+        hierarchyTree.onDidRequestDelete((ids) => {
+          deleteEntities(ids);
+        });
 
         const renameEntity = (rawId: string): void => {
           const ecs = presence.current;
@@ -317,8 +350,12 @@ export const HierarchyPlugin: IPlugin = {
             ecs.setName(entityId, name);
             undoRedo.push({
               label: 'Rename Entity',
-              undo: () => { ecs.setName(entityId, previous); },
-              redo: () => { ecs.setName(entityId, name); },
+              undo: () => {
+                ecs.setName(entityId, previous);
+              },
+              redo: () => {
+                ecs.setName(entityId, name);
+              },
             });
           });
         };
@@ -346,7 +383,10 @@ export const HierarchyPlugin: IPlugin = {
           }
           selection.select(newIds.map(entityRef));
           undoRedo.push({
-            label: toDuplicate.length === 1 ? 'Duplicate Entity' : `Duplicate ${String(toDuplicate.length)} Entities`,
+            label:
+              toDuplicate.length === 1
+                ? 'Duplicate Entity'
+                : `Duplicate ${String(toDuplicate.length)} Entities`,
             undo: () => {
               for (const id of newIds) ecs.destroyEntity(id);
               selection.select(rawIds);
@@ -381,10 +421,10 @@ export const HierarchyPlugin: IPlugin = {
           const filePath = `${prefabsDir}/${finalName}`;
 
           if (await fileSystem.exists(filePath)) {
-            const ok = await showConfirmDialog(
-              `${finalName} already exists. Overwrite?`,
-              { okLabel: 'Overwrite', destructive: true },
-            );
+            const ok = await showConfirmDialog(`${finalName} already exists. Overwrite?`, {
+              okLabel: 'Overwrite',
+              destructive: true,
+            });
             if (!ok) return;
           }
           await fileSystem.mkdir(prefabsDir);
@@ -399,79 +439,88 @@ export const HierarchyPlugin: IPlugin = {
           }
         };
 
-        hierarchyTree.onDidRequestRename((id) => { renameEntity(id); });
-        hierarchyTree.onDidRequestDuplicate((ids) => { duplicateEntities(ids); });
-
-        hierarchyTree.onDidRequestDrop(({ sourceIds: sourceRaws, targetId: targetRaw, position }) => {
-          const ecs = presence.current;
-          if (!ecs) return;
-          const targetId = selectionToEntityId(targetRaw);
-          if (targetId === undefined) return;
-
-          // Filter to "roots in selection" — a descendant of another source
-          // comes along automatically when its ancestor moves.
-          const requested = sourceRaws
-            .map(selectionToEntityId)
-            .filter((id): id is number => id !== undefined);
-          if (requested.length === 0) return;
-          const requestedSet = new Set(requested);
-          const roots = requested.filter((id) => {
-            let cursor = ecs.getParent(id);
-            while (cursor !== null) {
-              if (requestedSet.has(cursor)) return false;
-              cursor = ecs.getParent(cursor);
-            }
-            return true;
-          });
-          if (roots.length === 0) return;
-
-          // Snapshot original positions for undo.
-          const originals = roots.map((id) => {
-            const parentId = ecs.getParent(id);
-            const siblings = parentId === null ? ecs.getRootEntities() : ecs.getChildren(parentId);
-            return { id, parentId, index: siblings.indexOf(id) };
-          });
-
-          let newParentId: number | null;
-          let newIndex: number | undefined;
-          if (position === 'inside') {
-            newParentId = targetId;
-            newIndex = undefined;
-          } else {
-            newParentId = ecs.getParent(targetId);
-            const targetSiblings = newParentId === null ? ecs.getRootEntities() : ecs.getChildren(newParentId);
-            const targetIdx = targetSiblings.indexOf(targetId);
-            if (targetIdx === -1) return;
-            newIndex = position === 'before' ? targetIdx : targetIdx + 1;
-          }
-
-          if (
-            roots.length === 1
-            && originals[0]?.parentId === newParentId
-            && originals[0].index === newIndex
-          ) {
-            return;
-          }
-
-          ecs.moveEntities(roots, newParentId, newIndex);
-
-          const label = roots.length === 1 ? 'Move Entity' : `Move ${String(roots.length)} Entities`;
-          undoRedo.push({
-            label,
-            undo: () => {
-              // Reverse iteration so shifts from earlier removals don't
-              // invalidate later recorded indices.
-              for (let i = originals.length - 1; i >= 0; i--) {
-                const rec = originals[i];
-                if (!rec) continue;
-                ecs.moveEntity(rec.id, rec.parentId, rec.index);
-              }
-            },
-            redo: () => {
-              ecs.moveEntities(roots, newParentId, newIndex);
-            },
-          });
+        hierarchyTree.onDidRequestRename((id) => {
+          renameEntity(id);
         });
+        hierarchyTree.onDidRequestDuplicate((ids) => {
+          duplicateEntities(ids);
+        });
+
+        hierarchyTree.onDidRequestDrop(
+          ({ sourceIds: sourceRaws, targetId: targetRaw, position }) => {
+            const ecs = presence.current;
+            if (!ecs) return;
+            const targetId = selectionToEntityId(targetRaw);
+            if (targetId === undefined) return;
+
+            // Filter to "roots in selection" — a descendant of another source
+            // comes along automatically when its ancestor moves.
+            const requested = sourceRaws
+              .map(selectionToEntityId)
+              .filter((id): id is number => id !== undefined);
+            if (requested.length === 0) return;
+            const requestedSet = new Set(requested);
+            const roots = requested.filter((id) => {
+              let cursor = ecs.getParent(id);
+              while (cursor !== null) {
+                if (requestedSet.has(cursor)) return false;
+                cursor = ecs.getParent(cursor);
+              }
+              return true;
+            });
+            if (roots.length === 0) return;
+
+            // Snapshot original positions for undo.
+            const originals = roots.map((id) => {
+              const parentId = ecs.getParent(id);
+              const siblings =
+                parentId === null ? ecs.getRootEntities() : ecs.getChildren(parentId);
+              return { id, parentId, index: siblings.indexOf(id) };
+            });
+
+            let newParentId: number | null;
+            let newIndex: number | undefined;
+            if (position === 'inside') {
+              newParentId = targetId;
+              newIndex = undefined;
+            } else {
+              newParentId = ecs.getParent(targetId);
+              const targetSiblings =
+                newParentId === null ? ecs.getRootEntities() : ecs.getChildren(newParentId);
+              const targetIdx = targetSiblings.indexOf(targetId);
+              if (targetIdx === -1) return;
+              newIndex = position === 'before' ? targetIdx : targetIdx + 1;
+            }
+
+            if (
+              roots.length === 1 &&
+              originals[0]?.parentId === newParentId &&
+              originals[0].index === newIndex
+            ) {
+              return;
+            }
+
+            ecs.moveEntities(roots, newParentId, newIndex);
+
+            const label =
+              roots.length === 1 ? 'Move Entity' : `Move ${String(roots.length)} Entities`;
+            undoRedo.push({
+              label,
+              undo: () => {
+                // Reverse iteration so shifts from earlier removals don't
+                // invalidate later recorded indices.
+                for (let i = originals.length - 1; i >= 0; i--) {
+                  const rec = originals[i];
+                  if (!rec) continue;
+                  ecs.moveEntity(rec.id, rec.parentId, rec.index);
+                }
+              },
+              redo: () => {
+                ecs.moveEntities(roots, newParentId, newIndex);
+              },
+            });
+          },
+        );
 
         hierarchyTree.onDidRequestContextMenu(({ ids, x, y }) => {
           const ecs = presence.current;
@@ -482,15 +531,18 @@ export const HierarchyPlugin: IPlugin = {
           // Eligible only when exactly one entity is selected, a project is
           // open (we need a place to write the file), and the entity isn't
           // already part of an instance (nested prefabs are a future phase).
-          const canCreatePrefab = ids.length === 1
-            && singleEntityId !== undefined
-            && project.isOpen
-            && !prefabService.isInsideInstance(singleEntityId);
+          const canCreatePrefab =
+            ids.length === 1 &&
+            singleEntityId !== undefined &&
+            project.isOpen &&
+            !prefabService.isInsideInstance(singleEntityId);
           showContextMenu({
-            x, y,
+            x,
+            y,
             items: [
               {
-                label: 'Add Child Entity', icon: 'plus',
+                label: 'Add Child Entity',
+                icon: 'plus',
                 disabled: ids.length !== 1,
                 onSelect: () => {
                   if (!singleId) return;
@@ -503,14 +555,19 @@ export const HierarchyPlugin: IPlugin = {
               },
               { separator: true, label: '' },
               {
-                label: 'Rename', shortcut: 'F2',
+                label: 'Rename',
+                shortcut: 'F2',
                 disabled: ids.length !== 1,
-                onSelect: () => { if (singleId) renameEntity(singleId); },
+                onSelect: () => {
+                  if (singleId) renameEntity(singleId);
+                },
               },
               {
                 label: ids.length === 1 ? 'Duplicate' : `Duplicate (${String(ids.length)})`,
                 shortcut: 'Ctrl+D',
-                onSelect: () => { duplicateEntities(ids); },
+                onSelect: () => {
+                  duplicateEntities(ids);
+                },
               },
               { separator: true, label: '' },
               {
@@ -524,8 +581,12 @@ export const HierarchyPlugin: IPlugin = {
               { separator: true, label: '' },
               {
                 label: ids.length === 1 ? 'Delete' : `Delete (${String(ids.length)})`,
-                icon: 'x', shortcut: 'Del', destructive: true,
-                onSelect: () => { deleteEntities(ids); },
+                icon: 'x',
+                shortcut: 'Del',
+                destructive: true,
+                onSelect: () => {
+                  deleteEntities(ids);
+                },
               },
             ],
           });
@@ -540,20 +601,26 @@ export const HierarchyPlugin: IPlugin = {
           if (!rootEl) return;
           rootEl.addEventListener('dragover', (e) => {
             if (!e.dataTransfer?.types.includes('application/x-editrix-asset-path')) return;
-            const rowEl = (e.target as HTMLElement | null)?.closest('.editrix-tree-row') as HTMLElement | null;
+            const rowEl = (e.target as HTMLElement | null)?.closest(
+              '.editrix-tree-row',
+            ) as HTMLElement | null;
             if (!rowEl) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
             rowEl.classList.add('editrix-tree-row--external-drop');
           });
           rootEl.addEventListener('dragleave', (e) => {
-            const rowEl = (e.target as HTMLElement | null)?.closest('.editrix-tree-row') as HTMLElement | null;
+            const rowEl = (e.target as HTMLElement | null)?.closest(
+              '.editrix-tree-row',
+            ) as HTMLElement | null;
             rowEl?.classList.remove('editrix-tree-row--external-drop');
           });
           rootEl.addEventListener('drop', (e) => {
             const path = e.dataTransfer?.getData('application/x-editrix-asset-path');
             if (path?.endsWith('.esprefab') !== true) return;
-            const rowEl = (e.target as HTMLElement | null)?.closest('.editrix-tree-row') as HTMLElement | null;
+            const rowEl = (e.target as HTMLElement | null)?.closest(
+              '.editrix-tree-row',
+            ) as HTMLElement | null;
             if (!rowEl) return;
             const raw = rowEl.dataset['nodeId'];
             if (raw === undefined) return;
@@ -563,24 +630,36 @@ export const HierarchyPlugin: IPlugin = {
             e.stopPropagation();
             rowEl.classList.remove('editrix-tree-row--external-drop');
 
-            const rel = path.startsWith(project.path + '/') ? path.slice(project.path.length + 1) : path;
+            const rel = path.startsWith(project.path + '/')
+              ? path.slice(project.path.length + 1)
+              : path;
             const catalogEntry = catalog.getByPath(rel);
             if (!catalogEntry) return;
             void (async (): Promise<void> => {
               try {
-                const rootEntityId = await prefabService.instantiate(catalogEntry.uuid, { parent: parentId });
+                const rootEntityId = await prefabService.instantiate(catalogEntry.uuid, {
+                  parent: parentId,
+                });
                 selection.select([entityRef(rootEntityId)]);
                 const ecs = presence.current;
                 if (!ecs) return;
                 undoRedo.push({
                   label: `Instantiate ${catalogEntry.relativePath.split('/').pop() ?? 'Prefab'}`,
-                  undo: () => { ecs.destroyEntity(rootEntityId); selection.clearSelection(); },
+                  undo: () => {
+                    ecs.destroyEntity(rootEntityId);
+                    selection.clearSelection();
+                  },
                   redo: () => {
-                    void prefabService.instantiate(catalogEntry.uuid, { parent: parentId })
-                      .then((newRootId) => { selection.select([entityRef(newRootId)]); });
+                    void prefabService
+                      .instantiate(catalogEntry.uuid, { parent: parentId })
+                      .then((newRootId) => {
+                        selection.select([entityRef(newRootId)]);
+                      });
                   },
                 });
-              } catch { /* prefab-plugin already logged */ }
+              } catch {
+                /* prefab-plugin already logged */
+              }
             })();
           });
         });

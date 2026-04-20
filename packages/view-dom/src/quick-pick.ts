@@ -179,12 +179,13 @@ export function showQuickPick(options: QuickPickOptions): QuickPickHandle {
   // ── Filter on input ──
   input.addEventListener('input', () => {
     const query = input.value.toLowerCase();
-    filtered = query === ''
-      ? [...items]
-      : items.filter((item) => {
-          const text = `${item.label} ${item.description ?? ''}`.toLowerCase();
-          return text.includes(query);
-        });
+    filtered =
+      query === ''
+        ? [...items]
+        : items.filter((item) => {
+            const text = `${item.label} ${item.description ?? ''}`.toLowerCase();
+            return text.includes(query);
+          });
     selectedIndex = findFirstEnabled(filtered, 0, 1);
     renderList();
   });
@@ -195,13 +196,19 @@ export function showQuickPick(options: QuickPickOptions): QuickPickHandle {
       case 'ArrowDown': {
         e.preventDefault();
         const next = findFirstEnabled(filtered, selectedIndex + 1, 1);
-        if (next !== -1) { selectedIndex = next; updateSelectedClass(); }
+        if (next !== -1) {
+          selectedIndex = next;
+          updateSelectedClass();
+        }
         break;
       }
       case 'ArrowUp': {
         e.preventDefault();
         const prev = findFirstEnabled(filtered, selectedIndex - 1, -1);
-        if (prev !== -1) { selectedIndex = prev; updateSelectedClass(); }
+        if (prev !== -1) {
+          selectedIndex = prev;
+          updateSelectedClass();
+        }
         break;
       }
       case 'Enter': {

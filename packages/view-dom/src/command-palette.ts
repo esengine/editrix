@@ -52,9 +52,11 @@ export class CommandPalette implements IDisposable {
     container.appendChild(this._overlay);
 
     // Event handlers
-    this._subscriptions.add(toDisposable(() => {
-      this._overlay?.remove();
-    }));
+    this._subscriptions.add(
+      toDisposable(() => {
+        this._overlay?.remove();
+      }),
+    );
 
     this._input.addEventListener('input', () => {
       this._filter();
@@ -104,14 +106,18 @@ export class CommandPalette implements IDisposable {
     const query = this._input.value.toLowerCase();
     const all = this._commandRegistry.getAll();
 
-    this._filteredCommands = query === ''
-      ? [...all]
-      : all.filter((cmd) => {
-          const searchText = `${cmd.category ?? ''} ${cmd.title}`.toLowerCase();
-          return searchText.includes(query);
-        });
+    this._filteredCommands =
+      query === ''
+        ? [...all]
+        : all.filter((cmd) => {
+            const searchText = `${cmd.category ?? ''} ${cmd.title}`.toLowerCase();
+            return searchText.includes(query);
+          });
 
-    this._selectedIndex = Math.min(this._selectedIndex, Math.max(0, this._filteredCommands.length - 1));
+    this._selectedIndex = Math.min(
+      this._selectedIndex,
+      Math.max(0, this._filteredCommands.length - 1),
+    );
     this._renderList();
   }
 

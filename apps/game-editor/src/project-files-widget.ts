@@ -19,12 +19,26 @@ function revealApi(): ElectronRevealApi | undefined {
 function extToIcon(ext: string, isDir: boolean): string {
   if (isDir) return 'folder';
   switch (ext) {
-    case '.json': return 'file';
-    case '.ts': case '.js': return 'file';
-    case '.png': case '.jpg': case '.jpeg': case '.webp': return 'grid';
-    case '.gltf': case '.glb': case '.fbx': case '.obj': return 'box';
-    case '.editrix-scene': case '.scene.json': return 'layers';
-    default: return 'file';
+    case '.json':
+      return 'file';
+    case '.ts':
+    case '.js':
+      return 'file';
+    case '.png':
+    case '.jpg':
+    case '.jpeg':
+    case '.webp':
+      return 'grid';
+    case '.gltf':
+    case '.glb':
+    case '.fbx':
+    case '.obj':
+      return 'box';
+    case '.editrix-scene':
+    case '.scene.json':
+      return 'layers';
+    default:
+      return 'file';
   }
 }
 
@@ -71,11 +85,15 @@ export class ProjectFilesWidget extends BaseWidget {
         const path = ids[0];
         if (path === undefined) return;
         showContextMenu({
-          x, y,
+          x,
+          y,
           items: [
             {
-              label: REVEAL_LABEL, icon: 'folder',
-              onSelect: () => { void revealApi()?.revealInFinder(path); },
+              label: REVEAL_LABEL,
+              icon: 'folder',
+              onSelect: () => {
+                void revealApi()?.revealInFinder(path);
+              },
             },
           ],
         });
@@ -101,9 +119,10 @@ export class ProjectFilesWidget extends BaseWidget {
     for (const entry of entries) {
       if (entry.name.endsWith('.meta')) continue;
       const icon = extToIcon(entry.extension, entry.type === 'directory');
-      const children = (entry.type === 'directory' && depth < 2)
-        ? await this._readDirRecursive(entry.path, depth + 1)
-        : undefined;
+      const children =
+        entry.type === 'directory' && depth < 2
+          ? await this._readDirRecursive(entry.path, depth + 1)
+          : undefined;
 
       nodes.push({
         id: entry.path,

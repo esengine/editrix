@@ -82,9 +82,9 @@ describe('ExtensionPointRegistry', () => {
       validator: (c) => c.name.length > 0,
     });
 
-    expect(() =>
-      registry.contribute(ThemesEP, { name: '', background: '#000' }),
-    ).toThrow('Contribution to "view.themes" failed validation.');
+    expect(() => registry.contribute(ThemesEP, { name: '', background: '#000' })).toThrow(
+      'Contribution to "view.themes" failed validation.',
+    );
   });
 
   it('should return empty array for undeclared extension point via getContributions', () => {

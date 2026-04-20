@@ -137,9 +137,7 @@ class Kernel implements IKernel {
       if (this._plugins.has(depId)) {
         await this.activatePlugin(depId);
       } else if (!isOptional) {
-        throw new Error(
-          `Plugin "${pluginId}" requires "${depId}", but it is not registered.`,
-        );
+        throw new Error(`Plugin "${pluginId}" requires "${depId}", but it is not registered.`);
       }
     }
 
@@ -221,9 +219,7 @@ class Kernel implements IKernel {
       } catch (cause) {
         // Collect and continue — one buggy deactivate must not strand the
         // rest of the editor with un-disposed resources.
-        errors.push(
-          new Error(`Plugin "${pluginId}" failed to deactivate.`, { cause }),
-        );
+        errors.push(new Error(`Plugin "${pluginId}" failed to deactivate.`, { cause }));
       }
     }
     this.dispose();

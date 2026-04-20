@@ -63,7 +63,14 @@ export const ImageImporterPlugin: IPlugin = {
       }
     };
 
-    let bound: { assets: RuntimeAssets; sub: IDisposable; metaSub: IDisposable | undefined; importerSub: IDisposable } | undefined;
+    let bound:
+      | {
+          assets: RuntimeAssets;
+          sub: IDisposable;
+          metaSub: IDisposable | undefined;
+          importerSub: IDisposable;
+        }
+      | undefined;
 
     /**
      * Dispatch an asset-field load by its {@link ComponentFieldSchema.assetType}
@@ -71,7 +78,14 @@ export const ImageImporterPlugin: IPlugin = {
      * anim-clip fields get their runtime path written as a string (which
      * is how the SDK's `SpriteAnimatorSystem` looks them up).
      */
-    const loadAndBind = (ecs: IECSSceneService, assets: RuntimeAssets, entityId: number, comp: string, field: string, uuid: string): void => {
+    const loadAndBind = (
+      ecs: IECSSceneService,
+      assets: RuntimeAssets,
+      entityId: number,
+      comp: string,
+      field: string,
+      uuid: string,
+    ): void => {
       const ref = `${UUID_PREFIX}${uuid}`;
       const fieldSchema = ecs.getComponentSchema(comp).find((f) => f.key === field);
       const subtype = fieldSchema?.assetType;
@@ -80,36 +94,53 @@ export const ImageImporterPlugin: IPlugin = {
         const entry = catalog.getByUuid(uuid);
         if (!entry) return;
         const clipPath = entry.relativePath;
-        assets.loadAnimClip(ref).then(() => {
-          if (!ecs.hasComponent(entityId, comp)) return;
-          ecs.setProperty(entityId, comp, field, clipPath);
-        }).catch((err: unknown) => {
-          warn(`loadAnimClip ${ref}`, err);
-        });
+        assets
+          .loadAnimClip(ref)
+          .then(() => {
+            if (!ecs.hasComponent(entityId, comp)) return;
+            ecs.setProperty(entityId, comp, field, clipPath);
+          })
+          .catch((err: unknown) => {
+            warn(`loadAnimClip ${ref}`, err);
+          });
         return;
       }
 
       // Default: texture path. Covers explicit `texture` subtype plus
       // legacy WASM components whose schema doesn't yet carry subtype
       // info — keeping the old behaviour as the safe default.
-      assets.loadTexture(ref).then((result) => {
-        if (!ecs.hasComponent(entityId, comp)) return;
-        ecs.setProperty(entityId, comp, field, result.handle);
-        if (comp === 'Sprite' && field === 'texture') {
-          const sx = Number(ecs.getProperty(entityId, 'Sprite', 'size.x'));
-          const sy = Number(ecs.getProperty(entityId, 'Sprite', 'size.y'));
-          if (Number.isFinite(sx) && Number.isFinite(sy) && sx === 1 && sy === 1 && result.width > 0 && result.height > 0) {
-            ecs.setProperty(entityId, 'Sprite', 'size.x', result.width);
-            ecs.setProperty(entityId, 'Sprite', 'size.y', result.height);
+      assets
+        .loadTexture(ref)
+        .then((result) => {
+          if (!ecs.hasComponent(entityId, comp)) return;
+          ecs.setProperty(entityId, comp, field, result.handle);
+          if (comp === 'Sprite' && field === 'texture') {
+            const sx = Number(ecs.getProperty(entityId, 'Sprite', 'size.x'));
+            const sy = Number(ecs.getProperty(entityId, 'Sprite', 'size.y'));
+            if (
+              Number.isFinite(sx) &&
+              Number.isFinite(sy) &&
+              sx === 1 &&
+              sy === 1 &&
+              result.width > 0 &&
+              result.height > 0
+            ) {
+              ecs.setProperty(entityId, 'Sprite', 'size.x', result.width);
+              ecs.setProperty(entityId, 'Sprite', 'size.y', result.height);
+            }
           }
-        }
-        ecs.requestRender();
-      }).catch((err: unknown) => {
-        warn(`loadTexture ${ref}`, err);
-      });
+          ecs.requestRender();
+        })
+        .catch((err: unknown) => {
+          warn(`loadTexture ${ref}`, err);
+        });
     };
 
-    const bindAllTextures = (ecs: IECSSceneService, assets: RuntimeAssets, filterUuid?: string): void => {
+    const bindAllTextures = (
+      ecs: IECSSceneService,
+      assets: RuntimeAssets,
+      filterUuid?: string,
+    ): void => {
       const visit = (entityId: number): void => {
         for (const comp of ecs.getComponents(entityId)) {
           for (const f of ecs.getComponentSchema(comp)) {
@@ -135,9 +166,10 @@ export const ImageImporterPlugin: IPlugin = {
             // String-backed asset fields (anim-clip, audio, font) reset
             // to '' rather than 0 so the runtime doesn't try to look up
             // clip name "0" in its registry.
-            const empty = f.assetType === 'anim-clip' || f.assetType === 'audio' || f.assetType === 'font'
-              ? ''
-              : INVALID_TEXTURE_HANDLE;
+            const empty =
+              f.assetType === 'anim-clip' || f.assetType === 'audio' || f.assetType === 'font'
+                ? ''
+                : INVALID_TEXTURE_HANDLE;
             ecs.setProperty(entityId, comp, f.key, empty);
           }
         }
@@ -182,9 +214,12 @@ export const ImageImporterPlugin: IPlugin = {
         if (typeof value !== 'string' || value === '') {
           if (ecs.hasComponent(entityId, comp)) {
             const fieldSchema = ecs.getComponentSchema(comp).find((f) => f.key === field);
-            const empty = fieldSchema?.assetType === 'anim-clip' || fieldSchema?.assetType === 'audio' || fieldSchema?.assetType === 'font'
-              ? ''
-              : INVALID_TEXTURE_HANDLE;
+            const empty =
+              fieldSchema?.assetType === 'anim-clip' ||
+              fieldSchema?.assetType === 'audio' ||
+              fieldSchema?.assetType === 'font'
+                ? ''
+                : INVALID_TEXTURE_HANDLE;
             ecs.setProperty(entityId, comp, field, empty);
           }
           return;
@@ -236,5 +271,9 @@ export const ImageImporterPlugin: IPlugin = {
 function stringifyErr(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === 'string') return err;
-  try { return JSON.stringify(err); } catch { return 'unknown error'; }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return 'unknown error';
+  }
 }

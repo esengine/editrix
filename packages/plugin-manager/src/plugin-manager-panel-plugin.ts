@@ -20,12 +20,7 @@ export const PluginManagerPanelPlugin: IPlugin = {
   descriptor: {
     id: PluginManagerPanelPluginId,
     version: '0.1.0',
-    dependencies: [
-      CommandsPluginId,
-      LayoutPluginId,
-      ViewPluginId,
-      ViewDomPluginId,
-    ],
+    dependencies: [CommandsPluginId, LayoutPluginId, ViewPluginId, ViewDomPluginId],
   },
 
   activate(ctx: IPluginContext) {

@@ -103,7 +103,8 @@ export class DocumentService implements IDocumentService {
 
   readonly onDidChangeDocuments: Event<void> = this._onDidChangeDocuments.event;
   readonly onDidChangeActive: Event<string | null> = this._onDidChangeActive.event;
-  readonly onDidChangeDirty: Event<{ filePath: string; dirty: boolean }> = this._onDidChangeDirty.event;
+  readonly onDidChangeDirty: Event<{ filePath: string; dirty: boolean }> =
+    this._onDidChangeDirty.event;
 
   constructor(
     readFile: (path: string) => Promise<string>,
@@ -227,9 +228,7 @@ export class DocumentService implements IDocumentService {
   }
 
   private _findHandler(filePath: string): DocumentHandler | undefined {
-    return this._handlers.find((h) =>
-      h.extensions.some((ext) => filePath.endsWith(ext)),
-    );
+    return this._handlers.find((h) => h.extensions.some((ext) => filePath.endsWith(ext)));
   }
 
   private _getExtension(filename: string): string {

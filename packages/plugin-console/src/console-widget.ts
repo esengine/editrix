@@ -79,7 +79,9 @@ export class ConsoleWidget extends BaseWidget {
         label: 'Clear',
         icon: 'trash',
         tooltip: 'Clear all log entries',
-        onClick: () => { this.clear(); },
+        onClick: () => {
+          this.clear();
+        },
       }),
     );
 
@@ -90,7 +92,9 @@ export class ConsoleWidget extends BaseWidget {
           id: `filter-${level}`,
           label: level.toUpperCase(),
           tooltip: `Filter ${level} messages`,
-          onClick: () => { this._toggleFilter(level); },
+          onClick: () => {
+            this._toggleFilter(level);
+          },
         }),
       );
     }

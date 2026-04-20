@@ -130,7 +130,7 @@ export class PluginLoader implements IPluginLoader {
    */
   private async _importModule(entryPath: string): Promise<unknown> {
     try {
-      return await import(/* webpackIgnore: true */ entryPath) as unknown;
+      return (await import(/* webpackIgnore: true */ entryPath)) as unknown;
     } catch (cause) {
       throw new Error(`Failed to import plugin from "${entryPath}".`, { cause });
     }

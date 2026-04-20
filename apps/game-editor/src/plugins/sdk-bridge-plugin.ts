@@ -22,7 +22,12 @@
  * The catalog we register is consumed lazily by later plugins.
  */
 
-import { ComponentCatalog, IComponentCatalog, IEstellaService, type SdkComponentDef } from '@editrix/estella';
+import {
+  ComponentCatalog,
+  IComponentCatalog,
+  IEstellaService,
+  type SdkComponentDef,
+} from '@editrix/estella';
 import { IConsoleService } from '@editrix/plugin-console';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 
@@ -45,22 +50,25 @@ type IsBuiltinComponent = (def: SdkComponentDef) => boolean;
  * the plugin degrades gracefully (no catalog entries) rather than
  * throwing.
  */
-function readBridgeEntryPoints(sdk: Record<string, unknown>): {
-  getDefaultContext: GetDefaultContext;
-  getAllRegistered: GetAllRegisteredComponents;
-  getComponent: GetComponent;
-  isBuiltin: IsBuiltinComponent;
-} | undefined {
+function readBridgeEntryPoints(sdk: Record<string, unknown>):
+  | {
+      getDefaultContext: GetDefaultContext;
+      getAllRegistered: GetAllRegisteredComponents;
+      getComponent: GetComponent;
+      isBuiltin: IsBuiltinComponent;
+    }
+  | undefined {
   const getDefaultContext = sdk['getDefaultContext'];
   const getAllRegistered = sdk['getAllRegisteredComponents'];
   const getComponent = sdk['getComponent'];
   const isBuiltin = sdk['isBuiltinComponent'];
   if (
-    typeof getDefaultContext !== 'function'
-    || typeof getAllRegistered !== 'function'
-    || typeof getComponent !== 'function'
-    || typeof isBuiltin !== 'function'
-  ) return undefined;
+    typeof getDefaultContext !== 'function' ||
+    typeof getAllRegistered !== 'function' ||
+    typeof getComponent !== 'function' ||
+    typeof isBuiltin !== 'function'
+  )
+    return undefined;
   return {
     getDefaultContext: getDefaultContext as GetDefaultContext,
     getAllRegistered: getAllRegistered as GetAllRegisteredComponents,
@@ -122,7 +130,11 @@ export const SdkBridgePlugin: IPlugin = {
       // it's already put the def in the global registry, so
       // `getComponent(name)` here returns the full def.
       context.editorBridge = {
-        registerComponent: (name: string, _defaults: Record<string, unknown>, isTag: boolean): void => {
+        registerComponent: (
+          name: string,
+          _defaults: Record<string, unknown>,
+          isTag: boolean,
+        ): void => {
           const def = entry.getComponent(name);
           if (!def || entry.isBuiltin(def)) return;
           catalog.register({
@@ -147,9 +159,14 @@ export const SdkBridgePlugin: IPlugin = {
     } else {
       // loadSDK is also kicked by PlayModePlugin + renderer.ts. It's
       // idempotent — multiple callers share the same underlying promise.
-      estella.loadSDK()
-        .then((sdk) => { installBridge(sdk as unknown as Record<string, unknown>); })
-        .catch((err: unknown) => { warn('loadSDK failed — SDK components unavailable', err); });
+      estella
+        .loadSDK()
+        .then((sdk) => {
+          installBridge(sdk as unknown as Record<string, unknown>);
+        })
+        .catch((err: unknown) => {
+          warn('loadSDK failed — SDK components unavailable', err);
+        });
     }
   },
 };
@@ -163,5 +180,9 @@ function snapshotDefaults(def: SdkComponentDef): Readonly<Record<string, unknown
 function stringifyErr(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === 'string') return err;
-  try { return JSON.stringify(err); } catch { return 'unknown error'; }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return 'unknown error';
+  }
 }

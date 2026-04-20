@@ -7,8 +7,5 @@
     "lib": ["ES2022", "DOM"]
   },
   "include": ["src"],
-  "references": [
-    { "path": "../common" },
-    { "path": "../core" }
-  ]
+  "references": [{ "path": "../common" }, { "path": "../core" }]
 }

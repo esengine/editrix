@@ -25,8 +25,12 @@ export class EditorCamera {
   private _matrixPtr = 0;
   private _module: ESEngineModule | undefined;
 
-  get zoom(): number { return this._zoom; }
-  set zoom(v: number) { this._zoom = Math.max(this._minZoom, Math.min(this._maxZoom, v)); }
+  get zoom(): number {
+    return this._zoom;
+  }
+  set zoom(v: number) {
+    this._zoom = Math.max(this._minZoom, Math.min(this._maxZoom, v));
+  }
 
   /**
    * Center the camera on {@link wx},{@link wy} and optionally reset zoom.
@@ -72,9 +76,18 @@ export class EditorCamera {
     const m = this._module.HEAPF32;
     const o = this._matrixPtr >> 2;
 
-    m[o + 0] = 2 / rl;   m[o + 1] = 0;         m[o + 2] = 0;          m[o + 3] = 0;
-    m[o + 4] = 0;         m[o + 5] = 2 / tb;    m[o + 6] = 0;          m[o + 7] = 0;
-    m[o + 8] = 0;         m[o + 9] = 0;         m[o + 10] = -2 / fn;   m[o + 11] = 0;
+    m[o + 0] = 2 / rl;
+    m[o + 1] = 0;
+    m[o + 2] = 0;
+    m[o + 3] = 0;
+    m[o + 4] = 0;
+    m[o + 5] = 2 / tb;
+    m[o + 6] = 0;
+    m[o + 7] = 0;
+    m[o + 8] = 0;
+    m[o + 9] = 0;
+    m[o + 10] = -2 / fn;
+    m[o + 11] = 0;
     m[o + 12] = -(right + left) / rl;
     m[o + 13] = -(top + bottom) / tb;
     m[o + 14] = -(far + near) / fn;
@@ -97,8 +110,13 @@ export class EditorCamera {
   }
 
   /** Zoom centered on a screen position (e.g. mouse cursor). */
-  zoomAt(delta: number, screenX: number, screenY: number,
-    viewportWidth: number, viewportHeight: number): void {
+  zoomAt(
+    delta: number,
+    screenX: number,
+    screenY: number,
+    viewportWidth: number,
+    viewportHeight: number,
+  ): void {
     const aspect = viewportWidth / viewportHeight;
     const halfH = this._baseOrthoSize / this._zoom;
     const halfW = halfH * aspect;
@@ -121,7 +139,12 @@ export class EditorCamera {
   }
 
   /** Convert screen pixel coordinates to world coordinates. */
-  screenToWorld(sx: number, sy: number, viewportWidth: number, viewportHeight: number): [number, number] {
+  screenToWorld(
+    sx: number,
+    sy: number,
+    viewportWidth: number,
+    viewportHeight: number,
+  ): [number, number] {
     const aspect = viewportWidth / viewportHeight;
     const halfH = this._baseOrthoSize / this._zoom;
     const halfW = halfH * aspect;
@@ -132,13 +155,18 @@ export class EditorCamera {
   }
 
   /** Convert world coordinates to screen pixel coordinates. */
-  worldToScreen(wx: number, wy: number, viewportWidth: number, viewportHeight: number): [number, number] {
+  worldToScreen(
+    wx: number,
+    wy: number,
+    viewportWidth: number,
+    viewportHeight: number,
+  ): [number, number] {
     const aspect = viewportWidth / viewportHeight;
     const halfH = this._baseOrthoSize / this._zoom;
     const halfW = halfH * aspect;
 
-    const sx = ((wx - this.x) / halfW * 0.5 + 0.5) * viewportWidth;
-    const sy = (0.5 - (wy - this.y) / halfH * 0.5) * viewportHeight;
+    const sx = (((wx - this.x) / halfW) * 0.5 + 0.5) * viewportWidth;
+    const sy = (0.5 - ((wy - this.y) / halfH) * 0.5) * viewportHeight;
     return [sx, sy];
   }
 

@@ -6,8 +6,5 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "references": [
-    { "path": "../common" },
-    { "path": "../core" }
-  ]
+  "references": [{ "path": "../common" }, { "path": "../core" }]
 }

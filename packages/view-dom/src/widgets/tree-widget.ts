@@ -45,7 +45,11 @@ export interface TreeWidgetOptions {
   /** Enable drag-and-drop reordering / reparenting. Default: false. */
   readonly enableDrag?: boolean;
   /** Pre-drop gate — return false to suppress the indicator and reject. */
-  readonly canDrop?: (sourceIds: readonly string[], targetId: string, position: 'before' | 'after' | 'inside') => boolean;
+  readonly canDrop?: (
+    sourceIds: readonly string[],
+    targetId: string,
+    position: 'before' | 'after' | 'inside',
+  ) => boolean;
 }
 
 /**
@@ -86,17 +90,27 @@ export class TreeWidget extends BaseWidget {
   private readonly _onDidRequestDelete = new Emitter<readonly string[]>();
   private readonly _onDidRequestRename = new Emitter<string>();
   private readonly _onDidRequestDuplicate = new Emitter<readonly string[]>();
-  private readonly _onDidRequestContextMenu = new Emitter<{ ids: readonly string[]; x: number; y: number }>();
-  private readonly _onDidRequestDrop = new Emitter<{ sourceIds: readonly string[]; targetId: string; position: 'before' | 'after' | 'inside' }>();
+  private readonly _onDidRequestContextMenu = new Emitter<{
+    ids: readonly string[];
+    x: number;
+    y: number;
+  }>();
+  private readonly _onDidRequestDrop = new Emitter<{
+    sourceIds: readonly string[];
+    targetId: string;
+    position: 'before' | 'after' | 'inside';
+  }>();
 
   /** Fired when the selection changes. */
   readonly onDidChangeSelection: Event<readonly string[]> = this._onDidChangeSelection.event;
 
   /** Fired when a node is expanded or collapsed. */
-  readonly onDidChangeExpansion: Event<{ id: string; expanded: boolean }> = this._onDidChangeExpansion.event;
+  readonly onDidChangeExpansion: Event<{ id: string; expanded: boolean }> =
+    this._onDidChangeExpansion.event;
 
   /** Fired when a node's visibility is toggled. */
-  readonly onDidChangeVisibility: Event<{ id: string; visible: boolean }> = this._onDidChangeVisibility.event;
+  readonly onDidChangeVisibility: Event<{ id: string; visible: boolean }> =
+    this._onDidChangeVisibility.event;
 
   /** Fired when the "Add" button is clicked. */
   readonly onDidRequestAdd: Event<void> = this._onDidRequestAdd.event;
@@ -111,10 +125,15 @@ export class TreeWidget extends BaseWidget {
   readonly onDidRequestDuplicate: Event<readonly string[]> = this._onDidRequestDuplicate.event;
 
   /** Fired on right-click, providing selected IDs and mouse position. */
-  readonly onDidRequestContextMenu: Event<{ ids: readonly string[]; x: number; y: number }> = this._onDidRequestContextMenu.event;
+  readonly onDidRequestContextMenu: Event<{ ids: readonly string[]; x: number; y: number }> =
+    this._onDidRequestContextMenu.event;
 
   /** Fired on drop. `position` is 'before' | 'after' (sibling) or 'inside' (child). */
-  readonly onDidRequestDrop: Event<{ sourceIds: readonly string[]; targetId: string; position: 'before' | 'after' | 'inside' }> = this._onDidRequestDrop.event;
+  readonly onDidRequestDrop: Event<{
+    sourceIds: readonly string[];
+    targetId: string;
+    position: 'before' | 'after' | 'inside';
+  }> = this._onDidRequestDrop.event;
 
   constructor(id: string, options: TreeWidgetOptions = {}) {
     super(id, 'tree');
@@ -239,24 +258,32 @@ export class TreeWidget extends BaseWidget {
       const addLabel = createElement('span');
       addLabel.textContent = this._options.addButtonLabel ?? 'Add Entity';
       addBtn.appendChild(addLabel);
-      addBtn.addEventListener('click', () => { this._onDidRequestAdd.fire(); });
+      addBtn.addEventListener('click', () => {
+        this._onDidRequestAdd.fire();
+      });
     }
 
     this._listEl = this.appendElement(root, 'div', 'editrix-tree-list');
     this._listEl.tabIndex = 0;
 
-    this._listEl.addEventListener('keydown', (e) => { this._handleKeyDown(e); });
+    this._listEl.addEventListener('keydown', (e) => {
+      this._handleKeyDown(e);
+    });
 
     // List-level drag fallback: drops landing in the blank space below the
     // last row resolve to "after the last row" — the one position the
     // per-row 25/50/25 zones can't reach.
     if (this._options.enableDrag !== false) {
-      this._listEl.addEventListener('dragover', (e) => { this._handleListDragover(e); });
+      this._listEl.addEventListener('dragover', (e) => {
+        this._handleListDragover(e);
+      });
       this._listEl.addEventListener('dragleave', (e) => {
         if (this._listEl?.contains(e.relatedTarget as Node | null)) return;
         this._clearDropIndicator();
       });
-      this._listEl.addEventListener('drop', (e) => { this._handleListDrop(e); });
+      this._listEl.addEventListener('drop', (e) => {
+        this._handleListDrop(e);
+      });
     }
 
     this._render();
@@ -284,7 +311,11 @@ export class TreeWidget extends BaseWidget {
     this._clearDropIndicator();
     if (!raw) return;
     let sources: string[];
-    try { sources = JSON.parse(raw) as string[]; } catch { return; }
+    try {
+      sources = JSON.parse(raw) as string[];
+    } catch {
+      return;
+    }
     if (!Array.isArray(sources) || sources.length === 0) return;
     const lastRow = this._listEl?.lastElementChild as HTMLElement | null;
     if (!lastRow?.classList.contains('editrix-tree-row')) return;
@@ -323,9 +354,7 @@ export class TreeWidget extends BaseWidget {
     if (!this._listEl) return;
     this._listEl.innerHTML = '';
 
-    const roots = this._filterText
-      ? this._filterTree(this._roots, this._filterText)
-      : this._roots;
+    const roots = this._filterText ? this._filterTree(this._roots, this._filterText) : this._roots;
 
     if (roots.length === 0) {
       const empty = createElement('div', 'editrix-tree-empty');
@@ -340,7 +369,12 @@ export class TreeWidget extends BaseWidget {
   private _hasSelectedDescendant(nodes: readonly TreeNode[]): boolean {
     for (const node of nodes) {
       if (this._selected.has(node.id)) return true;
-      if (node.children && this._expanded.has(node.id) && this._hasSelectedDescendant(node.children)) return true;
+      if (
+        node.children &&
+        this._expanded.has(node.id) &&
+        this._hasSelectedDescendant(node.children)
+      )
+        return true;
     }
     return false;
   }
@@ -350,7 +384,12 @@ export class TreeWidget extends BaseWidget {
    *               true = ancestor at that depth has more siblings below → draw continuing line.
    *               false = ancestor was the last child → no line at that depth.
    */
-  private _renderNodes(nodes: readonly TreeNode[], depth: number, parentHidden: boolean, guides: boolean[]): void {
+  private _renderNodes(
+    nodes: readonly TreeNode[],
+    depth: number,
+    parentHidden: boolean,
+    guides: boolean[],
+  ): void {
     const indent = this._options.indentSize ?? 16;
 
     for (let i = 0; i < nodes.length; i++) {
@@ -361,7 +400,8 @@ export class TreeWidget extends BaseWidget {
       const isExpanded = this._expanded.has(node.id);
       const isSelected = this._selected.has(node.id);
       const isFocused = this._focusedId === node.id;
-      const isParentOfSelected = hasChildren && isExpanded && this._hasSelectedDescendant(node.children);
+      const isParentOfSelected =
+        hasChildren && isExpanded && this._hasSelectedDescendant(node.children);
       const isSelfHidden = this._hidden.has(node.id);
       const isHidden = isSelfHidden || parentHidden;
 
@@ -533,7 +573,9 @@ export class TreeWidget extends BaseWidget {
           let sources: string[];
           try {
             sources = JSON.parse(raw) as string[];
-          } catch { return; }
+          } catch {
+            return;
+          }
           if (!Array.isArray(sources) || sources.length === 0) return;
           if (sources.includes(node.id)) return;
           const rect = row.getBoundingClientRect();
@@ -682,7 +724,11 @@ export class TreeWidget extends BaseWidget {
           { id: node.id, label: node.label },
           node.icon !== undefined ? { icon: node.icon } : {},
           node.labelClassName !== undefined ? { labelClassName: node.labelClassName } : {},
-          filteredChildren.length > 0 ? { children: filteredChildren } : node.children !== undefined ? { children: node.children } : {},
+          filteredChildren.length > 0
+            ? { children: filteredChildren }
+            : node.children !== undefined
+              ? { children: node.children }
+              : {},
         );
         result.push(newNode);
         // Auto-expand matching parents

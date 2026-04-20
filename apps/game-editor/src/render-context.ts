@@ -34,9 +34,15 @@ export class SharedRenderContext {
     // Offscreen — not attached to any DOM
   }
 
-  get module(): ESEngineModule | undefined { return this._module; }
-  get registry(): CppRegistry | undefined { return this._registry; }
-  get isInitialized(): boolean { return this._module !== undefined; }
+  get module(): ESEngineModule | undefined {
+    return this._module;
+  }
+  get registry(): CppRegistry | undefined {
+    return this._registry;
+  }
+  get isInitialized(): boolean {
+    return this._module !== undefined;
+  }
 
   /** Initialize WebGL context and estella renderer. Call once when WASM is ready. */
   init(module: ESEngineModule): boolean {

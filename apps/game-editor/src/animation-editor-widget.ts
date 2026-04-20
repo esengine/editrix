@@ -1,6 +1,12 @@
 import { BaseWidget, createIconElement } from '@editrix/view-dom';
 import { ASSET_PATH_MIME } from './content-browser-widget.js';
-import type { AnimClipData, AnimFrameData, IAnimationService, IAssetCatalogService, IProjectService } from './services.js';
+import type {
+  AnimClipData,
+  AnimFrameData,
+  IAnimationService,
+  IAssetCatalogService,
+  IProjectService,
+} from './services.js';
 
 function assetUrl(relativePath: string): string {
   return `project-asset:///${relativePath.split('/').map(encodeURIComponent).join('/')}`;
@@ -62,11 +68,13 @@ export class AnimationEditorWidget extends BaseWidget {
     this._catalog = catalog;
     this._project = project;
 
-    this.subscriptions.add(this._anim.onDidChangeClip(({ filePath, data }) => {
-      if (filePath !== this._filePath) return;
-      this._data = data;
-      this._render();
-    }));
+    this.subscriptions.add(
+      this._anim.onDidChangeClip(({ filePath, data }) => {
+        if (filePath !== this._filePath) return;
+        this._data = data;
+        this._render();
+      }),
+    );
   }
 
   /** Bind the widget to a `.esanim` document. Call with `undefined` to detach. */
@@ -97,7 +105,9 @@ export class AnimationEditorWidget extends BaseWidget {
     this._titleEl.textContent = '';
     const exitBtn = this.appendElement(header, 'button', 'editrix-anim-header__exit');
     exitBtn.textContent = 'Close';
-    exitBtn.addEventListener('click', () => { this._onExitHandler?.(); });
+    exitBtn.addEventListener('click', () => {
+      this._onExitHandler?.();
+    });
 
     const propsBar = this.appendElement(root, 'div', 'editrix-anim-props');
 
@@ -108,25 +118,39 @@ export class AnimationEditorWidget extends BaseWidget {
     fps.min = '1';
     fps.max = '120';
     fps.step = '1';
-    fps.addEventListener('change', () => { this._commitFps(); });
+    fps.addEventListener('change', () => {
+      this._commitFps();
+    });
     this._fpsInput = fps;
 
     const loopLabel = this.appendElement(propsBar, 'label', 'editrix-anim-prop');
     const loop = this.appendElement(loopLabel, 'input', 'editrix-anim-prop__check');
     loop.type = 'checkbox';
-    loop.addEventListener('change', () => { this._commitLoop(); });
+    loop.addEventListener('change', () => {
+      this._commitLoop();
+    });
     this._loopInput = loop;
     loopLabel.appendChild(document.createTextNode(' Loop'));
 
-    this._durationEl = this.appendElement(propsBar, 'span', 'editrix-anim-prop editrix-anim-prop--readout');
+    this._durationEl = this.appendElement(
+      propsBar,
+      'span',
+      'editrix-anim-prop editrix-anim-prop--readout',
+    );
 
     const spacer = this.appendElement(propsBar, 'span', 'editrix-anim-props__spacer');
     spacer.style.flex = '1';
 
     this._playBtn = this.appendElement(propsBar, 'button', 'editrix-anim-play');
-    this._playBtn.addEventListener('click', () => { this._togglePlay(); });
+    this._playBtn.addEventListener('click', () => {
+      this._togglePlay();
+    });
 
-    this._frameIndicatorEl = this.appendElement(propsBar, 'span', 'editrix-anim-prop editrix-anim-prop--readout');
+    this._frameIndicatorEl = this.appendElement(
+      propsBar,
+      'span',
+      'editrix-anim-prop editrix-anim-prop--readout',
+    );
 
     const body = this.appendElement(root, 'div', 'editrix-anim-body');
 
@@ -144,7 +168,8 @@ export class AnimationEditorWidget extends BaseWidget {
       this._stripEl?.classList.add('editrix-anim-strip--drop-target');
     });
     this._stripEl.addEventListener('dragleave', (e) => {
-      if (e.target === this._stripEl) this._stripEl.classList.remove('editrix-anim-strip--drop-target');
+      if (e.target === this._stripEl)
+        this._stripEl.classList.remove('editrix-anim-strip--drop-target');
     });
     this._stripEl.addEventListener('drop', (e) => {
       this._stripEl?.classList.remove('editrix-anim-strip--drop-target');
@@ -373,7 +398,9 @@ export class AnimationEditorWidget extends BaseWidget {
       });
       card.appendChild(del);
 
-      card.addEventListener('click', () => { this._selectFrame(idx); });
+      card.addEventListener('click', () => {
+        this._selectFrame(idx);
+      });
 
       strip.appendChild(card);
     });

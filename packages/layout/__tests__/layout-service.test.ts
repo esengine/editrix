@@ -15,9 +15,9 @@ describe('LayoutService', () => {
     const service = new LayoutService();
     service.registerPanel({ id: 'scene', title: 'Scene View' });
 
-    expect(() =>
-      service.registerPanel({ id: 'scene', title: 'Scene View 2' }),
-    ).toThrow('Panel "scene" is already registered.');
+    expect(() => service.registerPanel({ id: 'scene', title: 'Scene View 2' })).toThrow(
+      'Panel "scene" is already registered.',
+    );
   });
 
   it('should unregister panel when disposable is disposed', () => {
