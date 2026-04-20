@@ -1,87 +1,21 @@
-import { createServiceId, type IDisposable, type Event } from '@editrix/common';
-import type { IEcsSdkAdapter } from './ecs-sdk-adapter.js';
-
-// ─── Field Schema ──────────────────────────────────────────
-
-export type FieldType = 'float' | 'int' | 'bool' | 'string' | 'color' | 'enum' | 'asset' | 'entity';
-
 /**
- * Asset subtype for `type: 'asset'` fields. Surfaced so the Inspector's
- * picker can filter to just the asset kind a component expects — Sprite
- * wants `texture`, SpriteAnimator wants `anim-clip`, and so on. Omitted
- * on non-asset fields or when the component isn't in the builtin map.
+ * {@link IECSSceneService} — the WASM-backed scene authority.
+ *
+ * The service lives here (in the engine adapter package) because it owns
+ * the bridge to WASM handles and the SDK component adapter. The data
+ * types it operates on (serialization, events, component-field schema)
+ * are domain-level and live in `@editrix/scene`.
  */
-export type AssetFieldSubtype =
-  | 'texture'
-  | 'material'
-  | 'font'
-  | 'anim-clip'
-  | 'audio'
-  | 'tilemap'
-  | 'timeline';
 
-export interface ComponentFieldSchema {
-  readonly key: string;
-  readonly label: string;
-  readonly type: FieldType;
-  readonly defaultValue: unknown;
-  readonly group: string;
-  readonly min?: number;
-  readonly max?: number;
-  readonly step?: number;
-  readonly enumValues?: readonly string[];
-  /** Asset subtype for `type: 'asset'` fields. Undefined when unknown. */
-  readonly assetType?: AssetFieldSubtype;
-}
-
-// ─── Scene Data (serialization) ────────────────────────────
-
-export interface SerializedEntity {
-  readonly id: number;
-  readonly name: string;
-  readonly components: Record<string, Record<string, unknown>>;
-  readonly children: number[];
-  /**
-   * Visibility intent. `false` is persisted and the editor mirrors it to
-   * the engine `Disabled` tag so renderers/systems see consistent state.
-   * Omitted in serialised form when the entity is visible (the default)
-   * to keep scene files clean.
-   */
-  readonly visible?: boolean;
-  /**
-   * Per-entity editor/tooling metadata that survives scene round-trip.
-   * Not interpreted by the ECS — callers namespace their own keys
-   * (e.g. 'inspectorComponentOrder').
-   */
-  readonly metadata?: Readonly<Record<string, unknown>>;
-}
-
-export interface SceneData {
-  readonly version: number;
-  readonly name: string;
-  readonly entities: SerializedEntity[];
-}
-
-// ─── Events ────────────────────────────────────────────────
-
-export interface EntityEvent {
-  readonly entityId: number;
-  readonly name: string;
-}
-
-export interface ComponentEvent {
-  readonly entityId: number;
-  readonly component: string;
-}
-
-export interface PropertyEvent {
-  readonly entityId: number;
-  readonly component: string;
-  readonly field: string;
-  readonly value: unknown;
-}
-
-// ─── IECSSceneService ──────────────────────────────────────
+import { createServiceId, type Event, type IDisposable } from '@editrix/common';
+import type {
+  ComponentEvent,
+  ComponentFieldSchema,
+  EntityEvent,
+  PropertyEvent,
+  SceneData,
+} from '@editrix/scene';
+import type { IEcsSdkAdapter } from './ecs-sdk-adapter.js';
 
 export interface IECSSceneService extends IDisposable {
   // Entity lifecycle

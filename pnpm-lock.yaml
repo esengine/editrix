@@ -56,6 +56,9 @@ importers:
       '@editrix/properties':
         specifier: workspace:*
         version: link:../../packages/properties
+      '@editrix/scene':
+        specifier: workspace:*
+        version: link:../../packages/scene
       '@editrix/shell':
         specifier: workspace:*
         version: link:../../packages/shell
@@ -95,6 +98,9 @@ importers:
       '@editrix/core':
         specifier: workspace:*
         version: link:../core
+      '@editrix/scene':
+        specifier: workspace:*
+        version: link:../scene
       esengine:
         specifier: file:../../vendor/estella/sdk
         version: file:vendor/estella/sdk
@@ -182,6 +188,15 @@ importers:
       '@editrix/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/scene:
+    dependencies:
+      '@editrix/common':
+        specifier: workspace:*
+        version: link:../common
+      esengine:
+        specifier: file:../../vendor/estella/sdk
+        version: file:vendor/estella/sdk
 
   packages/shell:
     dependencies:

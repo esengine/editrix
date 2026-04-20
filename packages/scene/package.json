@@ -1,7 +1,7 @@
 {
-  "name": "@editrix/estella",
+  "name": "@editrix/scene",
   "version": "0.1.0",
-  "description": "Estella rendering engine integration for Editrix",
+  "description": "Scene-domain types for game/3D editors built on Editrix",
   "type": "module",
   "exports": {
     ".": {
@@ -20,8 +20,6 @@
   },
   "dependencies": {
     "@editrix/common": "workspace:*",
-    "@editrix/core": "workspace:*",
-    "@editrix/scene": "workspace:*",
     "esengine": "file:../../vendor/estella/sdk"
   },
   "sideEffects": false

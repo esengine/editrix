@@ -24,14 +24,10 @@
  */
 
 import type { IDisposable } from '@editrix/common';
-import type {
-  AssetFieldSubtype,
-  ComponentFieldSchema,
-  IEcsSdkAdapter,
-  SdkComponentDef,
-  SdkComponentInfo,
-} from '@editrix/estella';
-import { deriveComponentSchema, IComponentCatalog, IECSSceneService } from '@editrix/estella';
+import type { IEcsSdkAdapter, SdkComponentDef, SdkComponentInfo } from '@editrix/estella';
+import { IComponentCatalog, IECSSceneService } from '@editrix/estella';
+import type { AssetFieldSubtype, ComponentFieldSchema } from '@editrix/scene';
+import { deriveComponentSchema } from '@editrix/scene';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { IRuntimeAppPresence, type IRuntimeApp } from '../services.js';
 

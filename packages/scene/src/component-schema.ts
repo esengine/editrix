@@ -1,6 +1,14 @@
-import type { ComponentFieldSchema, FieldType } from './ecs-scene-service.js';
+/**
+ * Derive {@link ComponentFieldSchema} from a component's runtime metadata.
+ *
+ * The SDK publishes each component's shape via a `ComponentMeta`-compatible
+ * record (defaults + optional asset / entity / color / animatable field
+ * hints). The inspector needs schema instead: typed, labelled field
+ * descriptors. This module bridges the two with a pure transform — no
+ * WASM, no DOM.
+ */
 
-// ─── Component Metadata (matches estella SDK's COMPONENT_META shape) ──
+import type { ComponentFieldSchema, FieldType } from './serialization.js';
 
 export interface ComponentMeta {
   readonly defaults: Record<string, unknown>;
@@ -75,18 +83,16 @@ function deriveField(
   group: string,
   meta: ComponentMeta,
 ): ComponentFieldSchema[] {
-  // Check metadata hints first
-  if (meta.colorKeys?.includes(key) || isColor(value)) {
+  if (meta.colorKeys?.includes(key) === true || isColor(value)) {
     return [{ key, label: humanize(key), type: 'color', defaultValue: value, group }];
   }
-  if (meta.assetFields?.includes(key)) {
+  if (meta.assetFields?.includes(key) === true) {
     return [{ key, label: humanize(key), type: 'asset', defaultValue: value, group }];
   }
-  if (meta.entityFields?.includes(key)) {
+  if (meta.entityFields?.includes(key) === true) {
     return [{ key, label: humanize(key), type: 'entity', defaultValue: value, group }];
   }
 
-  // Infer from value type
   if (typeof value === 'number') {
     return [{ key, label: humanize(key), type: 'float', defaultValue: value, group }];
   }
@@ -97,7 +103,6 @@ function deriveField(
     return [{ key, label: humanize(key), type: 'string', defaultValue: value, group }];
   }
 
-  // Expand vector types into individual number fields
   if (isVec4(value)) {
     return ['x', 'y', 'z', 'w'].map((c) => ({
       key: `${key}.${c}`,
@@ -126,14 +131,13 @@ function deriveField(
     }));
   }
 
-  // Skip unknown types
   return [];
 }
 
 /**
- * Derive ComponentFieldSchema[] from an estella component's metadata.
- * Automatically handles: number, boolean, string, Vec2/3/4, Color,
- * asset fields, entity references.
+ * Derive {@link ComponentFieldSchema}[] from a component's metadata.
+ * Handles number, boolean, string, Vec2/3/4, Color, asset fields, and
+ * entity references.
  */
 export function deriveComponentSchema(
   componentName: string,
@@ -147,8 +151,8 @@ export function deriveComponentSchema(
 }
 
 /**
- * Derive schemas for ALL components from a COMPONENT_META map.
- * Returns a Map from component name to its field schemas.
+ * Derive schemas for every component in a metadata map. Components
+ * whose metadata produces zero fields are skipped.
  */
 export function deriveAllSchemas(
   metaMap: Record<string, ComponentMeta>,

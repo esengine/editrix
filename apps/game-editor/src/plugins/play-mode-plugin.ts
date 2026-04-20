@@ -1,7 +1,8 @@
 import { Emitter } from '@editrix/common';
-import type { IECSSceneService, SceneData } from '@editrix/estella';
+import type { IECSSceneService } from '@editrix/estella';
 import { IEstellaService } from '@editrix/estella';
 import { IConsoleService } from '@editrix/plugin-console';
+import type { SceneData } from '@editrix/scene';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { ISelectionService } from '@editrix/shell';
 import {

@@ -19,7 +19,7 @@
  * through the adapter.
  */
 
-import type { ComponentFieldSchema } from './ecs-scene-service.js';
+import type { ComponentFieldSchema } from '@editrix/scene';
 
 /**
  * The app-side adapter plugging SDK components into the ECS service.

@@ -1,16 +1,16 @@
 import { Emitter } from '@editrix/common';
 import type {
-  IECSSceneService,
+  ComponentEvent,
   ComponentFieldSchema,
+  EntityEvent,
+  PropertyEvent,
   SceneData,
   SerializedEntity,
-  EntityEvent,
-  ComponentEvent,
-  PropertyEvent,
-} from './ecs-scene-service.js';
+} from '@editrix/scene';
+import { assetFieldSubtype } from '@editrix/scene';
+import type { IECSSceneService } from './ecs-scene-service.js';
 import type { IEcsSdkAdapter } from './ecs-sdk-adapter.js';
 import type { ESEngineModule, CppRegistry, VectorString } from './estella-service.js';
-import { assetFieldSubtype } from './index.js';
 
 /** Convert Emscripten VectorString to JS array and delete the vector. */
 function vecToArray(vec: VectorString): string[] {

@@ -13,7 +13,8 @@
  * service contract.
  */
 
-import type { IECSSceneService, PrefabOverride } from '@editrix/estella';
+import type { IECSSceneService } from '@editrix/estella';
+import type { PrefabOverride } from '@editrix/scene';
 import type { IPrefabService, PrefabOverrideRef } from './services.js';
 import { PREFAB_METADATA_KEYS } from './services.js';
 

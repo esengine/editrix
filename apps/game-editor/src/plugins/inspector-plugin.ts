@@ -1,6 +1,7 @@
-import type { ComponentFieldSchema, IECSSceneService } from '@editrix/estella';
+import type { IECSSceneService } from '@editrix/estella';
 import { IConsoleService } from '@editrix/plugin-console';
 import type { PropertyGroup, PropertyType } from '@editrix/properties';
+import type { ComponentFieldSchema } from '@editrix/scene';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
 import { ILayoutService, ISelectionService, IUndoRedoService, IViewService } from '@editrix/shell';
 import type { AssetPickerBinding, AssetRefPreview } from '@editrix/view-dom';
