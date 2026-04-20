@@ -679,27 +679,20 @@ export class SceneViewWidget extends BaseWidget {
     }
 
     if (infos.length > 0) {
-      // Pivot / ring radius come from the active drag when one is in
-      // flight so the gizmo tracks the drag's captured pivot (stable
-      // across the gesture) rather than the entities' current positions
-      // (which are being mutated each mousemove). When idle, fall back to
-      // the centroid of the live selection.
-      let pivotWX: number;
-      let pivotWY: number;
-      if (this._gizmo.isDragging) {
-        const p = this._gizmo.dragPivot;
-        pivotWX = p.x;
-        pivotWY = p.y;
-      } else {
-        pivotWX = 0;
-        pivotWY = 0;
-        for (const info of infos) {
-          pivotWX += info.px;
-          pivotWY += info.py;
-        }
-        pivotWX /= infos.length;
-        pivotWY /= infos.length;
+      // Gizmo position always tracks the live centroid. For rotate / scale
+      // the math invariant keeps this equal to the stored drag pivot
+      // (entities dilate around the pivot, so the centroid stays put);
+      // for move the centroid shifts with the entities each mousemove and
+      // the gizmo has to follow — using the stored pivot pinned the
+      // arrows at the mouse-down point which looked broken.
+      let pivotWX = 0;
+      let pivotWY = 0;
+      for (const info of infos) {
+        pivotWX += info.px;
+        pivotWY += info.py;
       }
+      pivotWX /= infos.length;
+      pivotWY /= infos.length;
       const [pivotSX, pivotSY] = cam.worldToScreen(pivotWX, pivotWY, w, h);
 
       // Ring radius: max of the selection's worldRingRadius values, so a
