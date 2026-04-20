@@ -53,6 +53,9 @@ importers:
       '@editrix/plugin-settings':
         specifier: workspace:*
         version: link:../../packages/plugin-settings
+      '@editrix/project':
+        specifier: workspace:*
+        version: link:../../packages/project
       '@editrix/properties':
         specifier: workspace:*
         version: link:../../packages/properties

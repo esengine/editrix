@@ -102,29 +102,16 @@ function resolveEditorWindowOptions(saved) {
 const EDITRIX_VERSION = '0.1.0';
 const EDITRIX_API_VERSION = 1;
 
-// ── Project version classification ──────────────────────
-
-function parseSemver(v) {
-  const parts = String(v)
-    .split('.')
-    .map((s) => {
-      const n = parseInt(s, 10);
-      return Number.isFinite(n) ? n : 0;
-    });
-  return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+// ── Project config helpers (from @editrix/project) ──────
+// The package is ESM-only, so we load it via dynamic import and
+// memoise. IPC handlers are already async-compatible.
+let _projectModulePromise;
+function loadProjectModule() {
+  _projectModulePromise ??= import('@editrix/project');
+  return _projectModulePromise;
 }
 
-function compareVersions(a, b) {
-  const [am, an, ap] = parseSemver(a);
-  const [bm, bn, bp] = parseSemver(b);
-  if (am !== bm) return am < bm ? -1 : 1;
-  if (an !== bn) return an < bn ? -1 : 1;
-  if (ap !== bp) return ap < bp ? -1 : 1;
-  return 0;
-}
-
-/** Returns { version, status: 'ok' | 'project-older' | 'project-newer' | 'unknown' }. */
-function classifyProjectVersion(projectPath) {
+async function classifyProjectVersion(projectPath) {
   const manifestPath = path.join(projectPath, 'editrix.json');
   let raw;
   try {
@@ -138,12 +125,12 @@ function classifyProjectVersion(projectPath) {
   } catch (_) {
     return { version: null, status: 'unknown' };
   }
-  const v = typeof parsed.editrix === 'string' ? parsed.editrix : null;
-  if (!v) return { version: null, status: 'unknown' };
-
-  const cmp = compareVersions(v, EDITRIX_VERSION);
-  const status = cmp === 0 ? 'ok' : cmp < 0 ? 'project-older' : 'project-newer';
-  return { version: v, status };
+  const { classifyProjectVersion: classify } = await loadProjectModule();
+  const info = classify(
+    typeof parsed.editrix === 'string' ? parsed.editrix : null,
+    EDITRIX_VERSION,
+  );
+  return { version: info.projectVersion, status: info.status };
 }
 
 /**
@@ -667,34 +654,25 @@ ipcMain.handle('select-file', async (e, options) => {
 
 // ── IPC: Project Management ─────────────────────────────
 
-ipcMain.handle('list-projects', () => {
-  // Every refresh we re-read disk state for two orthogonal checks:
-  //   - `exists`: folder still there? (row-level missing indicator)
-  //   - `versionStatus`: editrix.json version vs. running build?
-  //     (version-column badge — only meaningful when exists is true)
-  // The cached `editrixVersion` in launcher.json is only a fallback for
-  // display when the folder exists but the manifest is unreadable.
-  return loadLauncherConfig().projects.map((p) => {
-    const exists = fs.existsSync(p.path);
-    if (!exists) {
-      return {
-        ...p,
-        exists: false,
-        // Version column is suppressed for missing rows; keep cached value
-        // for completeness but don't compute a status (nothing to check).
-        versionStatus: 'folder-missing',
-      };
+ipcMain.handle('list-projects', async () => {
+  const entries = loadLauncherConfig().projects;
+  const out = [];
+  for (const p of entries) {
+    if (!fs.existsSync(p.path)) {
+      out.push({ ...p, exists: false, versionStatus: 'folder-missing' });
+      continue;
     }
-    const { version, status } = classifyProjectVersion(p.path);
-    return {
+    const { version, status } = await classifyProjectVersion(p.path);
+    out.push({
       ...p,
       exists: true,
       // Live-read wins over cache so upgrading a project's editrix.json
-      // reflects in the launcher without re-registering the project.
+      // reflects in the launcher without re-registering.
       editrixVersion: version ?? p.editrixVersion ?? null,
       versionStatus: status,
-    };
-  });
+    });
+  }
+  return out;
 });
 
 ipcMain.handle('remove-project', (_e, projectPath) => {
@@ -942,7 +920,7 @@ export default plugin;
   }
 });
 
-ipcMain.on('open-project', (_e, projectPath) => {
+ipcMain.on('open-project', async (_e, projectPath) => {
   if (projectPath) {
     const manifestPath = path.join(projectPath, 'editrix.json');
     if (!fs.existsSync(manifestPath)) {
@@ -956,10 +934,38 @@ ipcMain.on('open-project', (_e, projectPath) => {
       });
       return;
     }
+    const raw = fs.readFileSync(manifestPath, 'utf-8');
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      const win = launcherWindow || BrowserWindow.getFocusedWindow();
+      dialog.showMessageBoxSync(win || undefined, {
+        type: 'error',
+        title: 'Invalid editrix.json',
+        message: 'Could not parse editrix.json.',
+        detail: `${projectPath}\n\n${String(err)}`,
+        buttons: ['OK'],
+      });
+      return;
+    }
+    const { validateProjectConfig } = await loadProjectModule();
+    const { errors } = validateProjectConfig(parsed);
+    if (errors.length > 0) {
+      const win = launcherWindow || BrowserWindow.getFocusedWindow();
+      dialog.showMessageBoxSync(win || undefined, {
+        type: 'error',
+        title: 'editrix.json is invalid',
+        message: 'The project manifest has structural errors.',
+        detail: `${projectPath}\n\n${errors.map((e) => `• ${e}`).join('\n')}`,
+        buttons: ['OK'],
+      });
+      return;
+    }
   }
 
   if (projectPath) {
-    const { version, status } = classifyProjectVersion(projectPath);
+    const { version, status } = await classifyProjectVersion(projectPath);
     if (status === 'project-newer') {
       const win = launcherWindow || BrowserWindow.getFocusedWindow();
       dialog.showMessageBoxSync(win || undefined, {
