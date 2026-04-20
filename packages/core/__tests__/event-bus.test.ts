@@ -140,6 +140,124 @@ describe('EventBus', () => {
       expect((errors[0] as { eventId: string }).eventId).toBe('e.sub');
     });
 
+  });
+
+  describe('batching', () => {
+    it('drops queued emits when a batch throws', () => {
+      const bus = new EventBus();
+      const handler = vi.fn();
+      bus.on('e', handler);
+
+      expect(() =>
+        bus.batch(() => {
+          bus.emit('e', 1);
+          bus.emit('e', 2);
+          throw new Error('aborted');
+        }),
+      ).toThrow('aborted');
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+
+    it('defers emits until the batch completes and preserves order', () => {
+      const bus = new EventBus();
+      const seen: [string, unknown][] = [];
+      bus.on('a', (d) => seen.push(['a', d]));
+      bus.on('b', (d) => seen.push(['b', d]));
+
+      const observedDuringBatch: typeof seen = [];
+      bus.batch(() => {
+        bus.emit('a', 1);
+        bus.emit('b', 'x');
+        bus.emit('a', 2);
+        observedDuringBatch.push(...seen);
+      });
+
+      expect(observedDuringBatch).toEqual([]); // nothing fired mid-batch
+      expect(seen).toEqual([
+        ['a', 1],
+        ['b', 'x'],
+        ['a', 2],
+      ]);
+    });
+
+    it('does not coalesce repeated emits — all are delivered', () => {
+      const bus = new EventBus();
+      const h = vi.fn();
+      bus.on('e', h);
+
+      bus.batch(() => {
+        bus.emit('e', 1);
+        bus.emit('e', 2);
+        bus.emit('e', 3);
+      });
+
+      expect(h).toHaveBeenCalledTimes(3);
+    });
+
+    it('supports nested batches — only the outermost flushes', () => {
+      const bus = new EventBus();
+      const h = vi.fn();
+      bus.on('e', h);
+
+      bus.batch(() => {
+        bus.emit('e', 1);
+        bus.batch(() => {
+          bus.emit('e', 2);
+          expect(h).not.toHaveBeenCalled(); // inner end doesn't flush
+        });
+        expect(h).not.toHaveBeenCalled(); // still inside outer
+        bus.emit('e', 3);
+      });
+
+      expect(h).toHaveBeenCalledTimes(3);
+    });
+
+    it('forwards the callback return value', () => {
+      const bus = new EventBus();
+      const result = bus.batch(() => {
+        bus.emit('e', null);
+        return 42;
+      });
+      expect(result).toBe(42);
+    });
+
+    it('delivers to wildcard subscribers too', () => {
+      const bus = new EventBus();
+      const h = vi.fn();
+      bus.onWild('e.*', h);
+
+      bus.batch(() => {
+        bus.emit('e.sub', 'a');
+        bus.emit('e.other', 'b');
+      });
+
+      expect(h).toHaveBeenCalledTimes(2);
+      expect(h).toHaveBeenNthCalledWith(1, 'e.sub', 'a');
+      expect(h).toHaveBeenNthCalledWith(2, 'e.other', 'b');
+    });
+
+    it('emits made by listeners during flush dispatch immediately', () => {
+      const bus = new EventBus();
+      const order: string[] = [];
+
+      bus.on('outer', () => {
+        order.push('outer');
+        bus.emit('inner', null);
+      });
+      bus.on('inner', () => order.push('inner'));
+
+      bus.batch(() => {
+        bus.emit('outer', null);
+      });
+
+      // Outer first (from the flush), then inner (re-entrant, not batched).
+      expect(order).toEqual(['outer', 'inner']);
+    });
+  });
+
+  describe('listener set mutation during emit', () => {
     it('should tolerate listeners that mutate the listener set during emit', () => {
       const bus = new EventBus();
       const captured: string[] = [];

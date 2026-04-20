@@ -39,6 +39,21 @@ export interface IEventBus {
    * the rest of the bus. Wire this to a logger in production.
    */
   readonly onError: Event<EventBusListenerError>;
+
+  /**
+   * Run `fn` and defer every {@link emit} made during its execution until
+   * the outer batch completes. Order is preserved — events are delivered
+   * one-by-one in the order they were emitted, not coalesced.
+   *
+   * Batches nest: only the outermost batch flushes. If `fn` throws, any
+   * queued events are discarded so listeners never observe state the
+   * failed caller is about to roll back. Caller's return value is
+   * forwarded, making `batch` transparent for computed values.
+   *
+   * Use for high-frequency updates (e.g. bulk property writes) where
+   * listeners would thrash if notified per-change.
+   */
+  batch<T>(fn: () => T): T;
 }
 
 /**
@@ -55,10 +70,48 @@ export class EventBus implements IEventBus, IDisposable {
   private readonly _listeners = new Map<string, Set<(data: unknown) => void>>();
   private readonly _wildcards = new Map<string, Set<(eventId: string, data: unknown) => void>>();
   private readonly _onError = new Emitter<EventBusListenerError>();
+  private _batchDepth = 0;
+  private _queue: { eventId: string; data: unknown }[] = [];
 
   readonly onError: Event<EventBusListenerError> = this._onError.event;
 
   emit(eventId: string, data: unknown): void {
+    if (this._batchDepth > 0) {
+      this._queue.push({ eventId, data });
+      return;
+    }
+    this._dispatch(eventId, data);
+  }
+
+  batch<T>(fn: () => T): T {
+    this._batchDepth++;
+    try {
+      const result = fn();
+      this._batchDepth--;
+      if (this._batchDepth === 0) this._flush();
+      return result;
+    } catch (error) {
+      this._batchDepth--;
+      if (this._batchDepth === 0) {
+        // Caller's logical operation failed — events queued under its
+        // assumption of success should not be observed.
+        this._queue.length = 0;
+      }
+      throw error;
+    }
+  }
+
+  private _flush(): void {
+    // Swap out the queue so listener-triggered emits that happen after
+    // the batch ends (via normal dispatch) don't tangle with this flush.
+    const pending = this._queue;
+    this._queue = [];
+    for (const entry of pending) {
+      this._dispatch(entry.eventId, entry.data);
+    }
+  }
+
+  private _dispatch(eventId: string, data: unknown): void {
     const exact = this._listeners.get(eventId);
     if (exact) {
       // Snapshot so a listener that disposes itself or subscribes another
@@ -131,6 +184,7 @@ export class EventBus implements IEventBus, IDisposable {
   dispose(): void {
     this._listeners.clear();
     this._wildcards.clear();
+    this._queue.length = 0;
     this._onError.dispose();
   }
 }
