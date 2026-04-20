@@ -17,10 +17,12 @@ import {
   IClipboardService as IClipboardServiceId,
   IDialogService as IDialogServiceId,
   INotificationService as INotificationServiceId,
+  IPathService as IPathServiceId,
   IPluginManager as IPluginManagerId,
   ISettingsService as ISettingsServiceId,
   IUndoRedoService as IUndoRedoServiceId,
   IWorkspaceService as IWorkspaceServiceId,
+  PathService,
   PluginManager,
   SettingsService,
   UndoRedoService,
@@ -119,6 +121,9 @@ export async function createEditor(options: CreateEditorOptions): Promise<Editor
 
   const settingsService = new SettingsService();
   kernel.services.register(ISettingsServiceId, settingsService);
+
+  const pathService = new PathService();
+  kernel.services.register(IPathServiceId, pathService);
 
   const undoRedoService = new UndoRedoService();
   kernel.services.register(IUndoRedoServiceId, undoRedoService);
@@ -234,6 +239,7 @@ export async function createEditor(options: CreateEditorOptions): Promise<Editor
       pluginManager.dispose();
       settingsService.dispose();
       workspaceService.dispose();
+      pathService.dispose();
     },
   };
 }

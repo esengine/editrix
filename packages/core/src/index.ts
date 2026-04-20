@@ -76,6 +76,9 @@ export { ISettingsService, SettingsService } from './settings.js';
 export type { DocumentHandler, DocumentInfo } from './document.js';
 export { DocumentService, IDocumentService } from './document.js';
 
+// ── Path service: DI-friendly cross-platform path utilities ───────────────
+export { IPathService, PathService } from './path.js';
+
 // ── Filesystem abstraction: pluggable backend for file IO ──────────────────
 export type { FileChangeEvent, FileEntry, FileEntryType, FileStat } from './filesystem.js';
 export {
