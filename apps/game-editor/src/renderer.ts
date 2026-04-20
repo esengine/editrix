@@ -444,14 +444,51 @@ async function main(): Promise<void> {
     })();
   });
 
-  // ── Right section: Play/Pause/Stop/Step + window controls ──
+  // ── Right section: Undo/Redo + Play/Pause/Stop/Step + window controls ──
   const rightSection = editor.view.menuBar.rightSection;
   if (rightSection) {
     const playMode = editor.kernel.services.get(IPlayModeService);
 
-    // Build a single play button that toggles based on mode (Play <-> Pause),
-    // a Stop button visible only while in play, and a Step button visible only
-    // while paused. The mode-change handler swaps icon/title/visibility.
+    // Undo/Redo — placed ahead of play controls so the pair is the
+    // leftmost reachable element in the right section. Disabled state
+    // and tooltips track the undo/redo service so users know what
+    // they're about to invoke ("Undo: Move Entity") or why the button
+    // won't fire ("Nothing to undo").
+    const undoBtn = document.createElement('button');
+    undoBtn.className = 'editrix-menubar-play-btn';
+    undoBtn.appendChild(createIconElement('undo', 16));
+    undoBtn.addEventListener('click', () => {
+      editor.undoRedo.undo();
+    });
+    rightSection.appendChild(undoBtn);
+
+    const redoBtn = document.createElement('button');
+    redoBtn.className = 'editrix-menubar-play-btn';
+    redoBtn.appendChild(createIconElement('redo', 16));
+    redoBtn.addEventListener('click', () => {
+      editor.undoRedo.redo();
+    });
+    rightSection.appendChild(redoBtn);
+
+    const refreshUndoRedoState = (): void => {
+      const canUndo = editor.undoRedo.canUndo();
+      const canRedo = editor.undoRedo.canRedo();
+      const undoLabel = editor.undoRedo.getUndoLabel();
+      const redoLabel = editor.undoRedo.getRedoLabel();
+      undoBtn.disabled = !canUndo;
+      redoBtn.disabled = !canRedo;
+      undoBtn.title = canUndo
+        ? `Undo${undoLabel !== undefined ? `: ${undoLabel}` : ''} (${formatKeyForDisplay('Mod+Z')})`
+        : 'Nothing to undo';
+      redoBtn.title = canRedo
+        ? `Redo${redoLabel !== undefined ? `: ${redoLabel}` : ''} (${formatKeyForDisplay('Mod+Shift+Z')})`
+        : 'Nothing to redo';
+    };
+    refreshUndoRedoState();
+    editor.undoRedo.onDidChangeState(() => {
+      refreshUndoRedoState();
+    });
+
     const playBtn = document.createElement('button');
     playBtn.className = 'editrix-menubar-play-btn';
     playBtn.appendChild(createIconElement('play', 16));
