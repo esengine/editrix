@@ -39,7 +39,6 @@ export class ViewportWidget extends BaseWidget {
   private _animContainer: HTMLElement | undefined;
   private _animWidget: AnimationEditorWidget | undefined;
   private _animActive = false;
-  private _bodyEl: HTMLElement | undefined;
   private _headerEl: HTMLElement | undefined;
   private _prefabBannerEl: HTMLElement | undefined;
   private _prefabBannerTitleEl: HTMLElement | undefined;
@@ -60,8 +59,13 @@ export class ViewportWidget extends BaseWidget {
     this._undoRedo = undoRedo;
     // Constructed up front so subscribers (e.g. ViewportPlugin wiring
     // onDidDropAsset) can attach before mount runs.
-    this._sceneWidget = new SceneViewWidget(`${this.id}-scene`, this._renderContext, this._selection, this._undoRedo);
-    this._gameWidget  = new GameViewWidget(`${this.id}-game`, this._renderContext);
+    this._sceneWidget = new SceneViewWidget(
+      `${this.id}-scene`,
+      this._renderContext,
+      this._selection,
+      this._undoRedo,
+    );
+    this._gameWidget = new GameViewWidget(`${this.id}-game`, this._renderContext);
     this.subscriptions.add(this._sceneWidget);
     this.subscriptions.add(this._gameWidget);
   }
@@ -141,13 +145,27 @@ export class ViewportWidget extends BaseWidget {
     // the canonical source.
     this._prefabBannerEl = this.appendElement(root, 'div', 'editrix-prefab-mode-banner');
     this._prefabBannerEl.style.display = 'none';
-    const bannerIcon = this.appendElement(this._prefabBannerEl, 'span', 'editrix-prefab-mode-banner__icon');
+    const bannerIcon = this.appendElement(
+      this._prefabBannerEl,
+      'span',
+      'editrix-prefab-mode-banner__icon',
+    );
     bannerIcon.textContent = '\u25C6'; // ◆
-    this._prefabBannerTitleEl = this.appendElement(this._prefabBannerEl, 'span', 'editrix-prefab-mode-banner__title');
+    this._prefabBannerTitleEl = this.appendElement(
+      this._prefabBannerEl,
+      'span',
+      'editrix-prefab-mode-banner__title',
+    );
     this._prefabBannerTitleEl.textContent = '';
-    const bannerExitBtn = this.appendElement(this._prefabBannerEl, 'button', 'editrix-prefab-mode-banner__exit');
+    const bannerExitBtn = this.appendElement(
+      this._prefabBannerEl,
+      'button',
+      'editrix-prefab-mode-banner__exit',
+    );
     bannerExitBtn.textContent = 'Exit Prefab Mode';
-    bannerExitBtn.addEventListener('click', () => { this._prefabBannerExitHandler?.(); });
+    bannerExitBtn.addEventListener('click', () => {
+      this._prefabBannerExitHandler?.();
+    });
 
     // Header: segmented control. Future: tool buttons can sit on the right.
     const header = this.appendElement(root, 'div', 'editrix-viewport-header');
@@ -160,17 +178,18 @@ export class ViewportWidget extends BaseWidget {
       const span = document.createElement('span');
       span.textContent = label;
       btn.appendChild(span);
-      btn.addEventListener('click', () => { this.setMode(mode); });
+      btn.addEventListener('click', () => {
+        this.setMode(mode);
+      });
       this._modeButtons.set(mode, btn);
       return btn;
     };
     buildButton('scene', 'Scene', 'layout');
-    buildButton('game',  'Game',  'play');
-    buildButton('both',  'Both',  'columns');
+    buildButton('game', 'Game', 'play');
+    buildButton('both', 'Both', 'columns');
 
     // Body holds both child widgets, only one visible at a time.
     const body = this.appendElement(root, 'div', 'editrix-viewport-body');
-    this._bodyEl = body;
     this._sceneContainer = this.appendElement(body, 'div', 'editrix-viewport-pane');
     this._gameContainer = this.appendElement(body, 'div', 'editrix-viewport-pane');
     // Animation editor overlay — covers the body when active. Hidden by
@@ -190,7 +209,7 @@ export class ViewportWidget extends BaseWidget {
     if (this._animActive) return;
 
     const showScene = this._mode === 'scene' || this._mode === 'both';
-    const showGame  = this._mode === 'game'  || this._mode === 'both';
+    const showGame = this._mode === 'game' || this._mode === 'both';
 
     if (this._sceneContainer) {
       this._sceneContainer.style.display = showScene ? '' : 'none';

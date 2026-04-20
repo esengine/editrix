@@ -1,0 +1,47 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Electron: Main",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/apps/game-editor",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "windows": {
+        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd"
+      },
+      "args": ["src/main.cjs"],
+      "outputCapture": "std",
+      "console": "integratedTerminal",
+      "preLaunchTask": "build:game-editor"
+    },
+    {
+      "name": "Electron: Renderer (attach)",
+      "type": "chrome",
+      "request": "attach",
+      "port": 9222,
+      "webRoot": "${workspaceFolder}/apps/game-editor",
+      "sourceMaps": true,
+      "timeout": 30000
+    },
+    {
+      "name": "Vitest: Current File",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/vitest",
+      "windows": {
+        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/vitest.cmd"
+      },
+      "args": ["run", "${file}"],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Electron: Full Stack",
+      "configurations": ["Electron: Main", "Electron: Renderer (attach)"]
+    }
+  ]
+}

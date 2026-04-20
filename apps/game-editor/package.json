@@ -7,6 +7,7 @@
   "type": "module",
   "scripts": {
     "build": "esbuild src/renderer.ts --bundle --outfile=dist/renderer.js --format=esm --platform=browser --target=es2022 --sourcemap --packages=bundle && esbuild src/launcher.ts --bundle --outfile=dist/launcher.js --format=esm --platform=browser --target=es2022 --sourcemap",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "build:wasm": "node scripts/build-wasm.js",
     "build:wasm:all": "node scripts/build-wasm.js --all",
     "copy:wasm": "node scripts/copy-wasm.js",

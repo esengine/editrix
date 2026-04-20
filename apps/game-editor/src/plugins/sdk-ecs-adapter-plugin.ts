@@ -25,15 +25,15 @@
 
 import type { IDisposable } from '@editrix/common';
 import type {
-  ComponentFieldSchema, IComponentCatalog, IEcsSdkAdapter,
-  IECSSceneService, SdkComponentDef, SdkComponentInfo,
+  AssetFieldSubtype,
+  ComponentFieldSchema,
+  IEcsSdkAdapter,
+  SdkComponentDef,
+  SdkComponentInfo,
 } from '@editrix/estella';
 import { deriveComponentSchema, IComponentCatalog, IECSSceneService } from '@editrix/estella';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import {
-  IRuntimeAppPresence,
-  type IRuntimeApp,
-} from '../services.js';
+import { IRuntimeAppPresence, type IRuntimeApp } from '../services.js';
 
 // Structural type for the SDK's World — only the methods we use.
 interface SdkWorld {
@@ -59,7 +59,13 @@ export const SdkEcsAdapterPlugin: IPlugin = {
     const runtimePresence = ctx.services.get(IRuntimeAppPresence);
     const ecs = ctx.services.get(IECSSceneService);
 
-    let current: { adapter: IEcsSdkAdapter; schemaCache: Map<string, ComponentFieldSchema[]>; schemaSub: IDisposable } | undefined;
+    let current:
+      | {
+          adapter: IEcsSdkAdapter;
+          schemaCache: Map<string, ComponentFieldSchema[]>;
+          schemaSub: IDisposable;
+        }
+      | undefined;
 
     const attach = (runtime: IRuntimeApp): void => {
       const app = runtime.instance as SdkApp | undefined;
@@ -190,7 +196,7 @@ function deriveSdkSchema(info: SdkComponentInfo): ComponentFieldSchema[] {
 
   return schema.map((f) => {
     const subtype = assetSubtypes.get(f.key);
-    return subtype ? { ...f, assetType: subtype as ComponentFieldSchema['assetType'] } : f;
+    return subtype ? { ...f, assetType: subtype as AssetFieldSubtype } : f;
   });
 }
 
@@ -214,7 +220,11 @@ function cloneShallow(src: Record<string, unknown>): Record<string, unknown> {
  * callers pass the value the Inspector produced, which already matches
  * the schema's leaf type.
  */
-function writeNestedField(data: Record<string, unknown>, fieldPath: string, value: unknown): boolean {
+function writeNestedField(
+  data: Record<string, unknown>,
+  fieldPath: string,
+  value: unknown,
+): boolean {
   if (!fieldPath) return false;
   if (!fieldPath.includes('.')) {
     data[fieldPath] = value;

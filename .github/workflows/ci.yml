@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint / Build / Typecheck / Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # The `esengine` workspace dep is `file:vendor/estella/sdk` — a rollup
+      # package that ships `dist/`. A fresh clone has no dist, so its npm
+      # install runs first (own lockfile), then we build it before pnpm
+      # resolves the editrix tree's types.
+      - name: Install estella SDK deps
+        working-directory: vendor/estella/sdk
+        run: npm ci
+
+      - name: Build estella SDK
+        working-directory: vendor/estella/sdk
+        run: npm run build
+
+      - name: Install editrix dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (framework + app)
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Test
+        run: pnpm test

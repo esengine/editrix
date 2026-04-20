@@ -8,8 +8,13 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "test:watch": "turbo run test:watch",
-    "lint": "turbo run lint",
-    "clean": "turbo run clean"
+    "typecheck": "turbo run typecheck",
+    "lint": "eslint \"{packages,apps}/*/src/**/*.ts\"",
+    "lint:fix": "eslint \"{packages,apps}/*/src/**/*.ts\" --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "clean": "turbo run clean",
+    "dev": "pnpm --filter @editrix/game-editor start"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

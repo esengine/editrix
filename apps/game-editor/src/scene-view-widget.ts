@@ -18,15 +18,30 @@ export interface SceneAssetDropEvent {
 
 // ─── Register tool icons ────────────────────────────────
 
-registerIcon('tool-select', '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2l4 12 2-5 5-2L3 2z"/></svg>');
+registerIcon(
+  'tool-select',
+  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2l4 12 2-5 5-2L3 2z"/></svg>',
+);
 
-registerIcon('tool-move', '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v12M2 8h12M8 2l-2 2M8 2l2 2M8 14l-2-2M8 14l2-2M2 8l2-2M2 8l2 2M14 8l-2-2M14 8l-2 2"/></svg>');
+registerIcon(
+  'tool-move',
+  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v12M2 8h12M8 2l-2 2M8 2l2 2M8 14l-2-2M8 14l2-2M2 8l2-2M2 8l2 2M14 8l-2-2M14 8l-2 2"/></svg>',
+);
 
-registerIcon('tool-rotate', '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8a5 5 0 01-9.17 2.77M3 8a5 5 0 019.17-2.77"/><path d="M13 3v3.5h-3.5M3 13V9.5h3.5"/></svg>');
+registerIcon(
+  'tool-rotate',
+  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8a5 5 0 01-9.17 2.77M3 8a5 5 0 019.17-2.77"/><path d="M13 3v3.5h-3.5M3 13V9.5h3.5"/></svg>',
+);
 
-registerIcon('tool-scale', '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M3 13h5M3 13l10-10M13 3v5M13 3H8"/></svg>');
+registerIcon(
+  'tool-scale',
+  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M3 13h5M3 13l10-10M13 3v5M13 3H8"/></svg>',
+);
 
-registerIcon('snap-grid', '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="4" cy="4" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="4" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="4" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg>');
+registerIcon(
+  'snap-grid',
+  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="4" cy="4" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="4" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="4" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg>',
+);
 
 type ToolId = 'select' | 'move' | 'rotate' | 'scale';
 
@@ -40,7 +55,7 @@ export class SceneViewWidget extends BaseWidget {
   private _activeTool: ToolId = 'select';
   private readonly _toolButtons = new Map<ToolId, HTMLElement>();
   private _snapInput: HTMLInputElement | undefined;
-  private _zoomIndicatorEl: HTMLElement | undefined;
+  private _zoomIndicatorEl: HTMLButtonElement | undefined;
   private _canvas: HTMLCanvasElement | undefined;
   private readonly _renderContext: SharedRenderContext;
   private readonly _editorCamera = new EditorCamera();
@@ -64,7 +79,12 @@ export class SceneViewWidget extends BaseWidget {
   private readonly _onDidDropAsset = new Emitter<SceneAssetDropEvent>();
   readonly onDidDropAsset: Event<SceneAssetDropEvent> = this._onDidDropAsset.event;
 
-  constructor(id: string, renderContext: SharedRenderContext, selection: ISelectionService, undoRedo: IUndoRedoService) {
+  constructor(
+    id: string,
+    renderContext: SharedRenderContext,
+    selection: ISelectionService,
+    undoRedo: IUndoRedoService,
+  ) {
     super(id, 'scene-view');
     this._renderContext = renderContext;
     this._selection = selection;
@@ -118,8 +138,12 @@ export class SceneViewWidget extends BaseWidget {
         this._drawSelectionHighlight(ctx, w, h);
       },
       target: ctx2d,
-      get width() { return canvasRef.clientWidth; },
-      get height() { return canvasRef.clientHeight; },
+      get width() {
+        return canvasRef.clientWidth;
+      },
+      get height() {
+        return canvasRef.clientHeight;
+      },
     };
     this._renderContext.registerView(this._view);
 
@@ -136,7 +160,11 @@ export class SceneViewWidget extends BaseWidget {
       this._renderContext.requestRender();
     });
     ro.observe(this._canvas);
-    this.subscriptions.add({ dispose: () => { ro.disconnect(); } });
+    this.subscriptions.add({
+      dispose: () => {
+        ro.disconnect();
+      },
+    });
 
     this._setupMouseHandlers(this._canvas);
     this._setupDropHandlers(viewport, this._canvas);
@@ -158,7 +186,9 @@ export class SceneViewWidget extends BaseWidget {
       if (tool.id === this._activeTool) btn.classList.add('editrix-sv-tool-btn--active');
       btn.title = tool.title;
       btn.appendChild(createIconElement(tool.icon, 16));
-      btn.addEventListener('click', () => { this._setActiveTool(tool.id); });
+      btn.addEventListener('click', () => {
+        this._setActiveTool(tool.id);
+      });
       toolGroup.appendChild(btn);
       this._toolButtons.set(tool.id, btn);
     }
@@ -383,7 +413,7 @@ export class SceneViewWidget extends BaseWidget {
       const scaleX = ecs.getProperty(id, 'Transform', 'scale.x') as number;
       const scaleY = ecs.getProperty(id, 'Transform', 'scale.y') as number;
       const rotZ = ecs.getProperty(id, 'Transform', 'rotation.z') as number;
-      const rotRad = rotZ * Math.PI / 180;
+      const rotRad = (rotZ * Math.PI) / 180;
 
       let sizeX = 20;
       let sizeY = 20;
@@ -396,14 +426,17 @@ export class SceneViewWidget extends BaseWidget {
       }
 
       // Apply scale to size
-      const hw = sizeX * scaleX / 2;
-      const hh = sizeY * scaleY / 2;
+      const hw = (sizeX * scaleX) / 2;
+      const hh = (sizeY * scaleY) / 2;
 
       // 4 local corners (centered, then rotated around entity position)
       const cos = Math.cos(rotRad);
       const sin = Math.sin(rotRad);
       const corners: [number, number][] = [
-        [-hw, hh], [hw, hh], [hw, -hh], [-hw, -hh], // TL, TR, BR, BL in world (Y-up)
+        [-hw, hh],
+        [hw, hh],
+        [hw, -hh],
+        [-hw, -hh], // TL, TR, BR, BL in world (Y-up)
       ];
       const screenCorners = corners.map(([lx, ly]) => {
         const wx = px + lx * cos - ly * sin;
@@ -433,24 +466,44 @@ export class SceneViewWidget extends BaseWidget {
       if (this._activeTool === 'move') {
         // Move gizmo: center cross arrows (X red, Y green)
         const len = 30;
-        ctx.strokeStyle = '#e55561'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + len, cy); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx + len - 6, cy - 4); ctx.lineTo(cx + len, cy); ctx.lineTo(cx + len - 6, cy + 4); ctx.stroke();
+        ctx.strokeStyle = '#e55561';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + len, cy);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx + len - 6, cy - 4);
+        ctx.lineTo(cx + len, cy);
+        ctx.lineTo(cx + len - 6, cy + 4);
+        ctx.stroke();
         ctx.strokeStyle = '#6bc46d';
-        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - len); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx - 4, cy - len + 6); ctx.lineTo(cx, cy - len); ctx.lineTo(cx + 4, cy - len + 6); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx, cy - len);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx - 4, cy - len + 6);
+        ctx.lineTo(cx, cy - len);
+        ctx.lineTo(cx + 4, cy - len + 6);
+        ctx.stroke();
       } else if (this._activeTool === 'rotate') {
         // Rotate gizmo: circle + rotation indicator line
         const radius = Math.max(hw, hh);
         const [, rsy] = cam.worldToScreen(px, py + radius, w, h);
         const screenRadius = Math.abs(cy - rsy) + 10;
-        ctx.strokeStyle = '#4a8fff'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(cx, cy, screenRadius, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = '#4a8fff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(cx, cy, screenRadius, 0, Math.PI * 2);
+        ctx.stroke();
         // Rotation direction indicator
         const indX = cx + screenRadius * Math.cos(-rotRad);
         const indY = cy + screenRadius * Math.sin(-rotRad);
         ctx.fillStyle = '#4a8fff';
-        ctx.beginPath(); ctx.arc(indX, indY, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath();
+        ctx.arc(indX, indY, 4, 0, Math.PI * 2);
+        ctx.fill();
       } else {
         // Select/Scale: corner handles
         const hs = 5;
@@ -497,11 +550,16 @@ export class SceneViewWidget extends BaseWidget {
 
       const rect = canvas.getBoundingClientRect();
       const [worldX, worldY] = this._editorCamera.screenToWorld(
-        e.clientX - rect.left, e.clientY - rect.top,
-        canvas.clientWidth, canvas.clientHeight,
+        e.clientX - rect.left,
+        e.clientY - rect.top,
+        canvas.clientWidth,
+        canvas.clientHeight,
       );
       this._onDidDropAsset.fire({
-        absolutePath, worldX, worldY, hitEntityId: this._pickEntity(worldX, worldY),
+        absolutePath,
+        worldX,
+        worldY,
+        hitEntityId: this._pickEntity(worldX, worldY),
       });
     });
   }
@@ -510,8 +568,10 @@ export class SceneViewWidget extends BaseWidget {
     const getWorldPos = (e: MouseEvent): [number, number] => {
       const rect = canvas.getBoundingClientRect();
       return this._editorCamera.screenToWorld(
-        e.clientX - rect.left, e.clientY - rect.top,
-        canvas.clientWidth, canvas.clientHeight,
+        e.clientX - rect.left,
+        e.clientY - rect.top,
+        canvas.clientWidth,
+        canvas.clientHeight,
       );
     };
 
@@ -534,7 +594,9 @@ export class SceneViewWidget extends BaseWidget {
     });
     // Focus the canvas when the user clicks it — so F works immediately
     // after a click without needing a separate focus step.
-    canvas.addEventListener('mousedown', () => { canvas.focus(); });
+    canvas.addEventListener('mousedown', () => {
+      canvas.focus();
+    });
 
     // Left-click: select or start transform drag
     canvas.addEventListener('mousedown', (e: MouseEvent) => {
@@ -626,12 +688,15 @@ export class SceneViewWidget extends BaseWidget {
         const py = ecs.getProperty(id, 'Transform', 'position.y') as number;
         const startAngle = Math.atan2(this._dragStartWorldY - py, this._dragStartWorldX - px);
         const currAngle = Math.atan2(wy - py, wx - px);
-        const deltaAngleDeg = (currAngle - startAngle) * 180 / Math.PI;
+        const deltaAngleDeg = ((currAngle - startAngle) * 180) / Math.PI;
         ecs.setProperty(id, 'Transform', 'rotation.z', start.rotation + deltaAngleDeg);
       } else if (this._activeTool === 'scale') {
         const px = ecs.getProperty(id, 'Transform', 'position.x') as number;
         const py = ecs.getProperty(id, 'Transform', 'position.y') as number;
-        const startDist = Math.max(0.01, Math.hypot(this._dragStartWorldX - px, this._dragStartWorldY - py));
+        const startDist = Math.max(
+          0.01,
+          Math.hypot(this._dragStartWorldX - px, this._dragStartWorldY - py),
+        );
         const currDist = Math.hypot(wx - px, wy - py);
         const ratio = currDist / startDist;
         ecs.setProperty(id, 'Transform', 'scale.x', start.sx * ratio);
@@ -661,7 +726,13 @@ export class SceneViewWidget extends BaseWidget {
         const finalSy = ecs.getProperty(id, 'Transform', 'scale.y') as number;
 
         // Only push undo if something actually changed
-        if (finalPx !== start.px || finalPy !== start.py || finalRot !== start.rotation || finalSx !== start.sx || finalSy !== start.sy) {
+        if (
+          finalPx !== start.px ||
+          finalPy !== start.py ||
+          finalRot !== start.rotation ||
+          finalSx !== start.sx ||
+          finalSy !== start.sy
+        ) {
           const toolLabel = this._activeTool.charAt(0).toUpperCase() + this._activeTool.slice(1);
           this._undoRedo.push({
             label: `${toolLabel} Entity`,
@@ -686,21 +757,30 @@ export class SceneViewWidget extends BaseWidget {
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-    this.subscriptions.add({ dispose: () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    }});
+    this.subscriptions.add({
+      dispose: () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      },
+    });
 
     // Scroll wheel to zoom (centered on cursor)
-    canvas.addEventListener('wheel', (e: WheelEvent) => {
-      e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      this._editorCamera.zoomAt(
-        -e.deltaY, e.clientX - rect.left, e.clientY - rect.top,
-        canvas.clientWidth, canvas.clientHeight,
-      );
-      this._renderContext.requestRender();
-    }, { passive: false });
+    canvas.addEventListener(
+      'wheel',
+      (e: WheelEvent) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        this._editorCamera.zoomAt(
+          -e.deltaY,
+          e.clientX - rect.left,
+          e.clientY - rect.top,
+          canvas.clientWidth,
+          canvas.clientHeight,
+        );
+        this._renderContext.requestRender();
+      },
+      { passive: false },
+    );
   }
 
   override dispose(): void {

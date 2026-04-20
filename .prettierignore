@@ -1,0 +1,16 @@
+# Build output
+**/dist/
+**/dist-renderer/
+**/*.tsbuildinfo
+**/.turbo/
+**/coverage/
+
+# Dependencies
+**/node_modules/
+pnpm-lock.yaml
+
+# Submodule — owned by that repo's formatting
+vendor/
+
+# WASM / generated
+apps/game-editor/wasm/
