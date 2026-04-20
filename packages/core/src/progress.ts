@@ -15,7 +15,7 @@ interface AbortControllerLike {
   readonly signal: AbortSignal;
   abort(): void;
 }
-declare const AbortController: { new (): AbortControllerLike };
+declare const AbortController: new () => AbortControllerLike;
 
 /**
  * Options passed to {@link IProgressService.withProgress}.
