@@ -154,11 +154,7 @@ export const SdkBridgePlugin: IPlugin = {
       });
     };
 
-    if (estella.sdk) {
-      installBridge(estella.sdk as unknown as Record<string, unknown>);
-    } else {
-      // loadSDK is also kicked by PlayModePlugin + renderer.ts. It's
-      // idempotent — multiple callers share the same underlying promise.
+    const loadAndInstall = (): void => {
       estella
         .loadSDK()
         .then((sdk) => {
@@ -167,6 +163,21 @@ export const SdkBridgePlugin: IPlugin = {
         .catch((err: unknown) => {
           warn('loadSDK failed — SDK components unavailable', err);
         });
+    };
+
+    // Plugin activates before renderer.ts kicks loadCore, so wait for core
+    // readiness before calling loadSDK — otherwise it rejects synchronously
+    // (loadSDK requires _wasmBasePath, set only by loadCore).
+    if (estella.sdk) {
+      installBridge(estella.sdk as unknown as Record<string, unknown>);
+    } else if (estella.isReady) {
+      loadAndInstall();
+    } else {
+      const sub = estella.onReady(() => {
+        sub.dispose();
+        loadAndInstall();
+      });
+      ctx.subscriptions.add(sub);
     }
   },
 };
