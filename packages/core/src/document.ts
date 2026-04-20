@@ -210,9 +210,7 @@ export class DocumentService implements IDocumentService {
     if (!doc) throw new Error(`Document "${normalizedFrom}" is not open.`);
 
     if (normalizedTo !== normalizedFrom && this._documents.has(normalizedTo)) {
-      throw new Error(
-        `Cannot save as "${normalizedTo}": a document is already open at that path.`,
-      );
+      throw new Error(`Cannot save as "${normalizedTo}": a document is already open at that path.`);
     }
 
     const sourceHandler = this._findHandler(normalizedFrom);

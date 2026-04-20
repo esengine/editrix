@@ -318,10 +318,7 @@ export class SettingsService implements ISettingsService {
     // anything currently in workspace (may disappear) + anything in the
     // new payload (may appear). Then replace atomically and fire a
     // single event per key whose effective value actually moved.
-    const affected = new Set<string>([
-      ...this._workspaceValues.keys(),
-      ...Object.keys(values),
-    ]);
+    const affected = new Set<string>([...this._workspaceValues.keys(), ...Object.keys(values)]);
     const before = new Map<string, unknown>();
     for (const key of affected) before.set(key, this.get(key));
 

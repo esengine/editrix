@@ -1,10 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  Command,
-  ICommandRegistry,
-  IKeybindingService,
-  Keybinding,
-} from '@editrix/commands';
+import type { Command, ICommandRegistry, IKeybindingService, Keybinding } from '@editrix/commands';
 import { toDisposable } from '@editrix/common';
 import { CommandPalette } from '../src/command-palette.js';
 
@@ -110,9 +105,7 @@ describe('CommandPalette', () => {
     palette.mount(document.body);
     palette.open();
 
-    const byLabel = Object.fromEntries(
-      renderedItems().map((i) => [i.label, i.shortcut] as const),
-    );
+    const byLabel = Object.fromEntries(renderedItems().map((i) => [i.label, i.shortcut] as const));
     // formatKeyForDisplay on non-mac may render Ctrl+S verbatim or with
     // glyph substitutions; either way it should be non-empty and contain S.
     expect(byLabel['File: Save']).toBeDefined();

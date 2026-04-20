@@ -204,9 +204,7 @@ export class DomDialogService implements IDialogService {
       const selector =
         'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), ' +
         'select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-      return Array.from(dialog.querySelectorAll<HTMLElement>(selector)).filter(
-        (el) => !el.hidden,
-      );
+      return Array.from(dialog.querySelectorAll<HTMLElement>(selector)).filter((el) => !el.hidden);
     };
 
     const onKeyDown = (e: KeyboardEvent): void => {

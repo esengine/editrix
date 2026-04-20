@@ -200,9 +200,7 @@ export class CommandPalette implements IDisposable {
         const score = fuzzyScore(query, searchText);
         if (score === -Infinity) continue;
         // MRU boost so recently-used equal matches float up.
-        const mruBoost = this._mru.includes(cmd.id)
-          ? 50 - this._mru.indexOf(cmd.id) * 5
-          : 0;
+        const mruBoost = this._mru.includes(cmd.id) ? 50 - this._mru.indexOf(cmd.id) * 5 : 0;
         matches.push({ command: cmd, score: score + mruBoost });
       }
       matches.sort((a, b) => b.score - a.score);

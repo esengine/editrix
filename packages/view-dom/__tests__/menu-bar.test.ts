@@ -11,8 +11,7 @@ function releaseKey(key: string): void {
 
 function activeMenuLabel(): string | null {
   return (
-    document
-      .querySelector('.editrix-menubar-item--active .editrix-menubar-item-label')
+    document.querySelector('.editrix-menubar-item--active .editrix-menubar-item-label')
       ?.textContent ?? null
   );
 }
@@ -37,7 +36,9 @@ afterEach(() => {
   delete document.body.dataset['altDown'];
 });
 
-function addStandardMenus(handlers: { [id: string]: ReturnType<typeof vi.fn> } = {}): typeof handlers {
+function addStandardMenus(
+  handlers: { [id: string]: ReturnType<typeof vi.fn> } = {},
+): typeof handlers {
   const saved = (handlers['file.save'] ??= vi.fn());
   const exit = (handlers['file.exit'] ??= vi.fn());
   const undo = (handlers['edit.undo'] ??= vi.fn());

@@ -139,7 +139,6 @@ describe('EventBus', () => {
       expect(errors).toHaveLength(1);
       expect((errors[0] as { eventId: string }).eventId).toBe('e.sub');
     });
-
   });
 
   describe('batching', () => {
@@ -158,7 +157,6 @@ describe('EventBus', () => {
 
       expect(handler).not.toHaveBeenCalled();
     });
-
 
     it('defers emits until the batch completes and preserves order', () => {
       const bus = new EventBus();
