@@ -5,6 +5,7 @@ import type { ISelectionService, IUndoRedoService } from '@editrix/shell';
 import { BaseWidget, createIconElement, registerIcon } from '@editrix/view-dom';
 import { ASSET_PATH_MIME } from './content-browser-widget.js';
 import { EditorCamera } from './editor-camera.js';
+import { GizmoController, type ToolId as GizmoToolId } from './gizmo-controller.js';
 import type { SharedRenderContext, RenderView } from './render-context.js';
 import { entityRef, parseSelectionRef } from './services.js';
 
@@ -43,7 +44,7 @@ registerIcon(
   '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="4" cy="4" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="4" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="4" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg>',
 );
 
-type ToolId = 'select' | 'move' | 'rotate' | 'scale';
+type ToolId = GizmoToolId;
 
 /**
  * Scene View — editor camera viewport.
@@ -52,7 +53,6 @@ type ToolId = 'select' | 'move' | 'rotate' | 'scale';
  * via drawImage. The editor camera (pan/zoom) is independent of any game entity.
  */
 export class SceneViewWidget extends BaseWidget {
-  private _activeTool: ToolId = 'select';
   private readonly _toolButtons = new Map<ToolId, HTMLElement>();
   private _snapInput: HTMLInputElement | undefined;
   private _zoomIndicatorEl: HTMLButtonElement | undefined;
@@ -61,6 +61,7 @@ export class SceneViewWidget extends BaseWidget {
   private readonly _editorCamera = new EditorCamera();
   private readonly _selection: ISelectionService;
   private readonly _undoRedo: IUndoRedoService;
+  private readonly _gizmo = new GizmoController();
   private _ecsScene: IECSSceneService | undefined;
   private _view: RenderView | undefined;
 
@@ -68,13 +69,6 @@ export class SceneViewWidget extends BaseWidget {
   private _isPanning = false;
   private _lastMouseX = 0;
   private _lastMouseY = 0;
-
-  // Transform drag state
-  private _isDragging = false;
-  private _dragEntityId = 0;
-  private _dragStartWorldX = 0;
-  private _dragStartWorldY = 0;
-  private _dragStartValues = { px: 0, py: 0, rotation: 0, sx: 1, sy: 1 };
 
   private readonly _onDidDropAsset = new Emitter<SceneAssetDropEvent>();
   readonly onDidDropAsset: Event<SceneAssetDropEvent> = this._onDidDropAsset.event;
@@ -183,7 +177,7 @@ export class SceneViewWidget extends BaseWidget {
     for (const tool of tools) {
       const btn = document.createElement('div');
       btn.className = 'editrix-sv-tool-btn';
-      if (tool.id === this._activeTool) btn.classList.add('editrix-sv-tool-btn--active');
+      if (tool.id === this._gizmo.tool) btn.classList.add('editrix-sv-tool-btn--active');
       btn.title = tool.title;
       btn.appendChild(createIconElement(tool.icon, 16));
       btn.addEventListener('click', () => {
@@ -240,7 +234,7 @@ export class SceneViewWidget extends BaseWidget {
   }
 
   private _setActiveTool(id: ToolId): void {
-    this._activeTool = id;
+    this._gizmo.setTool(id);
     for (const [toolId, btn] of this._toolButtons) {
       btn.classList.toggle('editrix-sv-tool-btn--active', toolId === id);
     }
@@ -463,55 +457,15 @@ export class SceneViewWidget extends BaseWidget {
       // Center in screen space
       const [cx, cy] = cam.worldToScreen(px, py, w, h);
 
-      if (this._activeTool === 'move') {
-        // Move gizmo: center cross arrows (X red, Y green)
-        const len = 30;
-        ctx.strokeStyle = '#e55561';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.lineTo(cx + len, cy);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(cx + len - 6, cy - 4);
-        ctx.lineTo(cx + len, cy);
-        ctx.lineTo(cx + len - 6, cy + 4);
-        ctx.stroke();
-        ctx.strokeStyle = '#6bc46d';
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.lineTo(cx, cy - len);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(cx - 4, cy - len + 6);
-        ctx.lineTo(cx, cy - len);
-        ctx.lineTo(cx + 4, cy - len + 6);
-        ctx.stroke();
-      } else if (this._activeTool === 'rotate') {
-        // Rotate gizmo: circle + rotation indicator line
-        const radius = Math.max(hw, hh);
-        const [, rsy] = cam.worldToScreen(px, py + radius, w, h);
-        const screenRadius = Math.abs(cy - rsy) + 10;
-        ctx.strokeStyle = '#4a8fff';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(cx, cy, screenRadius, 0, Math.PI * 2);
-        ctx.stroke();
-        // Rotation direction indicator
-        const indX = cx + screenRadius * Math.cos(-rotRad);
-        const indY = cy + screenRadius * Math.sin(-rotRad);
-        ctx.fillStyle = '#4a8fff';
-        ctx.beginPath();
-        ctx.arc(indX, indY, 4, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        // Select/Scale: corner handles
-        const hs = 5;
-        ctx.fillStyle = '#4a8fff';
-        for (const [scx, scy] of screenCorners) {
-          ctx.fillRect(scx - hs / 2, scy - hs / 2, hs, hs);
-        }
-      }
+      // Convert the rotate-ring world radius into screen-space pixels so
+      // GizmoController stays in pure screen units (its gizmo math is
+      // camera-agnostic; the widget is the only place that knows about
+      // world → screen projection).
+      const worldRingRadius = Math.max(hw, hh);
+      const [, rsy] = cam.worldToScreen(px, py + worldRingRadius, w, h);
+      const screenRingRadius = Math.abs(cy - rsy);
+
+      this._gizmo.drawForEntity(ctx, cx, cy, screenRingRadius, rotRad, screenCorners);
     }
 
     ctx.restore();
@@ -603,7 +557,7 @@ export class SceneViewWidget extends BaseWidget {
       if (e.button !== 0) return;
       const [wx, wy] = getWorldPos(e);
 
-      if (this._activeTool === 'select') {
+      if (this._gizmo.tool === 'select') {
         const hit = this._pickEntity(wx, wy);
         if (hit !== undefined) this._selection.select([entityRef(hit)]);
         else this._selection.clearSelection();
@@ -629,18 +583,8 @@ export class SceneViewWidget extends BaseWidget {
       const ecs = this._ecsScene;
       if (!ecs?.hasComponent(entityId, 'Transform')) return;
 
-      this._isDragging = true;
-      this._dragEntityId = entityId;
-      this._dragStartWorldX = wx;
-      this._dragStartWorldY = wy;
-      this._dragStartValues = {
-        px: ecs.getProperty(entityId, 'Transform', 'position.x') as number,
-        py: ecs.getProperty(entityId, 'Transform', 'position.y') as number,
-        rotation: ecs.getProperty(entityId, 'Transform', 'rotation.z') as number,
-        sx: ecs.getProperty(entityId, 'Transform', 'scale.x') as number,
-        sy: ecs.getProperty(entityId, 'Transform', 'scale.y') as number,
-      };
-      canvas.style.cursor = this._activeTool === 'move' ? 'move' : 'crosshair';
+      this._gizmo.beginDrag(ecs, entityId, wx, wy);
+      canvas.style.cursor = this._gizmo.tool === 'move' ? 'move' : 'crosshair';
     });
 
     // Middle-click drag to pan
@@ -667,41 +611,10 @@ export class SceneViewWidget extends BaseWidget {
       }
 
       // Transform drag (left button)
-      if (!this._isDragging || !this._ecsScene) return;
+      if (!this._gizmo.isDragging || !this._ecsScene) return;
       const [wx, wy] = getWorldPos(e);
-      const ecs = this._ecsScene;
-      const id = this._dragEntityId;
-      const start = this._dragStartValues;
       const snap = parseFloat(this._snapInput?.value ?? '0') || 0;
-
-      if (this._activeTool === 'move') {
-        let newX = start.px + (wx - this._dragStartWorldX);
-        let newY = start.py + (wy - this._dragStartWorldY);
-        if (snap > 0) {
-          newX = Math.round(newX / snap) * snap;
-          newY = Math.round(newY / snap) * snap;
-        }
-        ecs.setProperty(id, 'Transform', 'position.x', newX);
-        ecs.setProperty(id, 'Transform', 'position.y', newY);
-      } else if (this._activeTool === 'rotate') {
-        const px = ecs.getProperty(id, 'Transform', 'position.x') as number;
-        const py = ecs.getProperty(id, 'Transform', 'position.y') as number;
-        const startAngle = Math.atan2(this._dragStartWorldY - py, this._dragStartWorldX - px);
-        const currAngle = Math.atan2(wy - py, wx - px);
-        const deltaAngleDeg = ((currAngle - startAngle) * 180) / Math.PI;
-        ecs.setProperty(id, 'Transform', 'rotation.z', start.rotation + deltaAngleDeg);
-      } else if (this._activeTool === 'scale') {
-        const px = ecs.getProperty(id, 'Transform', 'position.x') as number;
-        const py = ecs.getProperty(id, 'Transform', 'position.y') as number;
-        const startDist = Math.max(
-          0.01,
-          Math.hypot(this._dragStartWorldX - px, this._dragStartWorldY - py),
-        );
-        const currDist = Math.hypot(wx - px, wy - py);
-        const ratio = currDist / startDist;
-        ecs.setProperty(id, 'Transform', 'scale.x', start.sx * ratio);
-        ecs.setProperty(id, 'Transform', 'scale.y', start.sy * ratio);
-      }
+      this._gizmo.applyDrag(this._ecsScene, wx, wy, snap);
     };
 
     const onMouseUp = (e: MouseEvent): void => {
@@ -713,42 +626,28 @@ export class SceneViewWidget extends BaseWidget {
       }
 
       // End transform drag + undo
-      if (e.button === 0 && this._isDragging && this._ecsScene) {
-        this._isDragging = false;
+      if (e.button === 0 && this._gizmo.isDragging && this._ecsScene) {
         canvas.style.cursor = '';
-        const ecs = this._ecsScene;
-        const id = this._dragEntityId;
-        const start = { ...this._dragStartValues };
-        const finalPx = ecs.getProperty(id, 'Transform', 'position.x') as number;
-        const finalPy = ecs.getProperty(id, 'Transform', 'position.y') as number;
-        const finalRot = ecs.getProperty(id, 'Transform', 'rotation.z') as number;
-        const finalSx = ecs.getProperty(id, 'Transform', 'scale.x') as number;
-        const finalSy = ecs.getProperty(id, 'Transform', 'scale.y') as number;
-
-        // Only push undo if something actually changed
-        if (
-          finalPx !== start.px ||
-          finalPy !== start.py ||
-          finalRot !== start.rotation ||
-          finalSx !== start.sx ||
-          finalSy !== start.sy
-        ) {
-          const toolLabel = this._activeTool.charAt(0).toUpperCase() + this._activeTool.slice(1);
+        const result = this._gizmo.endDrag(this._ecsScene);
+        if (result) {
+          const ecs = this._ecsScene;
+          const { entityId: id, tool, before, after } = result;
+          const toolLabel = tool.charAt(0).toUpperCase() + tool.slice(1);
           this._undoRedo.push({
             label: `${toolLabel} Entity`,
             undo: () => {
-              ecs.setProperty(id, 'Transform', 'position.x', start.px);
-              ecs.setProperty(id, 'Transform', 'position.y', start.py);
-              ecs.setProperty(id, 'Transform', 'rotation.z', start.rotation);
-              ecs.setProperty(id, 'Transform', 'scale.x', start.sx);
-              ecs.setProperty(id, 'Transform', 'scale.y', start.sy);
+              ecs.setProperty(id, 'Transform', 'position.x', before.px);
+              ecs.setProperty(id, 'Transform', 'position.y', before.py);
+              ecs.setProperty(id, 'Transform', 'rotation.z', before.rotation);
+              ecs.setProperty(id, 'Transform', 'scale.x', before.sx);
+              ecs.setProperty(id, 'Transform', 'scale.y', before.sy);
             },
             redo: () => {
-              ecs.setProperty(id, 'Transform', 'position.x', finalPx);
-              ecs.setProperty(id, 'Transform', 'position.y', finalPy);
-              ecs.setProperty(id, 'Transform', 'rotation.z', finalRot);
-              ecs.setProperty(id, 'Transform', 'scale.x', finalSx);
-              ecs.setProperty(id, 'Transform', 'scale.y', finalSy);
+              ecs.setProperty(id, 'Transform', 'position.x', after.px);
+              ecs.setProperty(id, 'Transform', 'position.y', after.py);
+              ecs.setProperty(id, 'Transform', 'rotation.z', after.rotation);
+              ecs.setProperty(id, 'Transform', 'scale.x', after.sx);
+              ecs.setProperty(id, 'Transform', 'scale.y', after.sy);
             },
           });
         }
