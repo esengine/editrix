@@ -189,7 +189,17 @@ export async function createEditor(options: CreateEditorOptions): Promise<Editor
   commands.onWillExecute((commandId) => {
     void kernel.fireActivationEvent(`onCommand:${commandId}`);
   });
+
+  // Mirror workspace-scoped settings from the project config into
+  // ISettingsService. When the workspace closes or switches, the
+  // overlay is atomically swapped — listeners observe a single change
+  // event per key whose effective value moved.
+  const applyWorkspaceSettings = (config: WorkspaceConfig | undefined): void => {
+    settingsService.setWorkspaceValues(config?.settings ?? {});
+  };
+  applyWorkspaceSettings(workspaceService.config);
   workspaceService.onDidChange((ev) => {
+    applyWorkspaceSettings(ev.config);
     if (ev.path.length > 0) void kernel.fireActivationEvent('onWorkspaceOpen');
   });
   if (workspaceService.isOpen) {

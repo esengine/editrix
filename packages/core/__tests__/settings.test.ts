@@ -185,6 +185,21 @@ describe('SettingsService', () => {
       expect(s.get('plugin.foo.unknown')).toEqual({ arbitrary: 'shape' });
     });
 
+    it('should skip invalid entries during setWorkspaceValues and fire onError per skip', () => {
+      const s = setup();
+      const errors: { key: string }[] = [];
+      s.onError((e) => errors.push(e as { key: string }));
+
+      s.setWorkspaceValues({
+        'editor.fontSize': 22, // valid
+        'editor.theme': 'midnight', // bad enum — skipped
+      });
+
+      expect(s.get('editor.fontSize')).toBe(22);
+      expect(s.get('editor.theme')).toBe('dark');
+      expect(errors.map((e) => e.key)).toEqual(['editor.theme']);
+    });
+
     it('should skip invalid entries during importUserValues and fire onError per skip', () => {
       const s = setup();
       const errors: { key: string }[] = [];
@@ -200,6 +215,110 @@ describe('SettingsService', () => {
       expect(s.get('editor.wordWrap')).toBe(false); // applied
       expect(s.get('editor.theme')).toBe('dark'); // default unchanged
       expect(errors.map((e) => e.key).sort()).toEqual(['editor.fontSize', 'editor.theme']);
+    });
+  });
+
+  describe('workspace scope', () => {
+    it('overrides user values in the effective read', () => {
+      const s = setup();
+      s.set('editor.fontSize', 18); // user
+      s.setWorkspaceValues({ 'editor.fontSize': 22 }); // workspace wins
+      expect(s.get('editor.fontSize')).toBe(22);
+    });
+
+    it('falls back to user value when workspace value is cleared', () => {
+      const s = setup();
+      s.set('editor.fontSize', 18);
+      s.setWorkspaceValues({ 'editor.fontSize': 22 });
+      s.reset('editor.fontSize', 'workspace');
+      expect(s.get('editor.fontSize')).toBe(18); // user value re-emerges
+    });
+
+    it('falls back to default when both scopes are cleared', () => {
+      const s = setup();
+      s.set('editor.fontSize', 18);
+      s.setWorkspaceValues({ 'editor.fontSize': 22 });
+      s.reset('editor.fontSize', 'workspace');
+      s.reset('editor.fontSize', 'user');
+      expect(s.get('editor.fontSize')).toBe(14);
+    });
+
+    it('reports isModified per scope and in aggregate', () => {
+      const s = setup();
+      s.set('editor.fontSize', 18); // user
+      expect(s.isModified('editor.fontSize')).toBe(true);
+      expect(s.isModified('editor.fontSize', 'user')).toBe(true);
+      expect(s.isModified('editor.fontSize', 'workspace')).toBe(false);
+
+      s.setWorkspaceValues({ 'editor.fontSize': 22 });
+      expect(s.isModified('editor.fontSize', 'workspace')).toBe(true);
+    });
+
+    it('does not fire a change event when a user write is shadowed by workspace', () => {
+      const s = setup();
+      s.setWorkspaceValues({ 'editor.fontSize': 22 });
+
+      const spy = vi.fn();
+      s.onDidChange('editor.fontSize', spy);
+
+      s.set('editor.fontSize', 18, 'user'); // workspace still wins
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(s.get('editor.fontSize')).toBe(22);
+    });
+
+    it('fires change events for keys whose effective value moves when workspace replaces', () => {
+      const s = setup();
+      s.set('editor.fontSize', 18); // user → 18
+      s.setWorkspaceValues({ 'editor.fontSize': 22 }); // now 22
+
+      const events: { key: string; oldValue: unknown; newValue: unknown }[] = [];
+      s.onDidChangeAny((e) => events.push(e));
+
+      // Switch workspace: drops 'editor.fontSize' override, adds 'editor.theme'.
+      s.setWorkspaceValues({ 'editor.theme': 'light' });
+
+      const byKey = Object.fromEntries(events.map((e) => [e.key, e]));
+      expect(byKey['editor.fontSize']).toEqual({
+        key: 'editor.fontSize',
+        oldValue: 22,
+        newValue: 18,
+      });
+      expect(byKey['editor.theme']).toEqual({
+        key: 'editor.theme',
+        oldValue: 'dark',
+        newValue: 'light',
+      });
+    });
+
+    it('does not fire when a workspace swap keeps the same effective value', () => {
+      const s = setup();
+      s.setWorkspaceValues({ 'editor.fontSize': 18 });
+
+      const spy = vi.fn();
+      s.onDidChange('editor.fontSize', spy);
+
+      // New workspace with the same override value — no effective change.
+      s.setWorkspaceValues({ 'editor.fontSize': 18 });
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('exports workspace values separately from user values', () => {
+      const s = setup();
+      s.set('editor.fontSize', 18); // user
+      s.setWorkspaceValues({ 'editor.theme': 'light' });
+
+      expect(s.exportUserValues()).toEqual({ 'editor.fontSize': 18 });
+      expect(s.exportWorkspaceValues()).toEqual({ 'editor.theme': 'light' });
+    });
+
+    it('setWorkspaceValues({}) clears the workspace scope entirely', () => {
+      const s = setup();
+      s.setWorkspaceValues({ 'editor.fontSize': 22, 'editor.theme': 'light' });
+      s.setWorkspaceValues({});
+      expect(s.exportWorkspaceValues()).toEqual({});
+      expect(s.get('editor.fontSize')).toBe(14); // default
+      expect(s.get('editor.theme')).toBe('dark');
     });
   });
 });

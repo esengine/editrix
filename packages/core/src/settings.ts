@@ -43,7 +43,20 @@ export interface SettingGroup {
 }
 
 /**
+ * Where a setting value lives. Workspace values override user values,
+ * which override the schema default. Workspace values are owned by
+ * whatever is hosting the current project (editrix.json, etc.); user
+ * values are the editor's global preferences.
+ */
+export type SettingsScope = 'user' | 'workspace';
+
+/**
  * Payload when a setting value changes.
+ *
+ * `oldValue` and `newValue` are always the *effective* values (the
+ * result of merging across scopes). Writes to a scope that aren't
+ * currently winning the merge don't fire an event — so subscribers
+ * never see a notification for a change the user isn't perceiving.
  */
 export interface SettingChangeEvent {
   readonly key: string;
@@ -108,17 +121,32 @@ export interface ISettingsService extends IDisposable {
   /** Get the descriptor for a specific setting key. */
   getDescriptor(key: string): SettingDescriptor | undefined;
 
-  /** Get the current value (user value if set, otherwise default). */
+  /**
+   * Get the effective value: workspace override if set, otherwise user
+   * value if set, otherwise the schema default.
+   */
   get(key: string): unknown;
 
-  /** Set a user value. Fires a change event. */
-  set(key: string, value: unknown): void;
+  /**
+   * Set a value in the given scope (default `'user'`). Fires a change
+   * event only if the effective value actually changes — e.g. writing
+   * to user scope when workspace already overrides is a silent no-op
+   * for listeners.
+   */
+  set(key: string, value: unknown, scope?: SettingsScope): void;
 
-  /** Reset a setting to its default. Fires a change event. */
-  reset(key: string): void;
+  /**
+   * Clear a value from the given scope (default `'user'`) so it falls
+   * back to the next scope down. Fires a change event only if the
+   * effective value changes.
+   */
+  reset(key: string, scope?: SettingsScope): void;
 
-  /** Whether the user has explicitly set a value (differs from default). */
-  isModified(key: string): boolean;
+  /**
+   * Whether a value has been explicitly set. With no scope, reports
+   * "modified in any scope". With a scope, reports only that scope.
+   */
+  isModified(key: string, scope?: SettingsScope): boolean;
 
   /** Subscribe to changes on a specific key. */
   onDidChange(key: string, handler: (event: SettingChangeEvent) => void): IDisposable;
@@ -132,15 +160,30 @@ export interface ISettingsService extends IDisposable {
    */
   readonly onError: Event<SettingsValidationError>;
 
-  /** Export all user-modified values as a plain object (for persistence). */
+  /** Export all user-scope values as a plain object (for persistence). */
   exportUserValues(): Record<string, unknown>;
 
   /**
-   * Import user values (e.g. from a saved file). Fires change events.
-   * Invalid entries are skipped and reported via {@link onError} so a corrupted
+   * Import values into the user scope. Fires change events. Invalid
+   * entries are skipped and reported via {@link onError} so a corrupted
    * file can't take down startup; valid entries still apply.
    */
   importUserValues(values: Record<string, unknown>): void;
+
+  /** Export the currently-installed workspace-scope values. */
+  exportWorkspaceValues(): Record<string, unknown>;
+
+  /**
+   * Atomically replace the entire workspace scope. Fires change events
+   * for every key whose effective value moved, including keys that were
+   * in the previous workspace map but aren't in `values`. Passing `{}`
+   * is the correct way to clear the scope when a workspace closes.
+   *
+   * Invalid entries (type mismatch, enum miss) are skipped and surfaced
+   * via {@link onError}; the rest still apply. Out-of-range numerics
+   * are clamped silently as with {@link set}.
+   */
+  setWorkspaceValues(values: Record<string, unknown>): void;
 }
 
 /** Service identifier for DI. */
@@ -160,6 +203,7 @@ export class SettingsService implements ISettingsService {
   private readonly _groups: SettingGroup[] = [];
   private readonly _descriptors = new Map<string, SettingDescriptor>();
   private readonly _userValues = new Map<string, unknown>();
+  private readonly _workspaceValues = new Map<string, unknown>();
   private readonly _keyListeners = new Map<string, Set<(e: SettingChangeEvent) => void>>();
   private readonly _onDidChangeAny = new Emitter<SettingChangeEvent>();
   private readonly _onError = new Emitter<SettingsValidationError>();
@@ -191,6 +235,9 @@ export class SettingsService implements ISettingsService {
   }
 
   get(key: string): unknown {
+    if (this._workspaceValues.has(key)) {
+      return this._workspaceValues.get(key);
+    }
     if (this._userValues.has(key)) {
       return this._userValues.get(key);
     }
@@ -198,29 +245,31 @@ export class SettingsService implements ISettingsService {
     return desc?.defaultValue;
   }
 
-  set(key: string, value: unknown): void {
+  set(key: string, value: unknown, scope: SettingsScope = 'user'): void {
     const stored = this._normalizeOrThrow(key, value);
-    const oldValue = this.get(key);
-    this._userValues.set(key, stored);
-    const event: SettingChangeEvent = { key, oldValue, newValue: stored };
-    this._fireChange(event);
+    const oldEffective = this.get(key);
+    this._scopeMap(scope).set(key, stored);
+    const newEffective = this.get(key);
+    if (oldEffective !== newEffective) {
+      this._fireChange({ key, oldValue: oldEffective, newValue: newEffective });
+    }
   }
 
-  reset(key: string): void {
-    if (!this._userValues.has(key)) return;
-    const oldValue = this._userValues.get(key);
-    this._userValues.delete(key);
-    const desc = this._descriptors.get(key);
-    const event: SettingChangeEvent = {
-      key,
-      oldValue,
-      newValue: desc?.defaultValue,
-    };
-    this._fireChange(event);
+  reset(key: string, scope: SettingsScope = 'user'): void {
+    const map = this._scopeMap(scope);
+    if (!map.has(key)) return;
+    const oldEffective = this.get(key);
+    map.delete(key);
+    const newEffective = this.get(key);
+    if (oldEffective !== newEffective) {
+      this._fireChange({ key, oldValue: oldEffective, newValue: newEffective });
+    }
   }
 
-  isModified(key: string): boolean {
-    return this._userValues.has(key);
+  isModified(key: string, scope?: SettingsScope): boolean {
+    if (scope === 'user') return this._userValues.has(key);
+    if (scope === 'workspace') return this._workspaceValues.has(key);
+    return this._userValues.has(key) || this._workspaceValues.has(key);
   }
 
   onDidChange(key: string, handler: (event: SettingChangeEvent) => void): IDisposable {
@@ -240,11 +289,7 @@ export class SettingsService implements ISettingsService {
   }
 
   exportUserValues(): Record<string, unknown> {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of this._userValues) {
-      result[key] = value;
-    }
-    return result;
+    return Object.fromEntries(this._userValues);
   }
 
   importUserValues(values: Record<string, unknown>): void {
@@ -252,7 +297,7 @@ export class SettingsService implements ISettingsService {
     // skip it, surface via onError, keep applying the others.
     for (const [key, value] of Object.entries(values)) {
       try {
-        this.set(key, value);
+        this.set(key, value, 'user');
       } catch (error) {
         this._onError.fire({
           key,
@@ -264,13 +309,57 @@ export class SettingsService implements ISettingsService {
     }
   }
 
+  exportWorkspaceValues(): Record<string, unknown> {
+    return Object.fromEntries(this._workspaceValues);
+  }
+
+  setWorkspaceValues(values: Record<string, unknown>): void {
+    // Compute effective-before for every key that might transition:
+    // anything currently in workspace (may disappear) + anything in the
+    // new payload (may appear). Then replace atomically and fire a
+    // single event per key whose effective value actually moved.
+    const affected = new Set<string>([
+      ...this._workspaceValues.keys(),
+      ...Object.keys(values),
+    ]);
+    const before = new Map<string, unknown>();
+    for (const key of affected) before.set(key, this.get(key));
+
+    this._workspaceValues.clear();
+    for (const [key, value] of Object.entries(values)) {
+      try {
+        this._workspaceValues.set(key, this._normalizeOrThrow(key, value));
+      } catch (error) {
+        this._onError.fire({
+          key,
+          attemptedValue: value,
+          storedValue: this.get(key),
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    for (const key of affected) {
+      const oldEffective = before.get(key);
+      const newEffective = this.get(key);
+      if (oldEffective !== newEffective) {
+        this._fireChange({ key, oldValue: oldEffective, newValue: newEffective });
+      }
+    }
+  }
+
   dispose(): void {
     this._groups.length = 0;
     this._descriptors.clear();
     this._userValues.clear();
+    this._workspaceValues.clear();
     this._keyListeners.clear();
     this._onDidChangeAny.dispose();
     this._onError.dispose();
+  }
+
+  private _scopeMap(scope: SettingsScope): Map<string, unknown> {
+    return scope === 'workspace' ? this._workspaceValues : this._userValues;
   }
 
   private _fireChange(event: SettingChangeEvent): void {
