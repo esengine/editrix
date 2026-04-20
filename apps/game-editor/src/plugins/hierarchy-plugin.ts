@@ -13,6 +13,7 @@ import {
 } from '@editrix/shell';
 import type { TreeNode } from '@editrix/view-dom';
 import { registerIcon, showContextMenu, TreeWidget } from '@editrix/view-dom';
+import { captureEntitySnapshot, restoreEntitySnapshot } from '../scene-ops.js';
 import {
   entityRef,
   IAssetCatalogService,
@@ -59,14 +60,6 @@ if (typeof document !== 'undefined' && !document.getElementById('editrix-hierarc
   document.head.appendChild(style);
 }
 
-interface EntitySnapshot {
-  readonly name: string;
-  readonly parentId: number | null;
-  readonly components: readonly string[];
-  readonly componentData: Record<string, Record<string, unknown>>;
-  readonly children: readonly EntitySnapshot[];
-}
-
 function ecsToTreeNodes(ecs: IECSSceneService, entityIds: readonly number[]): TreeNode[] {
   return entityIds.map((id) => {
     const children = ecs.getChildren(id);
@@ -88,45 +81,6 @@ function ecsToTreeNodes(ecs: IECSSceneService, entityIds: readonly number[]): Tr
 function selectionToEntityId(serialized: string): number | undefined {
   const ref = parseSelectionRef(serialized);
   return ref?.kind === 'entity' ? ref.id : undefined;
-}
-
-/** Recursively capture an entity's full state for undo. */
-function captureEntitySnapshot(ecs: IECSSceneService, entityId: number): EntitySnapshot {
-  const components = ecs.getComponents(entityId);
-  const componentData: Record<string, Record<string, unknown>> = {};
-  for (const comp of components) {
-    componentData[comp] = ecs.getComponentData(entityId, comp);
-  }
-  const childIds = ecs.getChildren(entityId);
-  return {
-    name: ecs.getName(entityId) || `Entity ${String(entityId)}`,
-    parentId: ecs.getParent(entityId),
-    components: [...components],
-    componentData,
-    children: childIds.map((id) => captureEntitySnapshot(ecs, id)),
-  };
-}
-
-/** Recursively restore an entity from a snapshot. Returns the new entity ID. */
-function restoreEntitySnapshot(
-  ecs: IECSSceneService,
-  snapshot: EntitySnapshot,
-  parentId?: number,
-): number {
-  const newId = ecs.createEntity(snapshot.name, parentId);
-  for (const comp of snapshot.components) {
-    if (comp === 'Transform') continue; // createEntity already adds Transform
-    ecs.addComponent(newId, comp);
-  }
-  for (const [comp, data] of Object.entries(snapshot.componentData)) {
-    for (const [field, value] of Object.entries(data)) {
-      ecs.setProperty(newId, comp, field, value);
-    }
-  }
-  for (const childSnapshot of snapshot.children) {
-    restoreEntitySnapshot(ecs, childSnapshot, newId);
-  }
-  return newId;
 }
 
 export const HierarchyPlugin: IPlugin = {
