@@ -100,6 +100,130 @@ describe('DomDialogService', () => {
     });
   });
 
+  describe('focus management', () => {
+    it('returns focus to the previously-focused element on close', async () => {
+      const trigger = document.createElement('button');
+      trigger.textContent = 'open';
+      document.body.appendChild(trigger);
+      trigger.focus();
+      expect(document.activeElement).toBe(trigger);
+
+      const svc = new DomDialogService();
+      const p = svc.showMessage({
+        message: 'Hi',
+        buttons: [{ id: 'ok', label: 'OK', isDefault: true }],
+      });
+      // Dialog is open, focus moves into it.
+      expect(document.activeElement).not.toBe(trigger);
+
+      clickButton('OK');
+      await p;
+
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it('skips focus restore if the previous element was detached mid-dialog', async () => {
+      const trigger = document.createElement('button');
+      document.body.appendChild(trigger);
+      trigger.focus();
+
+      const svc = new DomDialogService();
+      const p = svc.showMessage({
+        message: 'Hi',
+        buttons: [{ id: 'ok', label: 'OK', isDefault: true }],
+      });
+      // Remove the original focus owner while the dialog is live.
+      trigger.remove();
+      clickButton('OK');
+      await p;
+
+      // No throw; focus just doesn't go back to the detached element.
+      expect(document.activeElement).not.toBe(trigger);
+    });
+
+    it('traps Tab: cycles from last focusable back to first', async () => {
+      const svc = new DomDialogService();
+      const p = svc.showMessage({
+        message: 'Hi',
+        buttons: [
+          { id: 'cancel', label: 'Cancel', isCancel: true },
+          { id: 'ok', label: 'OK', isDefault: true },
+        ],
+      });
+
+      const buttons = [...document.querySelectorAll<HTMLButtonElement>('.editrix-dialog-btn')];
+      const first = buttons[0];
+      const last = buttons[buttons.length - 1];
+      if (!first || !last) throw new Error('buttons not rendered');
+
+      last.focus();
+      expect(document.activeElement).toBe(last);
+
+      const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      document.dispatchEvent(ev);
+
+      expect(document.activeElement).toBe(first);
+
+      clickButton('OK');
+      await p;
+    });
+
+    it('traps Shift+Tab: cycles from first focusable to last', async () => {
+      const svc = new DomDialogService();
+      const p = svc.showMessage({
+        message: 'Hi',
+        buttons: [
+          { id: 'cancel', label: 'Cancel', isCancel: true },
+          { id: 'ok', label: 'OK', isDefault: true },
+        ],
+      });
+
+      const buttons = [...document.querySelectorAll<HTMLButtonElement>('.editrix-dialog-btn')];
+      const first = buttons[0];
+      const last = buttons[buttons.length - 1];
+      if (!first || !last) throw new Error('buttons not rendered');
+
+      first.focus();
+      const ev = new KeyboardEvent('keydown', {
+        key: 'Tab',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      document.dispatchEvent(ev);
+
+      expect(document.activeElement).toBe(last);
+
+      clickButton('OK');
+      await p;
+    });
+
+    it('pulls focus back into the dialog if it escaped before Tab was pressed', async () => {
+      const outside = document.createElement('button');
+      outside.textContent = 'outside';
+      document.body.appendChild(outside);
+
+      const svc = new DomDialogService();
+      const p = svc.showMessage({
+        message: 'Hi',
+        buttons: [{ id: 'ok', label: 'OK', isDefault: true }],
+      });
+
+      // Force focus out without going through a Tab event.
+      outside.focus();
+      expect(document.activeElement).toBe(outside);
+
+      const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      document.dispatchEvent(ev);
+
+      const firstDialogBtn = document.querySelector<HTMLButtonElement>('.editrix-dialog-btn');
+      expect(document.activeElement).toBe(firstDialogBtn);
+
+      clickButton('OK');
+      await p;
+    });
+  });
+
   describe('prompt', () => {
     it('resolves with the input value on Enter', async () => {
       const svc = new DomDialogService();

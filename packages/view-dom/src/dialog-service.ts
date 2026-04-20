@@ -60,8 +60,11 @@ export class DomDialogService implements IDialogService {
       document.addEventListener('keydown', onKey);
       overlay.addEventListener('click', onOverlayClick);
 
+      const releaseTrap = this._installFocusTrap(dialog);
+
       function close(): void {
         document.removeEventListener('keydown', onKey);
+        releaseTrap();
         overlay.remove();
       }
 
@@ -154,6 +157,8 @@ export class DomDialogService implements IDialogService {
       document.addEventListener('keydown', onKey);
       overlay.addEventListener('click', onOverlayClick);
 
+      const releaseTrap = this._installFocusTrap(dialog);
+
       function submit(): void {
         const value = input.value;
         if (options.validate !== undefined) {
@@ -172,6 +177,7 @@ export class DomDialogService implements IDialogService {
 
       function close(): void {
         document.removeEventListener('keydown', onKey);
+        releaseTrap();
         overlay.remove();
       }
 
@@ -179,6 +185,69 @@ export class DomDialogService implements IDialogService {
       input.focus();
       input.select();
     });
+  }
+
+  /**
+   * Wrap dialog open with two a11y requirements: (1) keyboard focus
+   * cannot Tab out of the dialog; (2) when the dialog closes, focus
+   * returns to whatever element had it before we opened — otherwise
+   * keyboard users end up back at document.body and lose their place.
+   *
+   * The listener runs in the capture phase so Tab is intercepted before
+   * any caller-owned handler can see it.
+   */
+  private _installFocusTrap(dialog: HTMLElement): () => void {
+    const previouslyFocused =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const getFocusable = (): HTMLElement[] => {
+      const selector =
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), ' +
+        'select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+      return Array.from(dialog.querySelectorAll<HTMLElement>(selector)).filter(
+        (el) => !el.hidden,
+      );
+    };
+
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab') return;
+      const focusable = getFocusable();
+      if (focusable.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+
+      const active = document.activeElement as HTMLElement | null;
+      if (!active || !dialog.contains(active)) {
+        e.preventDefault();
+        first.focus();
+        return;
+      }
+
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown, true);
+
+    return (): void => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      if (previouslyFocused && document.contains(previouslyFocused)) {
+        try {
+          previouslyFocused.focus();
+        } catch {
+          /* element may no longer be focusable */
+        }
+      }
+    };
   }
 
   private _buildShell(): { overlay: HTMLDivElement; dialog: HTMLDivElement } {
