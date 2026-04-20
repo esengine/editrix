@@ -24,12 +24,17 @@
  */
 
 import type { IDisposable } from '@editrix/common';
-import type { IEcsSdkAdapter, SdkComponentDef, SdkComponentInfo } from '@editrix/estella';
-import { IComponentCatalog, IECSSceneService } from '@editrix/estella';
+import type {
+  IECSSceneService,
+  IEcsSdkAdapter,
+  SdkComponentDef,
+  SdkComponentInfo,
+} from '@editrix/estella';
+import { IComponentCatalog } from '@editrix/estella';
 import type { AssetFieldSubtype, ComponentFieldSchema } from '@editrix/scene';
 import { deriveComponentSchema } from '@editrix/scene';
 import type { IPlugin, IPluginContext } from '@editrix/shell';
-import { IRuntimeAppPresence, type IRuntimeApp } from '../services.js';
+import { IECSScenePresence, IRuntimeAppPresence, type IRuntimeApp } from '../services.js';
 
 // Structural type for the SDK's World — only the methods we use.
 interface SdkWorld {
@@ -53,17 +58,23 @@ export const SdkEcsAdapterPlugin: IPlugin = {
   activate(ctx: IPluginContext) {
     const catalog = ctx.services.get(IComponentCatalog);
     const runtimePresence = ctx.services.get(IRuntimeAppPresence);
-    const ecs = ctx.services.get(IECSSceneService);
+    const scenePresence = ctx.services.get(IECSScenePresence);
 
     let current:
       | {
           adapter: IEcsSdkAdapter;
+          ecs: IECSSceneService;
           schemaCache: Map<string, ComponentFieldSchema[]>;
           schemaSub: IDisposable;
         }
       | undefined;
 
     const attach = (runtime: IRuntimeApp): void => {
+      // ECS service lands asynchronously (WASM loadCore → estella.onReady →
+      // ECSScenePlugin registers IECSSceneService). If we got here before
+      // that, skip; onDidBind below will retry once the service is up.
+      const ecs = scenePresence.current;
+      if (!ecs) return;
       const app = runtime.instance as SdkApp | undefined;
       const world = app?.world;
       if (!world) return;
@@ -148,18 +159,24 @@ export const SdkEcsAdapterPlugin: IPlugin = {
       };
 
       ecs.attachSdkAdapter(adapter);
-      current = { adapter, schemaCache, schemaSub };
+      current = { adapter, ecs, schemaCache, schemaSub };
     };
 
     const detach = (): void => {
       if (!current) return;
-      ecs.attachSdkAdapter(undefined);
+      current.ecs.attachSdkAdapter(undefined);
       current.schemaSub.dispose();
       current = undefined;
     };
 
-    if (runtimePresence.current) attach(runtimePresence.current);
+    const tryAttach = (): void => {
+      if (current) return;
+      if (runtimePresence.current && scenePresence.current) attach(runtimePresence.current);
+    };
+
+    tryAttach();
     ctx.subscriptions.add(runtimePresence.onDidBind(attach));
+    ctx.subscriptions.add(scenePresence.onDidBind(tryAttach));
     ctx.subscriptions.add(runtimePresence.onDidUnbind(detach));
     ctx.subscriptions.add({ dispose: detach });
   },
