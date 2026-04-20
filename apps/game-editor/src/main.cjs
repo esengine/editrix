@@ -565,8 +565,33 @@ function createEditorWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
-  // Intercept every close path (× button, Cmd/Ctrl+Q, JS close()). Renderer
-  // replies via 'app:close-ack' after the dirty-doc prompt resolves.
+  // DevTools access — window is frameless so the default menu is gone.
+  // Ctrl/Cmd+Shift+I and F12 toggle; render-process-gone / did-fail-load
+  // auto-open so a crashed renderer is debuggable without reaching for a
+  // shortcut.
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const toggle =
+      (input.key === 'I' && (input.control || input.meta) && input.shift) || input.key === 'F12';
+    if (toggle) {
+      mainWindow?.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    console.error('[editrix] renderer gone:', details);
+    mainWindow?.webContents.openDevTools({ mode: 'detach' });
+  });
+  mainWindow.webContents.on('did-fail-load', (_e, code, desc) => {
+    console.error('[editrix] renderer failed to load:', code, desc);
+    mainWindow?.webContents.openDevTools({ mode: 'detach' });
+  });
+  if (process.env['EDITRIX_DEVTOOLS']) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow?.webContents.openDevTools({ mode: 'detach' });
+    });
+  }
+
   mainWindow.on('close', (e) => {
     if (editorCloseAllowed) return;
     e.preventDefault();
