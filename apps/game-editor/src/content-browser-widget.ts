@@ -345,6 +345,22 @@ export class ContentBrowserWidget extends BaseWidget {
     void this._loadAndRenderGrid();
   }
 
+  /**
+   * Convert an absolute asset path to a forward-slash path relative to
+   * the project root. Used when announcing an asset drag so drop targets
+   * can build `project-asset://editor/...` URLs without having to carry
+   * the project service themselves. Returns empty string if the path is
+   * outside the project tree — in that case the caller should skip the
+   * thumbnail preview rather than constructing a bad URL.
+   */
+  private _toProjectRelative(absolutePath: string): string {
+    const norm = absolutePath.replace(/\\/g, '/');
+    const root = this._project.path.replace(/\\/g, '/');
+    if (!root) return '';
+    if (norm.startsWith(`${root}/`)) return norm.slice(root.length + 1);
+    return '';
+  }
+
   private _parseTreeNodeIds(raw: string): string[] {
     try {
       const parsed = JSON.parse(raw) as unknown;
@@ -449,6 +465,7 @@ export class ContentBrowserWidget extends BaseWidget {
           // when DataTransfer payloads are locked by the spec.
           beginAssetDrag({
             absolutePath: item.path,
+            relativePath: this._toProjectRelative(item.path),
             fileName: item.name,
             extension: item.extension.toLowerCase(),
           });

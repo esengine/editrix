@@ -21,6 +21,14 @@ import {
 } from './scene-ops.js';
 import { entityRef, parseSelectionRef } from './services.js';
 
+/**
+ * Extensions the ghost preview tries to draw as a real texture. Anything
+ * else falls back to the solid-colour placeholder — importing a model or
+ * prefab doesn't give us a pixel preview for free, and pretending it
+ * does would be more misleading than the placeholder.
+ */
+const IMAGE_GHOST_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
+
 function cursorForAxis(axis: GizmoAxis, tool: GizmoToolId): string {
   if (axis === 'x') return 'ew-resize';
   if (axis === 'y') return 'ns-resize';
@@ -109,6 +117,13 @@ export class SceneViewWidget extends BaseWidget {
   // translucent placeholder at the cursor's world position so the user
   // sees where the asset will land before releasing.
   private _assetGhost: { readonly info: AssetDragInfo; sx: number; sy: number } | null = null;
+
+  // Thumbnail cache keyed by project-relative path. `'loading'` means a
+  // request is in flight; `'error'` means the image failed (so we don't
+  // retry indefinitely across drags of the same asset). The cache
+  // survives for the widget's lifetime — repeated drags of the same
+  // asset reuse a single load.
+  private readonly _thumbnailCache = new Map<string, HTMLImageElement | 'loading' | 'error'>();
 
   private readonly _onDidDropAsset = new Emitter<SceneAssetDropEvent>();
   readonly onDidDropAsset: Event<SceneAssetDropEvent> = this._onDidDropAsset.event;
@@ -302,6 +317,34 @@ export class SceneViewWidget extends BaseWidget {
   }
 
   /** Draw 2D grid overlay on the Scene View canvas. */
+  /**
+   * Return a resolved thumbnail for the given project-relative path, or
+   * null if the image is still loading, errored, or has no cacheable
+   * path. The first miss for a given path kicks off an async fetch
+   * through the `project-asset://editor/` protocol the editor registers
+   * for in-project assets; subsequent calls hit the cache. When the
+   * async load resolves the render is rescheduled so the next frame
+   * paints the real texture without callers having to poll.
+   */
+  private _getOrLoadThumbnail(relativePath: string): HTMLImageElement | null {
+    if (!relativePath) return null;
+    const cached = this._thumbnailCache.get(relativePath);
+    if (cached instanceof HTMLImageElement) return cached;
+    if (cached === 'loading' || cached === 'error') return null;
+
+    this._thumbnailCache.set(relativePath, 'loading');
+    const img = new Image();
+    img.onload = (): void => {
+      this._thumbnailCache.set(relativePath, img);
+      this._renderContext.requestRender();
+    };
+    img.onerror = (): void => {
+      this._thumbnailCache.set(relativePath, 'error');
+    };
+    img.src = `project-asset://editor/${relativePath.split('/').map(encodeURIComponent).join('/')}`;
+    return null;
+  }
+
   /**
    * Current snap distance read from the toolbar input. 0 means snap is
    * off; every consumer (move drag math, keyboard nudge, asset-drop)
@@ -945,6 +988,12 @@ export class SceneViewWidget extends BaseWidget {
         sx: e.clientX - rect.left,
         sy: e.clientY - rect.top,
       };
+      // Kick the thumbnail load on enter rather than on first paint, so
+      // the first frame that matters (after the user holds the drag) has
+      // a good chance of already showing the real texture.
+      if (IMAGE_GHOST_EXTENSIONS.has(info.extension)) {
+        this._getOrLoadThumbnail(info.relativePath);
+      }
       this._renderContext.requestRender();
     });
     viewport.addEventListener('dragover', (e: DragEvent) => {
@@ -1046,6 +1095,21 @@ export class SceneViewWidget extends BaseWidget {
     ctx.save();
     ctx.fillStyle = 'rgba(90, 164, 255, 0.18)';
     ctx.fillRect(rx, ry, rw, rh);
+
+    // When the asset is an image and we have its texture cached, paint
+    // it inside the rect — preview reads as "this is what's being
+    // placed" instead of "something is being placed here". Keep alpha
+    // under 1 so the dashed border still reads through the image.
+    const thumb = IMAGE_GHOST_EXTENSIONS.has(ghost.info.extension)
+      ? this._getOrLoadThumbnail(ghost.info.relativePath)
+      : null;
+    if (thumb && rw > 0 && rh > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.drawImage(thumb, rx, ry, rw, rh);
+      ctx.restore();
+    }
+
     ctx.strokeStyle = 'rgba(90, 164, 255, 0.85)';
     ctx.lineWidth = 1.5;
     ctx.setLineDash([5, 3]);

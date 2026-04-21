@@ -18,6 +18,10 @@
 
 export interface AssetDragInfo {
   readonly absolutePath: string;
+  /** Forward-slash path relative to the current project root, used to
+   *  construct `project-asset://editor/<relativePath>` URLs for thumbnail
+   *  previews. Empty if the asset sits outside the project tree. */
+  readonly relativePath: string;
   readonly fileName: string;
   /** Lower-case, includes the leading dot (e.g. `.png`). Empty if none. */
   readonly extension: string;
