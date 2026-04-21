@@ -93,6 +93,9 @@ export { DomDialogService } from './dialog-service.js';
 // Notification service (DOM impl)
 export { DomNotificationService } from './notification-service.js';
 
+// Progress renderer (DOM observer of IProgressService)
+export { DomProgressRenderer } from './progress-renderer.js';
+
 // Clipboard service (navigator.clipboard wrapper)
 export { NavigatorClipboardService } from './clipboard-service.js';
 

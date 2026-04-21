@@ -1,6 +1,11 @@
 import { CommandsPluginId, ICommandRegistry, IKeybindingService } from '@editrix/commands';
 import type { IPlugin, IPluginContext } from '@editrix/core';
-import { IClipboardService, IDialogService, INotificationService } from '@editrix/core';
+import {
+  IClipboardService,
+  IDialogService,
+  INotificationService,
+  IProgressService,
+} from '@editrix/core';
 import { ILayoutService, LayoutPluginId } from '@editrix/layout';
 import { IViewAdapter, IViewService, ViewPluginId } from '@editrix/view';
 import { NavigatorClipboardService } from './clipboard-service.js';
@@ -9,6 +14,7 @@ import { DomDialogService } from './dialog-service.js';
 import type { DomViewAdapterOptions } from './dom-view-adapter.js';
 import { DomViewAdapter } from './dom-view-adapter.js';
 import { DomNotificationService } from './notification-service.js';
+import { DomProgressRenderer } from './progress-renderer.js';
 
 /** Stable plugin id — dependents should import this rather than hard-coding the string. */
 export const ViewDomPluginId = 'editrix.view-dom' as const;
@@ -61,6 +67,9 @@ export function createDomViewPlugin(options?: DomViewAdapterOptions): IPlugin {
 
       const clipboard = new NavigatorClipboardService();
       ctx.subscriptions.add(ctx.services.register(IClipboardService, clipboard));
+
+      const progress = ctx.services.get(IProgressService);
+      ctx.subscriptions.add(new DomProgressRenderer(progress));
     },
   };
 }
