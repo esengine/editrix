@@ -80,6 +80,7 @@ export class TreeWidget extends BaseWidget {
   // dataTransfer values are unreadable during dragover (security); cached here.
   private _dragSourceIds: readonly string[] | undefined;
   private _dropIndicatorRow: HTMLElement | undefined;
+  private _autoExpand: { nodeId: string; timer: ReturnType<typeof setTimeout> } | undefined;
   // Shift-click range anchor — the last non-shift click.
   private _selectionAnchor: string | undefined;
 
@@ -560,6 +561,7 @@ export class TreeWidget extends BaseWidget {
           e.preventDefault();
           if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
           this._setDropIndicator(row, position);
+          this._updateAutoExpand(node, position);
         });
         row.addEventListener('dragleave', (e) => {
           if (row.contains(e.relatedTarget as Node | null)) return;
@@ -766,6 +768,35 @@ export class TreeWidget extends BaseWidget {
       );
       this._dropIndicatorRow = undefined;
     }
+    this._cancelAutoExpand();
+  }
+
+  // ~500ms hover on a collapsed row with children expands it mid-drag so
+  // the user can reach descendants without letting go to click the chevron.
+  private _updateAutoExpand(node: TreeNode, position: 'before' | 'after' | 'inside'): void {
+    const eligible =
+      position === 'inside' &&
+      node.children !== undefined &&
+      node.children.length > 0 &&
+      !this._expanded.has(node.id);
+    if (!eligible) {
+      this._cancelAutoExpand();
+      return;
+    }
+    if (this._autoExpand?.nodeId === node.id) return;
+    this._cancelAutoExpand();
+    const nodeId = node.id;
+    const timer = setTimeout(() => {
+      this._autoExpand = undefined;
+      this.expand(nodeId);
+    }, 500);
+    this._autoExpand = { nodeId, timer };
+  }
+
+  private _cancelAutoExpand(): void {
+    if (!this._autoExpand) return;
+    clearTimeout(this._autoExpand.timer);
+    this._autoExpand = undefined;
   }
 
   private _injectStyles(): void {
