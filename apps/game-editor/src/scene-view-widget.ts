@@ -3,6 +3,7 @@ import { Emitter } from '@editrix/common';
 import type { ESEngineModule, CppRegistry, IECSSceneService } from '@editrix/estella';
 import type { ISelectionService, IUndoRedoService } from '@editrix/shell';
 import { BaseWidget, createIconElement, registerIcon } from '@editrix/view-dom';
+import { currentAssetDrag, type AssetDragInfo } from './asset-drag-session.js';
 import { ASSET_PATH_MIME } from './content-browser-widget.js';
 import { EditorCamera } from './editor-camera.js';
 import {
@@ -102,6 +103,13 @@ export class SceneViewWidget extends BaseWidget {
     additive: boolean;
   } = { active: false, startSX: 0, startSY: 0, currSX: 0, currSY: 0, additive: false };
 
+  // Ghost preview state for an in-progress asset drag from the Content
+  // Browser. Populated on dragenter over the viewport, moved on dragover,
+  // cleared on dragleave / drop. Drawn from the postDraw pass as a
+  // translucent placeholder at the cursor's world position so the user
+  // sees where the asset will land before releasing.
+  private _assetGhost: { readonly info: AssetDragInfo; sx: number; sy: number } | null = null;
+
   private readonly _onDidDropAsset = new Emitter<SceneAssetDropEvent>();
   readonly onDidDropAsset: Event<SceneAssetDropEvent> = this._onDidDropAsset.event;
 
@@ -164,6 +172,7 @@ export class SceneViewWidget extends BaseWidget {
         this._drawSnapGrid(ctx, w, h);
         this._drawSelectionHighlight(ctx, w, h);
         this._drawMarquee(ctx);
+        this._drawAssetDragGhost(ctx, w, h);
       },
       target: ctx2d,
       get width() {
@@ -909,24 +918,48 @@ export class SceneViewWidget extends BaseWidget {
     const hasAssetPayload = (e: DragEvent): boolean =>
       Boolean(e.dataTransfer?.types.includes(ASSET_PATH_MIME));
 
+    const clearGhost = (): void => {
+      if (!this._assetGhost) return;
+      this._assetGhost = null;
+      this._renderContext.requestRender();
+    };
+
     viewport.addEventListener('dragenter', (e: DragEvent) => {
       if (!hasAssetPayload(e)) return;
       e.preventDefault();
       overlay.classList.add('editrix-sv-drop-overlay--active');
+      const info = currentAssetDrag();
+      if (!info) return;
+      const rect = canvas.getBoundingClientRect();
+      this._assetGhost = {
+        info,
+        sx: e.clientX - rect.left,
+        sy: e.clientY - rect.top,
+      };
+      this._renderContext.requestRender();
     });
     viewport.addEventListener('dragover', (e: DragEvent) => {
       if (!hasAssetPayload(e)) return;
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      if (!this._assetGhost) return;
+      const rect = canvas.getBoundingClientRect();
+      this._assetGhost.sx = e.clientX - rect.left;
+      this._assetGhost.sy = e.clientY - rect.top;
+      // requestRender is rAF-coalesced, so spamming it from dragover (~60/s)
+      // just schedules one repaint per frame — cheaper than throttling here.
+      this._renderContext.requestRender();
     });
     viewport.addEventListener('dragleave', (e: DragEvent) => {
       // Internal transitions fire dragleave on the child — keep the overlay
       // up until the pointer truly leaves the viewport.
       if (e.relatedTarget && viewport.contains(e.relatedTarget as Node)) return;
       overlay.classList.remove('editrix-sv-drop-overlay--active');
+      clearGhost();
     });
     viewport.addEventListener('drop', (e: DragEvent) => {
       overlay.classList.remove('editrix-sv-drop-overlay--active');
+      clearGhost();
       if (!hasAssetPayload(e)) return;
       e.preventDefault();
       const absolutePath = e.dataTransfer?.getData(ASSET_PATH_MIME);
@@ -946,6 +979,72 @@ export class SceneViewWidget extends BaseWidget {
         hitEntityId: this._pickEntity(worldX, worldY),
       });
     });
+  }
+
+  /**
+   * Draw the in-flight asset-drag placeholder. A world-sized translucent
+   * rectangle around the cursor roughly matches the footprint the dropped
+   * sprite will occupy once imported (exact dimensions vary per asset
+   * type — close enough is what the user actually needs at drag time).
+   * A small anchor dot pins the exact drop point and the filename label
+   * sits above the rectangle so the user can verify they grabbed the
+   * right asset before releasing.
+   */
+  private _drawAssetDragGhost(
+    ctx: CanvasRenderingContext2D,
+    canvasWidth: number,
+    canvasHeight: number,
+  ): void {
+    const ghost = this._assetGhost;
+    if (!ghost) return;
+    const cam = this._editorCamera;
+    const [wx, wy] = cam.screenToWorld(ghost.sx, ghost.sy, canvasWidth, canvasHeight);
+    // 50 world units half-size matches the default sprite footprint the
+    // engine uses when no explicit size is configured — the ghost reads as
+    // "roughly this big" rather than pretending to know the exact import
+    // dimensions.
+    const worldHalfSize = 50;
+    const [sx0, sy0] = cam.worldToScreen(
+      wx - worldHalfSize,
+      wy + worldHalfSize,
+      canvasWidth,
+      canvasHeight,
+    );
+    const [sx1, sy1] = cam.worldToScreen(
+      wx + worldHalfSize,
+      wy - worldHalfSize,
+      canvasWidth,
+      canvasHeight,
+    );
+    const rx = Math.round(sx0);
+    const ry = Math.round(sy0);
+    const rw = Math.round(sx1 - sx0);
+    const rh = Math.round(sy1 - sy0);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(90, 164, 255, 0.18)';
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.strokeStyle = 'rgba(90, 164, 255, 0.85)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
+    ctx.setLineDash([]);
+
+    // Anchor dot at the precise cursor location — drop resolves here, not
+    // at the rectangle centre (which may diverge at non-default zoom if
+    // the cursor sits near an edge).
+    ctx.fillStyle = '#ffd24a';
+    ctx.beginPath();
+    ctx.arc(ghost.sx, ghost.sy, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.font = '11px Consolas, monospace';
+    ctx.fillStyle = '#ffd24a';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(ghost.info.fileName, rx + 2, ry - 4);
+
+    ctx.restore();
   }
 
   private _setupMouseHandlers(canvas: HTMLCanvasElement): void {

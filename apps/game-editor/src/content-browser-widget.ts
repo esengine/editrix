@@ -4,6 +4,7 @@ import type { FileEntry, IFileSystemService } from '@editrix/core';
 import type { IWorkspaceService } from '@editrix/shell';
 import type { ContextMenuItem } from '@editrix/view-dom';
 import { BaseWidget, createIconElement, ListWidget, showContextMenu } from '@editrix/view-dom';
+import { beginAssetDrag, endAssetDrag } from './asset-drag-session.js';
 
 const REVEAL_LABEL = isMac() ? 'Reveal in Finder' : 'Show in Explorer';
 
@@ -443,9 +444,18 @@ export class ContentBrowserWidget extends BaseWidget {
           e.dataTransfer.setData(ASSET_PATH_MIME, item.path);
           e.dataTransfer.effectAllowed = 'copy';
           card.classList.add('editrix-cb-card--dragging');
+          // Expose the dragged asset through the session singleton so drop
+          // targets (Scene View ghost preview) can render during dragover,
+          // when DataTransfer payloads are locked by the spec.
+          beginAssetDrag({
+            absolutePath: item.path,
+            fileName: item.name,
+            extension: item.extension.toLowerCase(),
+          });
         });
         card.addEventListener('dragend', () => {
           card.classList.remove('editrix-cb-card--dragging');
+          endAssetDrag();
         });
       } else {
         // Folder cards accept entity drops → create prefab inside them.
