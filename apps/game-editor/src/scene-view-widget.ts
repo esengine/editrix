@@ -119,6 +119,14 @@ export class SceneViewWidget extends BaseWidget {
   // sees where the asset will land before releasing.
   private _assetGhost: { readonly info: AssetDragInfo; sx: number; sy: number } | null = null;
 
+  // Repeat-placement state triggered by holding Shift at drop time.
+  // While active the ghost follows the cursor, left-click places an
+  // entity without a fresh drag, and right-click / Escape / tool switch
+  // exits. Replacing native DnD entirely would break the animation
+  // editor's texture drop path — this post-drop mode keeps native DnD
+  // for single drops and layers repeat placement on top.
+  private _placementMode: { readonly info: AssetDragInfo; sx: number; sy: number } | null = null;
+
   // Thumbnail cache keyed by project-relative path. `'loading'` means a
   // request is in flight; `'error'` means the image failed (so we don't
   // retry indefinitely across drags of the same asset). The cache
@@ -294,6 +302,10 @@ export class SceneViewWidget extends BaseWidget {
   }
 
   private _setActiveTool(id: ToolId): void {
+    // Switching tools cancels repeat-placement — the user explicitly
+    // picked a different gesture, so keeping a ghost from the old flow
+    // attached to their cursor would be confusing.
+    this._exitPlacementMode();
     this._gizmo.setTool(id);
     for (const [toolId, btn] of this._toolButtons) {
       btn.classList.toggle('editrix-sv-tool-btn--active', toolId === id);
@@ -1019,6 +1031,11 @@ export class SceneViewWidget extends BaseWidget {
     });
     viewport.addEventListener('drop', (e: DragEvent) => {
       overlay.classList.remove('editrix-sv-drop-overlay--active');
+      // Snapshot before clearing the ghost — placement mode reuses the
+      // same info the ghost was carrying (filename, relativePath for
+      // thumbnail, extension) and the ghost state itself is torn down
+      // below so the draw path stays deterministic.
+      const ghostInfo = this._assetGhost?.info;
       clearGhost();
       if (!hasAssetPayload(e)) return;
       e.preventDefault();
@@ -1043,7 +1060,28 @@ export class SceneViewWidget extends BaseWidget {
         worldY,
         hitEntityId: this._pickEntity(worldX, worldY),
       });
+
+      // Shift-at-drop enters repeat-placement mode: the ghost follows
+      // the cursor on raw mousemove and each left-click places another
+      // entity without a fresh drag. Escape / right-click / tool switch
+      // exits. Canvas grabs focus so Escape actually reaches us.
+      if (e.shiftKey && ghostInfo) {
+        this._placementMode = {
+          info: ghostInfo,
+          sx: e.clientX - rect.left,
+          sy: e.clientY - rect.top,
+        };
+        canvas.focus();
+        this._renderContext.requestRender();
+      }
     });
+  }
+
+  /** Exit repeat-placement mode and repaint. Safe to call when inactive. */
+  private _exitPlacementMode(): void {
+    if (!this._placementMode) return;
+    this._placementMode = null;
+    this._renderContext.requestRender();
   }
 
   /**
@@ -1065,6 +1103,16 @@ export class SceneViewWidget extends BaseWidget {
   private _setupContextMenu(canvas: HTMLCanvasElement): void {
     canvas.addEventListener('contextmenu', (e: MouseEvent) => {
       e.preventDefault();
+
+      // Right-click doubles as the "cancel" affordance for repeat-
+      // placement mode — every painting tool in other editors works
+      // this way, and the alternative (showing the menu on top of a
+      // still-active ghost) reads as broken.
+      if (this._placementMode) {
+        this._exitPlacementMode();
+        return;
+      }
+
       const ecs = this._ecsScene;
       if (!ecs) return;
 
@@ -1188,7 +1236,10 @@ export class SceneViewWidget extends BaseWidget {
     canvasWidth: number,
     canvasHeight: number,
   ): void {
-    const ghost = this._assetGhost;
+    // Either native-DnD in flight or post-drop repeat placement — both
+    // carry the same shape and draw identically. Placement-mode wins if
+    // both happen to be set (shouldn't, but avoids flicker).
+    const ghost = this._placementMode ?? this._assetGhost;
     if (!ghost) return;
     const cam = this._editorCamera;
     const [rawWX, rawWY] = cam.screenToWorld(ghost.sx, ghost.sy, canvasWidth, canvasHeight);
@@ -1293,6 +1344,14 @@ export class SceneViewWidget extends BaseWidget {
       const ecs = this._ecsScene;
       if (!ecs) return;
 
+      // Escape exits repeat-placement mode first — has to win over any
+      // other Escape-bound action so the user can bail out cleanly.
+      if (e.key === 'Escape' && this._placementMode) {
+        e.preventDefault();
+        this._exitPlacementMode();
+        return;
+      }
+
       // F: frame the first selected entity.
       if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const selectedRaw = this._selection.getSelection()[0];
@@ -1369,6 +1428,22 @@ export class SceneViewWidget extends BaseWidget {
     canvas.addEventListener('mousedown', (e: MouseEvent) => {
       if (e.button !== 0) return;
       const [wx, wy] = getWorldPos(e);
+
+      // Repeat-placement mode takes the click before any selection /
+      // gizmo / marquee logic — each click drops another entity and the
+      // mode persists until Escape / right-click / tool switch.
+      if (this._placementMode) {
+        const snap = this._readSnap();
+        const snappedX = snap > 0 ? Math.round(wx / snap) * snap : wx;
+        const snappedY = snap > 0 ? Math.round(wy / snap) * snap : wy;
+        this._onDidDropAsset.fire({
+          absolutePath: this._placementMode.info.absolutePath,
+          worldX: snappedX,
+          worldY: snappedY,
+          hitEntityId: this._pickEntity(snappedX, snappedY),
+        });
+        return;
+      }
 
       if (this._gizmo.tool === 'select') {
         const hit = this._pickEntity(wx, wy);
@@ -1479,6 +1554,17 @@ export class SceneViewWidget extends BaseWidget {
     });
 
     const onMouseMove = (e: MouseEvent): void => {
+      // Repeat-placement: update ghost position on every move so the
+      // preview follows the cursor. Doesn't early-return — panning
+      // still needs to win so the user can reposition the view mid-
+      // placement with middle drag.
+      if (this._placementMode) {
+        const rect = canvas.getBoundingClientRect();
+        this._placementMode.sx = e.clientX - rect.left;
+        this._placementMode.sy = e.clientY - rect.top;
+        this._renderContext.requestRender();
+      }
+
       // Camera pan (middle button)
       if (this._isPanning) {
         const dx = e.clientX - this._lastMouseX;
