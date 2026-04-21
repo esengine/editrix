@@ -157,6 +157,7 @@ export class SceneViewWidget extends BaseWidget {
     readonly beforeChunks: string;
     readonly exportChunks: (entity: number) => string;
     readonly importChunks: (entity: number, blob: string) => boolean;
+    readonly tileId: number;
   } | null = null;
 
   // Thumbnail cache keyed by project-relative path. `'loading'` means a
@@ -322,6 +323,9 @@ export class SceneViewWidget extends BaseWidget {
     this._tileIdInput.step = '1';
     this._tileIdInput.value = '1';
     this._tileIdInput.style.width = '48px';
+    this._tileIdInput.addEventListener('input', () => {
+      this._updatePaletteHighlight();
+    });
 
     // Trailing spacer keeps the snap controls left-aligned. The "more options"
     // overflow menu is intentionally not rendered until there's a real submenu
@@ -450,11 +454,25 @@ export class SceneViewWidget extends BaseWidget {
         cell.style.width = `${String(cellW)}%`;
         cell.style.height = `${String(cellH)}%`;
         const tileId = r * columns + c + 1;
+        cell.dataset['tileId'] = String(tileId);
         cell.addEventListener('click', () => {
-          if (this._tileIdInput) this._tileIdInput.value = String(tileId);
+          if (!this._tileIdInput) return;
+          this._tileIdInput.value = String(tileId);
+          this._updatePaletteHighlight();
         });
         grid.appendChild(cell);
       }
+    }
+    this._updatePaletteHighlight();
+  }
+
+  private _updatePaletteHighlight(): void {
+    const grid = this._paletteGrid;
+    if (!grid) return;
+    const target = String(this._readTileId());
+    for (const cell of Array.from(grid.children)) {
+      const el = cell as HTMLElement;
+      el.classList.toggle('editrix-sv-palette__cell--selected', el.dataset['tileId'] === target);
     }
   }
 
@@ -518,7 +536,7 @@ export class SceneViewWidget extends BaseWidget {
     return Number.isFinite(v) && v >= 0 ? v : 1;
   }
 
-  private _beginPaintStroke(worldX: number, worldY: number): boolean {
+  private _beginPaintStroke(worldX: number, worldY: number, tileId: number): boolean {
     const ecs = this._ecsScene;
     const mod = this._renderContext.module as
       | (ESEngineModule & {
@@ -552,7 +570,7 @@ export class SceneViewWidget extends BaseWidget {
 
     const tx = Math.floor((worldX - px) / cellX);
     const ty = Math.floor((worldY - py) / cellY);
-    mod.tilemap_setTile(target, tx, ty, this._readTileId());
+    mod.tilemap_setTile(target, tx, ty, tileId);
     this._paintState = {
       entity: target,
       px,
@@ -565,6 +583,7 @@ export class SceneViewWidget extends BaseWidget {
       beforeChunks,
       exportChunks,
       importChunks,
+      tileId,
     };
     this._renderContext.requestRender();
     return true;
@@ -576,7 +595,7 @@ export class SceneViewWidget extends BaseWidget {
     const tx = Math.floor((worldX - state.px) / state.cellX);
     const ty = Math.floor((worldY - state.py) / state.cellY);
     if (tx === state.lastTX && ty === state.lastTY) return;
-    state.setTile(state.entity, tx, ty, this._readTileId());
+    state.setTile(state.entity, tx, ty, state.tileId);
     state.lastTX = tx;
     state.lastTY = ty;
     this._renderContext.requestRender();
@@ -590,10 +609,10 @@ export class SceneViewWidget extends BaseWidget {
     const afterChunks = state.exportChunks(state.entity);
     if (afterChunks === state.beforeChunks) return;
 
-    const { entity, beforeChunks, importChunks } = state;
+    const { entity, beforeChunks, importChunks, tileId } = state;
     const renderCtx = this._renderContext;
     this._undoRedo.push({
-      label: 'Paint Tiles',
+      label: tileId === 0 ? 'Erase Tiles' : 'Paint Tiles',
       undo: () => {
         importChunks(entity, beforeChunks);
         renderCtx.requestRender();
@@ -1341,6 +1360,10 @@ export class SceneViewWidget extends BaseWidget {
     canvas.addEventListener('contextmenu', (e: MouseEvent) => {
       e.preventDefault();
 
+      // Paint tool owns right-click for erase — mousedown already
+      // started the erase stroke, the context menu would just cover it.
+      if (this._gizmo.tool === 'paint') return;
+
       // Right-click doubles as the "cancel" affordance for repeat-
       // placement mode — every painting tool in other editors works
       // this way, and the alternative (showing the menu on top of a
@@ -1663,8 +1686,24 @@ export class SceneViewWidget extends BaseWidget {
 
     // Left-click: select or start transform drag
     canvas.addEventListener('mousedown', (e: MouseEvent) => {
-      if (e.button !== 0) return;
       const [wx, wy] = getWorldPos(e);
+
+      // Paint owns both buttons: left paints the current tile id, right
+      // erases (tile 0). Middle still falls through to camera pan.
+      if (this._gizmo.tool === 'paint') {
+        if (e.button === 0) {
+          this._beginPaintStroke(wx, wy, this._readTileId());
+          return;
+        }
+        if (e.button === 2) {
+          e.preventDefault();
+          this._beginPaintStroke(wx, wy, 0);
+          return;
+        }
+        return;
+      }
+
+      if (e.button !== 0) return;
 
       // Repeat-placement mode takes the click before any selection /
       // gizmo / marquee logic — each click drops another entity and the
@@ -1679,11 +1718,6 @@ export class SceneViewWidget extends BaseWidget {
           worldY: snappedY,
           hitEntityId: this._pickEntity(snappedX, snappedY),
         });
-        return;
-      }
-
-      if (this._gizmo.tool === 'paint') {
-        this._beginPaintStroke(wx, wy);
         return;
       }
 
@@ -1855,7 +1889,7 @@ export class SceneViewWidget extends BaseWidget {
         return;
       }
 
-      if (e.button === 0 && this._paintState) {
+      if ((e.button === 0 || e.button === 2) && this._paintState) {
         this._endPaintStroke();
         return;
       }
@@ -2071,6 +2105,11 @@ export class SceneViewWidget extends BaseWidget {
 .editrix-sv-palette__cell:hover {
   border-color: rgba(255,210,74,0.8);
   background: rgba(255,210,74,0.15);
+}
+.editrix-sv-palette__cell--selected {
+  border-color: #ffd24a;
+  background: rgba(255,210,74,0.22);
+  box-shadow: inset 0 0 0 1px #ffd24a;
 }
 `;
     document.head.appendChild(style);
