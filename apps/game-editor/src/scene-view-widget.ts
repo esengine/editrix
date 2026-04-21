@@ -2,7 +2,8 @@ import type { Event } from '@editrix/common';
 import { Emitter } from '@editrix/common';
 import type { ESEngineModule, CppRegistry, IECSSceneService } from '@editrix/estella';
 import type { ISelectionService, IUndoRedoService } from '@editrix/shell';
-import { BaseWidget, createIconElement, registerIcon } from '@editrix/view-dom';
+import type { ContextMenuItem } from '@editrix/view-dom';
+import { BaseWidget, createIconElement, registerIcon, showContextMenu } from '@editrix/view-dom';
 import { currentAssetDrag, type AssetDragInfo } from './asset-drag-session.js';
 import { ASSET_PATH_MIME } from './content-browser-widget.js';
 import { EditorCamera } from './editor-camera.js';
@@ -220,6 +221,7 @@ export class SceneViewWidget extends BaseWidget {
 
     this._setupMouseHandlers(this._canvas);
     this._setupDropHandlers(viewport, this._canvas);
+    this._setupContextMenu(this._canvas);
 
     // Floating toolbar
     const toolbar = this.appendElement(viewport, 'div', 'editrix-sv-toolbar');
@@ -1042,6 +1044,134 @@ export class SceneViewWidget extends BaseWidget {
         hitEntityId: this._pickEntity(worldX, worldY),
       });
     });
+  }
+
+  /**
+   * Right-click handler for the scene canvas. Two variants:
+   *
+   *   • Cursor over an entity — Frame / Duplicate / Delete acting on
+   *     the current selection. If the right-clicked entity isn't part
+   *     of the selection yet, we swap to just that one before showing
+   *     the menu (matches the behaviour of Explorer-style lists).
+   *   • Cursor over empty canvas — Create Empty Entity (lands at the
+   *     right-click world position) and Frame Origin as a quick way
+   *     to recenter the camera without hunting for an entity first.
+   *
+   * The menu items call through the same helpers the keyboard
+   * shortcuts use, so Delete/Dup go through scene-ops with undo and
+   * Frame shares the F-key camera math — keeps the behaviours in sync
+   * with the rest of the editor without copy-pasting the logic.
+   */
+  private _setupContextMenu(canvas: HTMLCanvasElement): void {
+    canvas.addEventListener('contextmenu', (e: MouseEvent) => {
+      e.preventDefault();
+      const ecs = this._ecsScene;
+      if (!ecs) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      const [wx, wy] = this._editorCamera.screenToWorld(sx, sy, w, h);
+      const hit = this._pickEntity(wx, wy);
+
+      const items: ContextMenuItem[] =
+        hit !== undefined
+          ? this._buildEntityContextItems(ecs, hit)
+          : this._buildEmptyContextItems(ecs, wx, wy);
+      if (items.length === 0) return;
+      showContextMenu({ x: e.clientX, y: e.clientY, items });
+    });
+  }
+
+  private _buildEntityContextItems(ecs: IECSSceneService, hitId: number): ContextMenuItem[] {
+    // Ensure the right-clicked entity is at least part of the current
+    // selection so menu actions target what the user expected. Keep a
+    // multi-select intact when the hit is already in it, otherwise
+    // replace with just the hit.
+    const ref = entityRef(hitId);
+    const selection = this._selection.getSelection();
+    if (!selection.includes(ref)) {
+      this._selection.select([ref]);
+      this._renderContext.requestRender();
+    }
+
+    return [
+      {
+        label: 'Frame',
+        shortcut: 'F',
+        onSelect: () => {
+          const px = Number(ecs.getProperty(hitId, 'Transform', 'position.x') ?? 0);
+          const py = Number(ecs.getProperty(hitId, 'Transform', 'position.y') ?? 0);
+          this._editorCamera.focusOn(px, py, 1.0);
+          this._renderContext.requestRender();
+        },
+      },
+      {
+        label: 'Duplicate',
+        shortcut: 'Ctrl+D',
+        onSelect: () => {
+          duplicateSelectedEntities(ecs, this._selection, this._undoRedo);
+          this._renderContext.requestRender();
+        },
+      },
+      { separator: true, label: '' },
+      {
+        label: 'Delete',
+        shortcut: 'Del',
+        destructive: true,
+        onSelect: () => {
+          deleteSelectedEntities(ecs, this._selection, this._undoRedo);
+          this._renderContext.requestRender();
+        },
+      },
+    ];
+  }
+
+  private _buildEmptyContextItems(
+    ecs: IECSSceneService,
+    worldX: number,
+    worldY: number,
+  ): ContextMenuItem[] {
+    return [
+      {
+        label: 'Create Empty Entity',
+        onSelect: () => {
+          // Track the live id across redo — ecs.createEntity returns a
+          // fresh id each time, so undo must destroy whatever redo last
+          // created, not the original.
+          let currentId = ecs.createEntity('New Entity');
+          ecs.setProperty(currentId, 'Transform', 'position.x', worldX);
+          ecs.setProperty(currentId, 'Transform', 'position.y', worldY);
+          this._selection.select([entityRef(currentId)]);
+          this._renderContext.requestRender();
+          this._undoRedo.push({
+            label: 'Create Entity',
+            undo: () => {
+              ecs.destroyEntity(currentId);
+              this._selection.clearSelection();
+              this._renderContext.requestRender();
+            },
+            redo: () => {
+              currentId = ecs.createEntity('New Entity');
+              ecs.setProperty(currentId, 'Transform', 'position.x', worldX);
+              ecs.setProperty(currentId, 'Transform', 'position.y', worldY);
+              this._selection.select([entityRef(currentId)]);
+              this._renderContext.requestRender();
+            },
+          });
+        },
+      },
+      { separator: true, label: '' },
+      {
+        label: 'Frame Origin',
+        onSelect: () => {
+          this._editorCamera.focusOn(0, 0, 1.0);
+          this._renderContext.requestRender();
+        },
+      },
+    ];
   }
 
   /**
