@@ -12,7 +12,7 @@
 
 import type { IECSSceneService } from '@editrix/estella';
 
-export type ToolId = 'select' | 'move' | 'rotate' | 'scale';
+export type ToolId = 'select' | 'move' | 'rotate' | 'scale' | 'paint';
 
 /**
  * Which direction a drag affects.

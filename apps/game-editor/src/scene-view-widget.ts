@@ -70,6 +70,11 @@ registerIcon(
 );
 
 registerIcon(
+  'tool-paint',
+  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2l3 3-6 6H5v-3z"/><path d="M4 14l2-2"/><path d="M2 12l2 2"/></svg>',
+);
+
+registerIcon(
   'snap-grid',
   '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="4" cy="4" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="4" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="4" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="8" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg>',
 );
@@ -241,6 +246,7 @@ export class SceneViewWidget extends BaseWidget {
       { id: 'move', icon: 'tool-move', title: 'Move (W)' },
       { id: 'rotate', icon: 'tool-rotate', title: 'Rotate (E)' },
       { id: 'scale', icon: 'tool-scale', title: 'Scale (R)' },
+      { id: 'paint', icon: 'tool-paint', title: 'Paint tile' },
     ];
     for (const tool of tools) {
       const btn = document.createElement('div');
@@ -310,6 +316,9 @@ export class SceneViewWidget extends BaseWidget {
     for (const [toolId, btn] of this._toolButtons) {
       btn.classList.toggle('editrix-sv-tool-btn--active', toolId === id);
     }
+    if (this._canvas) {
+      this._canvas.style.cursor = id === 'paint' ? 'crosshair' : '';
+    }
     this._renderContext.requestRender();
   }
 
@@ -366,6 +375,37 @@ export class SceneViewWidget extends BaseWidget {
    */
   private _readSnap(): number {
     return parseFloat(this._snapInput?.value ?? '0') || 0;
+  }
+
+  private _paintTileAt(worldX: number, worldY: number): void {
+    const ecs = this._ecsScene;
+    const mod = this._renderContext.module as
+      | (ESEngineModule & {
+          tilemap_setTile?(entity: number, x: number, y: number, tileId: number): void;
+        })
+      | undefined;
+    if (!ecs || !mod?.tilemap_setTile) return;
+
+    let target: number | undefined;
+    for (const raw of this._selection.getSelection()) {
+      const ref = parseSelectionRef(raw);
+      if (ref?.kind !== 'entity') continue;
+      if (!ecs.hasComponent(ref.id, 'TilemapLayer')) continue;
+      target = ref.id;
+      break;
+    }
+    if (target === undefined) return;
+
+    const px = ecs.getProperty(target, 'Transform', 'position.x') as number;
+    const py = ecs.getProperty(target, 'Transform', 'position.y') as number;
+    const cellX = ecs.getProperty(target, 'TilemapLayer', 'cellSize.x') as number;
+    const cellY = ecs.getProperty(target, 'TilemapLayer', 'cellSize.y') as number;
+    if (!cellX || !cellY) return;
+
+    const tx = Math.floor((worldX - px) / cellX);
+    const ty = Math.floor((worldY - py) / cellY);
+    mod.tilemap_setTile(target, tx, ty, 1);
+    this._renderContext.requestRender();
   }
 
   /**
@@ -1442,6 +1482,11 @@ export class SceneViewWidget extends BaseWidget {
           worldY: snappedY,
           hitEntityId: this._pickEntity(snappedX, snappedY),
         });
+        return;
+      }
+
+      if (this._gizmo.tool === 'paint') {
+        this._paintTileAt(wx, wy);
         return;
       }
 
