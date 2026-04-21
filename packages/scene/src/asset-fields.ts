@@ -24,7 +24,7 @@ export const BUILTIN_ASSET_FIELD_SUBTYPES: Readonly<
   AudioSource: { clip: 'audio' },
   ParticleEmitter: { texture: 'texture', material: 'material' },
   Tilemap: { source: 'tilemap' },
-  TilemapLayer: { texture: 'texture' },
+  TilemapLayer: { tileset: 'texture' },
   TimelinePlayer: { timeline: 'timeline' },
 });
 
