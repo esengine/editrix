@@ -90,6 +90,7 @@ type ToolId = GizmoToolId;
 export class SceneViewWidget extends BaseWidget {
   private readonly _toolButtons = new Map<ToolId, HTMLElement>();
   private _snapInput: HTMLInputElement | undefined;
+  private _tileIdInput: HTMLInputElement | undefined;
   private _zoomIndicatorEl: HTMLButtonElement | undefined;
   private _canvas: HTMLCanvasElement | undefined;
   private readonly _renderContext: SharedRenderContext;
@@ -131,6 +132,20 @@ export class SceneViewWidget extends BaseWidget {
   // editor's texture drop path — this post-drop mode keeps native DnD
   // for single drops and layers repeat placement on top.
   private _placementMode: { readonly info: AssetDragInfo; sx: number; sy: number } | null = null;
+
+  // Active paint-stroke state. Entity, cell origin, and cellSize are
+  // snapshotted at mousedown so mid-stroke selection / transform changes
+  // don't shift the grid the user is drawing on.
+  private _paintState: {
+    readonly entity: number;
+    readonly px: number;
+    readonly py: number;
+    readonly cellX: number;
+    readonly cellY: number;
+    lastTX: number;
+    lastTY: number;
+    readonly setTile: (entity: number, x: number, y: number, tileId: number) => void;
+  } | null = null;
 
   // Thumbnail cache keyed by project-relative path. `'loading'` means a
   // request is in flight; `'error'` means the image failed (so we don't
@@ -275,6 +290,16 @@ export class SceneViewWidget extends BaseWidget {
     this._snapInput.value = '5.00';
     this._snapInput.style.width = '48px';
 
+    const tileGroup = this.appendElement(toolbar, 'div', 'editrix-sv-snap-group');
+    const tileLabel = this.appendElement(tileGroup, 'span', 'editrix-sv-snap-label');
+    tileLabel.textContent = 'Tile';
+    this._tileIdInput = this.appendElement(tileGroup, 'input', 'editrix-sv-snap-input');
+    this._tileIdInput.type = 'number';
+    this._tileIdInput.min = '0';
+    this._tileIdInput.step = '1';
+    this._tileIdInput.value = '1';
+    this._tileIdInput.style.width = '48px';
+
     // Trailing spacer keeps the snap controls left-aligned. The "more options"
     // overflow menu is intentionally not rendered until there's a real submenu
     // to attach — a no-op affordance is worse than no affordance.
@@ -377,14 +402,19 @@ export class SceneViewWidget extends BaseWidget {
     return parseFloat(this._snapInput?.value ?? '0') || 0;
   }
 
-  private _paintTileAt(worldX: number, worldY: number): void {
+  private _readTileId(): number {
+    const v = parseInt(this._tileIdInput?.value ?? '1', 10);
+    return Number.isFinite(v) && v >= 0 ? v : 1;
+  }
+
+  private _beginPaintStroke(worldX: number, worldY: number): boolean {
     const ecs = this._ecsScene;
     const mod = this._renderContext.module as
       | (ESEngineModule & {
           tilemap_setTile?(entity: number, x: number, y: number, tileId: number): void;
         })
       | undefined;
-    if (!ecs || !mod?.tilemap_setTile) return;
+    if (!ecs || !mod?.tilemap_setTile) return false;
 
     let target: number | undefined;
     for (const raw of this._selection.getSelection()) {
@@ -394,18 +424,45 @@ export class SceneViewWidget extends BaseWidget {
       target = ref.id;
       break;
     }
-    if (target === undefined) return;
+    if (target === undefined) return false;
 
     const px = ecs.getProperty(target, 'Transform', 'position.x') as number;
     const py = ecs.getProperty(target, 'Transform', 'position.y') as number;
     const cellX = ecs.getProperty(target, 'TilemapLayer', 'cellSize.x') as number;
     const cellY = ecs.getProperty(target, 'TilemapLayer', 'cellSize.y') as number;
-    if (!cellX || !cellY) return;
+    if (!cellX || !cellY) return false;
 
     const tx = Math.floor((worldX - px) / cellX);
     const ty = Math.floor((worldY - py) / cellY);
-    mod.tilemap_setTile(target, tx, ty, 1);
+    mod.tilemap_setTile(target, tx, ty, this._readTileId());
+    this._paintState = {
+      entity: target,
+      px,
+      py,
+      cellX,
+      cellY,
+      lastTX: tx,
+      lastTY: ty,
+      setTile: mod.tilemap_setTile.bind(mod),
+    };
     this._renderContext.requestRender();
+    return true;
+  }
+
+  private _continuePaintStroke(worldX: number, worldY: number): void {
+    const state = this._paintState;
+    if (!state) return;
+    const tx = Math.floor((worldX - state.px) / state.cellX);
+    const ty = Math.floor((worldY - state.py) / state.cellY);
+    if (tx === state.lastTX && ty === state.lastTY) return;
+    state.setTile(state.entity, tx, ty, this._readTileId());
+    state.lastTX = tx;
+    state.lastTY = ty;
+    this._renderContext.requestRender();
+  }
+
+  private _endPaintStroke(): void {
+    this._paintState = null;
   }
 
   /**
@@ -1486,7 +1543,7 @@ export class SceneViewWidget extends BaseWidget {
       }
 
       if (this._gizmo.tool === 'paint') {
-        this._paintTileAt(wx, wy);
+        this._beginPaintStroke(wx, wy);
         return;
       }
 
@@ -1637,6 +1694,12 @@ export class SceneViewWidget extends BaseWidget {
         return;
       }
 
+      if (this._paintState) {
+        const [wx, wy] = getWorldPos(e);
+        this._continuePaintStroke(wx, wy);
+        return;
+      }
+
       // Idle hover: when no gesture is in progress and a transform tool is
       // active, hit-test the gizmo handles so the user sees which axis is
       // grabbable before pressing the mouse. Cheap: one vector math call
@@ -1649,6 +1712,11 @@ export class SceneViewWidget extends BaseWidget {
       if (e.button === 1 && this._isPanning) {
         this._isPanning = false;
         canvas.style.cursor = '';
+        return;
+      }
+
+      if (e.button === 0 && this._paintState) {
+        this._endPaintStroke();
         return;
       }
 
