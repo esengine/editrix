@@ -20,6 +20,7 @@ import {
   duplicateSelectedEntities,
   nudgeSelectedEntities,
 } from './scene-ops.js';
+import type { IAssetCatalogService } from './services.js';
 import { entityRef, parseSelectionRef } from './services.js';
 
 /**
@@ -99,7 +100,15 @@ export class SceneViewWidget extends BaseWidget {
   private readonly _undoRedo: IUndoRedoService;
   private readonly _gizmo = new GizmoController();
   private _ecsScene: IECSSceneService | undefined;
+  private _assetCatalog: IAssetCatalogService | undefined;
   private _view: RenderView | undefined;
+
+  // Tileset palette (paint tool). Rebuilt on tool/selection change.
+  private _paletteEl: HTMLElement | undefined;
+  private _paletteImg: HTMLImageElement | undefined;
+  private _paletteGrid: HTMLElement | undefined;
+  private _paletteColumns = 0;
+  private _paletteRows = 0;
 
   // Mouse pan state
   private _isPanning = false;
@@ -175,6 +184,11 @@ export class SceneViewWidget extends BaseWidget {
   /** Set the ECS scene service (available after WASM init). */
   setECSScene(ecsScene: IECSSceneService): void {
     this._ecsScene = ecsScene;
+  }
+
+  setAssetCatalog(catalog: IAssetCatalogService): void {
+    this._assetCatalog = catalog;
+    this._refreshPalette();
   }
 
   /** Initialize the editor camera after WASM is ready. */
@@ -253,6 +267,12 @@ export class SceneViewWidget extends BaseWidget {
     this._setupMouseHandlers(this._canvas);
     this._setupDropHandlers(viewport, this._canvas);
     this._setupContextMenu(this._canvas);
+    this._buildPalette(viewport);
+    this.subscriptions.add(
+      this._selection.onDidChangeSelection(() => {
+        this._refreshPalette();
+      }),
+    );
 
     // Floating toolbar
     const toolbar = this.appendElement(viewport, 'div', 'editrix-sv-toolbar');
@@ -347,7 +367,95 @@ export class SceneViewWidget extends BaseWidget {
     if (this._canvas) {
       this._canvas.style.cursor = id === 'paint' ? 'crosshair' : '';
     }
+    this._refreshPalette();
     this._renderContext.requestRender();
+  }
+
+  private _buildPalette(viewport: HTMLElement): void {
+    this._paletteEl = this.appendElement(viewport, 'div', 'editrix-sv-palette');
+    this._paletteEl.style.display = 'none';
+    const title = this.appendElement(this._paletteEl, 'div', 'editrix-sv-palette__title');
+    title.textContent = 'Tileset';
+    const canvasBox = this.appendElement(this._paletteEl, 'div', 'editrix-sv-palette__canvas');
+    this._paletteImg = this.appendElement(canvasBox, 'img', 'editrix-sv-palette__img');
+    this._paletteImg.draggable = false;
+    this._paletteGrid = this.appendElement(canvasBox, 'div', 'editrix-sv-palette__grid');
+  }
+
+  private _refreshPalette(): void {
+    const panel = this._paletteEl;
+    if (!panel) return;
+
+    const ecs = this._ecsScene;
+    const catalog = this._assetCatalog;
+    if (this._gizmo.tool !== 'paint' || !ecs || !catalog) {
+      panel.style.display = 'none';
+      return;
+    }
+
+    let entityId: number | undefined;
+    for (const raw of this._selection.getSelection()) {
+      const ref = parseSelectionRef(raw);
+      if (ref?.kind !== 'entity') continue;
+      if (!ecs.hasComponent(ref.id, 'TilemapLayer')) continue;
+      entityId = ref.id;
+      break;
+    }
+    if (entityId === undefined) {
+      panel.style.display = 'none';
+      return;
+    }
+
+    const uuid = ecs.getEntityMetadata(entityId, 'asset:TilemapLayer.tileset');
+    if (typeof uuid !== 'string' || uuid === '') {
+      panel.style.display = 'none';
+      return;
+    }
+    const entry = catalog.getByUuid(uuid);
+    if (entry?.type !== 'image') {
+      panel.style.display = 'none';
+      return;
+    }
+
+    const columns = Math.max(
+      1,
+      Math.floor(ecs.getProperty(entityId, 'TilemapLayer', 'tilesetColumns') as number),
+    );
+    const rows = Math.max(
+      1,
+      Math.floor(ecs.getProperty(entityId, 'TilemapLayer', 'tilesetRows') as number),
+    );
+    const url = `project-asset://editor/${entry.relativePath.split('/').map(encodeURIComponent).join('/')}`;
+    if (this._paletteImg && this._paletteImg.src !== url) this._paletteImg.src = url;
+    if (columns !== this._paletteColumns || rows !== this._paletteRows) {
+      this._paletteColumns = columns;
+      this._paletteRows = rows;
+      this._rebuildPaletteGrid(columns, rows);
+    }
+    panel.style.display = '';
+  }
+
+  private _rebuildPaletteGrid(columns: number, rows: number): void {
+    const grid = this._paletteGrid;
+    if (!grid) return;
+    grid.replaceChildren();
+    const cellW = 100 / columns;
+    const cellH = 100 / rows;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < columns; c++) {
+        const cell = document.createElement('div');
+        cell.className = 'editrix-sv-palette__cell';
+        cell.style.left = `${String(c * cellW)}%`;
+        cell.style.top = `${String(r * cellH)}%`;
+        cell.style.width = `${String(cellW)}%`;
+        cell.style.height = `${String(cellH)}%`;
+        const tileId = r * columns + c + 1;
+        cell.addEventListener('click', () => {
+          if (this._tileIdInput) this._tileIdInput.value = String(tileId);
+        });
+        grid.appendChild(cell);
+      }
+    }
   }
 
   private _buildGizmo(container: HTMLElement): void {
@@ -1930,6 +2038,40 @@ export class SceneViewWidget extends BaseWidget {
 }
 
 .editrix-sv-gizmo { position: absolute; top: 50px; right: 12px; opacity: 0.85; pointer-events: none; }
+
+.editrix-sv-palette {
+  position: absolute; bottom: 12px; left: 12px;
+  width: 220px; max-height: 320px;
+  display: flex; flex-direction: column;
+  padding: 6px; gap: 4px;
+  background: rgba(30,30,34,0.9);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px; backdrop-filter: blur(8px);
+  z-index: 11; color: var(--editrix-text);
+}
+.editrix-sv-palette__title {
+  font-size: 11px; color: var(--editrix-text-dim);
+  padding: 0 2px 2px;
+}
+.editrix-sv-palette__canvas {
+  position: relative; width: 100%;
+  background: #222; border: 1px solid rgba(255,255,255,0.06);
+  overflow: hidden;
+}
+.editrix-sv-palette__img {
+  display: block; width: 100%; height: auto;
+  image-rendering: pixelated;
+}
+.editrix-sv-palette__grid { position: absolute; inset: 0; }
+.editrix-sv-palette__cell {
+  position: absolute; cursor: pointer;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+}
+.editrix-sv-palette__cell:hover {
+  border-color: rgba(255,210,74,0.8);
+  background: rgba(255,210,74,0.15);
+}
 `;
     document.head.appendChild(style);
   }

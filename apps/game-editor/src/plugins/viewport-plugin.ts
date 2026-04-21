@@ -80,6 +80,7 @@ export const ViewportPlugin: IPlugin = {
       view.registerFactory('viewport', (id) => {
         widget = new ViewportWidget(id, renderContextSvc.context, selection, undoRedo);
         if (presence.current) widget.setECSScene(presence.current);
+        widget.setAssetCatalog(catalog);
         if (estella.isReady && estella.module) {
           widget.initCamera(estella.module);
         } else {

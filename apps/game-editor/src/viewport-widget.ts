@@ -7,6 +7,7 @@ import { GameViewWidget } from './game-view-widget.js';
 import type { SharedRenderContext } from './render-context.js';
 import type { SceneAssetDropEvent } from './scene-view-widget.js';
 import { SceneViewWidget } from './scene-view-widget.js';
+import type { IAssetCatalogService } from './services.js';
 
 type ViewportMode = 'scene' | 'game' | 'both';
 
@@ -72,6 +73,10 @@ export class ViewportWidget extends BaseWidget {
 
   setECSScene(ecs: IECSSceneService): void {
     this._sceneWidget.setECSScene(ecs);
+  }
+
+  setAssetCatalog(catalog: IAssetCatalogService): void {
+    this._sceneWidget.setAssetCatalog(catalog);
   }
 
   get onDidDropAsset(): Event<SceneAssetDropEvent> {
