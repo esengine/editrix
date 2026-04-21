@@ -303,6 +303,15 @@ export class SceneViewWidget extends BaseWidget {
 
   /** Draw 2D grid overlay on the Scene View canvas. */
   /**
+   * Current snap distance read from the toolbar input. 0 means snap is
+   * off; every consumer (move drag math, keyboard nudge, asset-drop)
+   * treats it uniformly, so keep this the single parse point.
+   */
+  private _readSnap(): number {
+    return parseFloat(this._snapInput?.value ?? '0') || 0;
+  }
+
+  /**
    * Draw a world-aligned grid of dots at the move tool's current snap
    * spacing so users see exactly where a drag will land. Only active
    * while the move tool is selected and snap is enabled, and bails when
@@ -311,7 +320,7 @@ export class SceneViewWidget extends BaseWidget {
    */
   private _drawSnapGrid(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     if (this._gizmo.tool !== 'move') return;
-    const snap = parseFloat(this._snapInput?.value ?? '0') || 0;
+    const snap = this._readSnap();
     if (snap <= 0) return;
 
     const cam = this._editorCamera;
@@ -966,12 +975,17 @@ export class SceneViewWidget extends BaseWidget {
       if (!absolutePath) return;
 
       const rect = canvas.getBoundingClientRect();
-      const [worldX, worldY] = this._editorCamera.screenToWorld(
+      const [rawX, rawY] = this._editorCamera.screenToWorld(
         e.clientX - rect.left,
         e.clientY - rect.top,
         canvas.clientWidth,
         canvas.clientHeight,
       );
+      // Mirror the ghost's snap alignment so the spawn lands where the
+      // user saw the anchor dot rather than at the raw cursor.
+      const snap = this._readSnap();
+      const worldX = snap > 0 ? Math.round(rawX / snap) * snap : rawX;
+      const worldY = snap > 0 ? Math.round(rawY / snap) * snap : rawY;
       this._onDidDropAsset.fire({
         absolutePath,
         worldX,
@@ -998,7 +1012,15 @@ export class SceneViewWidget extends BaseWidget {
     const ghost = this._assetGhost;
     if (!ghost) return;
     const cam = this._editorCamera;
-    const [wx, wy] = cam.screenToWorld(ghost.sx, ghost.sy, canvasWidth, canvasHeight);
+    const [rawWX, rawWY] = cam.screenToWorld(ghost.sx, ghost.sy, canvasWidth, canvasHeight);
+    // When the toolbar snap distance is set, align the ghost anchor to the
+    // grid so the preview matches where the drop will actually land. The
+    // drop handler uses the same math for consistency.
+    const snap = this._readSnap();
+    const wx = snap > 0 ? Math.round(rawWX / snap) * snap : rawWX;
+    const wy = snap > 0 ? Math.round(rawWY / snap) * snap : rawWY;
+    const [anchorSX, anchorSY] = cam.worldToScreen(wx, wy, canvasWidth, canvasHeight);
+
     // 50 world units half-size matches the default sprite footprint the
     // engine uses when no explicit size is configured — the ghost reads as
     // "roughly this big" rather than pretending to know the exact import
@@ -1030,13 +1052,25 @@ export class SceneViewWidget extends BaseWidget {
     ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
     ctx.setLineDash([]);
 
-    // Anchor dot at the precise cursor location — drop resolves here, not
-    // at the rectangle centre (which may diverge at non-default zoom if
-    // the cursor sits near an edge).
+    // Anchor dot at the (possibly snapped) drop target — drop resolves
+    // here, not at the raw cursor. When snap is off this coincides with
+    // the cursor; when snap is on the user sees the grid-aligned target.
     ctx.fillStyle = '#ffd24a';
     ctx.beginPath();
-    ctx.arc(ghost.sx, ghost.sy, 3, 0, Math.PI * 2);
+    ctx.arc(anchorSX, anchorSY, 3, 0, Math.PI * 2);
     ctx.fill();
+
+    // When snap nudged the target, draw a faint line from the raw cursor
+    // to the anchor so the user sees the snap correction rather than
+    // wondering why the dot doesn't follow the pointer.
+    if (snap > 0 && (anchorSX !== ghost.sx || anchorSY !== ghost.sy)) {
+      ctx.strokeStyle = 'rgba(255, 210, 74, 0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(ghost.sx, ghost.sy);
+      ctx.lineTo(anchorSX, anchorSY);
+      ctx.stroke();
+    }
 
     ctx.font = '11px Consolas, monospace';
     ctx.fillStyle = '#ffd24a';
@@ -1111,7 +1145,7 @@ export class SceneViewWidget extends BaseWidget {
         !e.ctrlKey &&
         !e.altKey
       ) {
-        const snap = parseFloat(this._snapInput?.value ?? '0') || 0;
+        const snap = this._readSnap();
         const base = snap > 0 ? snap : 1;
         const step = e.shiftKey ? base * 10 : base;
         let dx = 0;
@@ -1274,8 +1308,7 @@ export class SceneViewWidget extends BaseWidget {
       // Transform drag (left button)
       if (this._gizmo.isDragging && this._ecsScene) {
         const [wx, wy] = getWorldPos(e);
-        const snap = parseFloat(this._snapInput?.value ?? '0') || 0;
-        this._gizmo.applyDrag(this._ecsScene, wx, wy, snap);
+        this._gizmo.applyDrag(this._ecsScene, wx, wy, this._readSnap());
         return;
       }
 
