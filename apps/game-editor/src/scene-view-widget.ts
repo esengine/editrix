@@ -145,6 +145,9 @@ export class SceneViewWidget extends BaseWidget {
     lastTX: number;
     lastTY: number;
     readonly setTile: (entity: number, x: number, y: number, tileId: number) => void;
+    readonly beforeChunks: string;
+    readonly exportChunks: (entity: number) => string;
+    readonly importChunks: (entity: number, blob: string) => boolean;
   } | null = null;
 
   // Thumbnail cache keyed by project-relative path. `'loading'` means a
@@ -412,6 +415,8 @@ export class SceneViewWidget extends BaseWidget {
     const mod = this._renderContext.module as
       | (ESEngineModule & {
           tilemap_setTile?(entity: number, x: number, y: number, tileId: number): void;
+          tilemap_exportChunks?(entity: number): string;
+          tilemap_importChunks?(entity: number, blob: string): boolean;
         })
       | undefined;
     if (!ecs || !mod?.tilemap_setTile) return false;
@@ -432,6 +437,11 @@ export class SceneViewWidget extends BaseWidget {
     const cellY = ecs.getProperty(target, 'TilemapLayer', 'cellSize.y') as number;
     if (!cellX || !cellY) return false;
 
+    const exportChunks = (e: number): string => mod.tilemap_exportChunks?.(e) ?? '';
+    const importChunks = (e: number, blob: string): boolean =>
+      mod.tilemap_importChunks?.(e, blob) ?? false;
+    const beforeChunks = exportChunks(target);
+
     const tx = Math.floor((worldX - px) / cellX);
     const ty = Math.floor((worldY - py) / cellY);
     mod.tilemap_setTile(target, tx, ty, this._readTileId());
@@ -444,6 +454,9 @@ export class SceneViewWidget extends BaseWidget {
       lastTX: tx,
       lastTY: ty,
       setTile: mod.tilemap_setTile.bind(mod),
+      beforeChunks,
+      exportChunks,
+      importChunks,
     };
     this._renderContext.requestRender();
     return true;
@@ -462,7 +475,26 @@ export class SceneViewWidget extends BaseWidget {
   }
 
   private _endPaintStroke(): void {
+    const state = this._paintState;
+    if (!state) return;
     this._paintState = null;
+
+    const afterChunks = state.exportChunks(state.entity);
+    if (afterChunks === state.beforeChunks) return;
+
+    const { entity, beforeChunks, importChunks } = state;
+    const renderCtx = this._renderContext;
+    this._undoRedo.push({
+      label: 'Paint Tiles',
+      undo: () => {
+        importChunks(entity, beforeChunks);
+        renderCtx.requestRender();
+      },
+      redo: () => {
+        importChunks(entity, afterChunks);
+        renderCtx.requestRender();
+      },
+    });
   }
 
   /**
