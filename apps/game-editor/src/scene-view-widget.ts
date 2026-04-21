@@ -1,5 +1,5 @@
 import type { Event } from '@editrix/common';
-import { Emitter } from '@editrix/common';
+import { DisposableStore, Emitter } from '@editrix/common';
 import type { ESEngineModule, CppRegistry, IECSSceneService } from '@editrix/estella';
 import type { ISelectionService, IUndoRedoService } from '@editrix/shell';
 import type { ContextMenuItem } from '@editrix/view-dom';
@@ -101,6 +101,9 @@ export class SceneViewWidget extends BaseWidget {
   private readonly _gizmo = new GizmoController();
   private _ecsScene: IECSSceneService | undefined;
   private _assetCatalog: IAssetCatalogService | undefined;
+  // Subscriptions scoped to the current IECSSceneService so a scene swap
+  // disposes the old listeners before attaching new ones.
+  private _ecsSubscriptions: DisposableStore | undefined;
   private _view: RenderView | undefined;
 
   // Tileset palette (paint tool). Rebuilt on tool/selection change.
@@ -185,6 +188,34 @@ export class SceneViewWidget extends BaseWidget {
   /** Set the ECS scene service (available after WASM init). */
   setECSScene(ecsScene: IECSSceneService): void {
     this._ecsScene = ecsScene;
+    this._ecsSubscriptions?.dispose();
+    const store = new DisposableStore();
+    this._ecsSubscriptions = store;
+    store.add(
+      ecsScene.onPropertyChanged((e) => {
+        if (
+          e.component === 'TilemapLayer' &&
+          (e.field.startsWith('tilesetColumns') || e.field.startsWith('tilesetRows'))
+        ) {
+          this._refreshPalette();
+        }
+      }),
+    );
+    store.add(
+      ecsScene.onMetadataChanged((e) => {
+        if (e.key === 'asset:TilemapLayer.tileset') this._refreshPalette();
+      }),
+    );
+    store.add(
+      ecsScene.onComponentAdded((e) => {
+        if (e.component === 'TilemapLayer') this._refreshPalette();
+      }),
+    );
+    store.add(
+      ecsScene.onComponentRemoved((e) => {
+        if (e.component === 'TilemapLayer') this._refreshPalette();
+      }),
+    );
   }
 
   setAssetCatalog(catalog: IAssetCatalogService): void {
@@ -1987,6 +2018,7 @@ export class SceneViewWidget extends BaseWidget {
   }
 
   override dispose(): void {
+    this._ecsSubscriptions?.dispose();
     if (this._view) this._renderContext.unregisterView(this._view);
     this._editorCamera.dispose();
     super.dispose();
