@@ -5,7 +5,13 @@ import type { ISelectionService, IUndoRedoService } from '@editrix/shell';
 import { BaseWidget, createIconElement, registerIcon } from '@editrix/view-dom';
 import { ASSET_PATH_MIME } from './content-browser-widget.js';
 import { EditorCamera } from './editor-camera.js';
-import { GizmoController, type ToolId as GizmoToolId, type GizmoAxis } from './gizmo-controller.js';
+import {
+  GizmoController,
+  ROTATE_RING_PADDING_PX,
+  type GizmoAxis,
+  type SnapPreview,
+  type ToolId as GizmoToolId,
+} from './gizmo-controller.js';
 import type { SharedRenderContext, RenderView } from './render-context.js';
 import {
   deleteSelectedEntities,
@@ -730,7 +736,103 @@ export class SceneViewWidget extends BaseWidget {
 
       if (this._gizmo.isDragging) {
         this._gizmo.drawAxisLockLine(ctx, w, h, pivotSX, pivotSY);
+        this._drawSnapIndicator(ctx, w, h, pivotSX, pivotSY, screenRingRadius);
       }
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Overlay the snapped target for the active transform drag: the exact
+   * world point a move will land on, the 15° tick ring + delta readout for
+   * rotate, or the numeric ratio for scale. Called from inside the
+   * selection-highlight pass so the pivot / ring radius already computed
+   * there can be reused rather than walked a second time. No-op when no
+   * preview is available (snap off, not dragging, or select tool).
+   */
+  private _drawSnapIndicator(
+    ctx: CanvasRenderingContext2D,
+    canvasWidth: number,
+    canvasHeight: number,
+    pivotSX: number,
+    pivotSY: number,
+    screenRingRadius: number,
+  ): void {
+    const preview: SnapPreview | null = this._gizmo.getSnapPreview();
+    if (!preview) return;
+    const cam = this._editorCamera;
+
+    ctx.save();
+    ctx.setLineDash([]);
+
+    if (preview.tool === 'move') {
+      const [sx, sy] = cam.worldToScreen(
+        preview.snappedPivotX,
+        preview.snappedPivotY,
+        canvasWidth,
+        canvasHeight,
+      );
+      ctx.fillStyle = '#ffd24a';
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.font = '11px Consolas, monospace';
+      ctx.fillStyle = '#ffd24a';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      const label = `(${preview.snappedPivotX.toFixed(2)}, ${preview.snappedPivotY.toFixed(2)})`;
+      ctx.fillText(label, sx + 8, sy + 8);
+    } else if (preview.tool === 'rotate') {
+      const ringR = screenRingRadius + ROTATE_RING_PADDING_PX;
+      // Skip ticks on tiny entities — they'd land on top of each other and
+      // read as visual noise rather than a reference.
+      if (ringR >= 20) {
+        const normalizedDelta = ((preview.snappedDeltaDeg % 360) + 360) % 360;
+        for (let tickDeg = 0; tickDeg < 360; tickDeg += preview.stepDeg) {
+          const worldAngle = preview.startAngleRad + (tickDeg * Math.PI) / 180;
+          const cos = Math.cos(worldAngle);
+          // Canvas Y is inverted relative to world Y — flip the sin term so
+          // the tick ring visually matches the ring the gizmo draws.
+          const sin = Math.sin(worldAngle);
+          const isActive = Math.abs(tickDeg - normalizedDelta) < 0.001;
+          const r0 = ringR - 5;
+          const r1 = ringR + 5;
+          ctx.strokeStyle = isActive ? '#ffd24a' : 'rgba(74,143,255,0.55)';
+          ctx.lineWidth = isActive ? 2 : 1;
+          ctx.beginPath();
+          ctx.moveTo(pivotSX + r0 * cos, pivotSY - r0 * sin);
+          ctx.lineTo(pivotSX + r1 * cos, pivotSY - r1 * sin);
+          ctx.stroke();
+        }
+      }
+      const sign = preview.snappedDeltaDeg > 0 ? '+' : '';
+      const label = `${sign}${preview.snappedDeltaDeg.toFixed(0)}°`;
+      ctx.font = '12px Consolas, monospace';
+      ctx.fillStyle = '#ffd24a';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(label, pivotSX, pivotSY - Math.max(ringR, 14) - 8);
+    } else {
+      const label = `${preview.snappedRatio.toFixed(2)}×`;
+      ctx.font = '12px Consolas, monospace';
+      ctx.fillStyle = '#ffd24a';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      let tx = pivotSX + 38;
+      let ty = pivotSY - 18;
+      if (preview.axis === 'y') {
+        tx = pivotSX + 10;
+        ty = pivotSY - 42;
+      } else if (preview.axis === 'xy' || preview.axis === 'ring') {
+        tx = pivotSX + 12;
+        ty = pivotSY + 16;
+      }
+      ctx.fillText(label, tx, ty);
     }
 
     ctx.restore();

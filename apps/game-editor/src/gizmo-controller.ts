@@ -44,6 +44,31 @@ export interface DragResult {
   entities: DragResultEntity[];
 }
 
+/**
+ * Snap-while-dragging hint payload — returned by {@link GizmoController.getSnapPreview}
+ * while a transform drag is in progress and the snap input is non-zero.
+ * The Scene View uses it to overlay a bright "this is where it will land"
+ * marker on top of the live drag, so the user sees the snapped target
+ * separately from the raw cursor position.
+ *
+ * The controller stays the single source of snap math; the widget only
+ * projects the returned world values through its camera and draws glyphs.
+ */
+export type SnapPreview =
+  | { tool: 'move'; snap: number; snappedPivotX: number; snappedPivotY: number }
+  | {
+      tool: 'rotate';
+      snap: number;
+      /** Mouse angle (world radians) captured at drag start. Ticks are laid
+       *  out at this angle + k·stepDeg so the start grab is always a tick. */
+      startAngleRad: number;
+      /** Angular delta from drag start, snapped to stepDeg. */
+      snappedDeltaDeg: number;
+      /** Snap step in degrees (15°). */
+      stepDeg: number;
+    }
+  | { tool: 'scale'; snap: number; axis: GizmoAxis; snappedRatio: number };
+
 interface DraggedEntity {
   entityId: number;
   startValues: TransformSnapshot;
@@ -54,7 +79,10 @@ interface DraggedEntity {
 const MOVE_ARROW_LEN_PX = 30;
 const SCALE_ARROW_LEN_PX = 30;
 const SCALE_END_BOX_HALF_PX = 5;
-const ROTATE_RING_PADDING_PX = 10;
+// Exported so the Scene View can draw snap ticks along the same ring the
+// gizmo paints (painting just inside the hit annulus keeps them readable
+// without covering the ring itself).
+export const ROTATE_RING_PADDING_PX = 10;
 const CORNER_HANDLE_PX = 5;
 
 // Hit-test padding around each move / scale arrow shaft. Generous enough
@@ -106,6 +134,12 @@ export class GizmoController {
     axis: GizmoAxis;
     startWorldX: number;
     startWorldY: number;
+    // Last world-space cursor / snap value fed to applyDrag. Tracked so
+    // getSnapPreview() can recompute the snapped target without the
+    // caller having to thread the live mouse position through separately.
+    currWorldX: number;
+    currWorldY: number;
+    currSnap: number;
   } = {
     active: false,
     entries: [],
@@ -114,6 +148,9 @@ export class GizmoController {
     axis: 'xy',
     startWorldX: 0,
     startWorldY: 0,
+    currWorldX: 0,
+    currWorldY: 0,
+    currSnap: 0,
   };
 
   get tool(): ToolId {
@@ -269,6 +306,9 @@ export class GizmoController {
       axis,
       startWorldX: worldX,
       startWorldY: worldY,
+      currWorldX: worldX,
+      currWorldY: worldY,
+      currSnap: 0,
     };
   }
 
@@ -280,6 +320,9 @@ export class GizmoController {
    */
   applyDrag(ecs: IECSSceneService, worldX: number, worldY: number, snap: number): void {
     if (!this._drag.active) return;
+    this._drag.currWorldX = worldX;
+    this._drag.currWorldY = worldY;
+    this._drag.currSnap = snap;
     const { entries, pivotX, pivotY, startWorldX, startWorldY, axis } = this._drag;
     if (entries.length === 0) return;
 
@@ -382,6 +425,63 @@ export class GizmoController {
     }
     if (!anyChanged) return null;
     return { tool, entities: results };
+  }
+
+  /**
+   * Return a hint describing the snap target the active drag will resolve
+   * to, or null when no indicator should render (not dragging, snap off,
+   * or the select tool). The math mirrors applyDrag so the overlay always
+   * matches the value that would be committed if the user released now.
+   */
+  getSnapPreview(): SnapPreview | null {
+    if (!this._drag.active) return null;
+    const tool = this._tool;
+    if (tool === 'select') return null;
+    const { pivotX, pivotY, startWorldX, startWorldY, currWorldX, currWorldY, currSnap, axis } =
+      this._drag;
+    if (currSnap <= 0) return null;
+
+    if (tool === 'move') {
+      let dx = axis === 'y' ? 0 : currWorldX - startWorldX;
+      let dy = axis === 'x' ? 0 : currWorldY - startWorldY;
+      if (axis !== 'y') dx = Math.round((pivotX + dx) / currSnap) * currSnap - pivotX;
+      if (axis !== 'x') dy = Math.round((pivotY + dy) / currSnap) * currSnap - pivotY;
+      return {
+        tool: 'move',
+        snap: currSnap,
+        snappedPivotX: pivotX + dx,
+        snappedPivotY: pivotY + dy,
+      };
+    }
+
+    if (tool === 'rotate') {
+      const startAngle = Math.atan2(startWorldY - pivotY, startWorldX - pivotX);
+      const currAngle = Math.atan2(currWorldY - pivotY, currWorldX - pivotX);
+      const deltaDeg = ((currAngle - startAngle) * 180) / Math.PI;
+      const snappedDeltaDeg = Math.round(deltaDeg / ROTATE_SNAP_DEG) * ROTATE_SNAP_DEG;
+      return {
+        tool: 'rotate',
+        snap: currSnap,
+        startAngleRad: startAngle,
+        snappedDeltaDeg,
+        stepDeg: ROTATE_SNAP_DEG,
+      };
+    }
+
+    // scale
+    let ratio: number;
+    if (axis === 'x') {
+      const startDX = signedDelta(startWorldX - pivotX);
+      ratio = (currWorldX - pivotX) / startDX;
+    } else if (axis === 'y') {
+      const startDY = signedDelta(startWorldY - pivotY);
+      ratio = (currWorldY - pivotY) / startDY;
+    } else {
+      const startDist = Math.max(0.01, Math.hypot(startWorldX - pivotX, startWorldY - pivotY));
+      ratio = Math.hypot(currWorldX - pivotX, currWorldY - pivotY) / startDist;
+    }
+    ratio = Math.round(ratio / SCALE_SNAP_STEP) * SCALE_SNAP_STEP;
+    return { tool: 'scale', snap: currSnap, axis, snappedRatio: ratio };
   }
 
   /**
