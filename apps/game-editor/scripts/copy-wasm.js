@@ -27,12 +27,12 @@ const wasmDir = resolve(here, '../wasm');
 mkdirSync(wasmDir, { recursive: true });
 
 // [source absolute path, destination filename inside wasm/]
-// `desktop/` was removed from estella in f6d6192; sources are now the
-// CMake build output (renamed esengine-core.* → esengine.*) plus the
-// rollup bundle from the TS SDK.
+// Paths track the current CMake layout: `build-web/sdk/esengine.{js,wasm}`
+// for the wasm runtime + glue, `sdk/dist/index.bundled.js` for the rollup
+// output.
 const copies = [
-  [join(vendor, 'build/build-web/sdk/esengine-core.js'), 'esengine.js'],
-  [join(vendor, 'build/build-web/sdk/esengine-core.wasm'), 'esengine.wasm'],
+  [join(vendor, 'build-web/sdk/esengine.js'), 'esengine.js'],
+  [join(vendor, 'build-web/sdk/esengine.wasm'), 'esengine.wasm'],
   [join(vendor, 'sdk/dist/index.bundled.js'), 'esengine.bundled.js'],
 ];
 
