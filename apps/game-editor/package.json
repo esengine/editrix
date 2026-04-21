@@ -11,7 +11,7 @@
     "build:wasm": "node scripts/build-wasm.js",
     "build:wasm:all": "node scripts/build-wasm.js --all",
     "copy:wasm": "node scripts/copy-wasm.js",
-    "start": "npm run build && electron src/main.cjs"
+    "start": "npm run copy:wasm && npm run build && electron src/main.cjs"
   },
   "dependencies": {
     "@editrix/common": "workspace:*",

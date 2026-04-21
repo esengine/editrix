@@ -17,7 +17,7 @@
  *
  * Run via `pnpm run copy:wasm` whenever the vendored estella SDK updates.
  */
-import { cpSync, mkdirSync, statSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -56,4 +56,28 @@ console.log(`[copy-wasm] ${String(copied)} copied, ${String(missing)} missing.`)
 if (missing > 0) {
   // Non-zero exit so CI fails loudly when the vendor tree drifts.
   process.exit(1);
+}
+
+// Warn if the wasm binary predates ecs component sources. The most common
+// cause of "my C++ change doesn't show up" is running the editor before
+// rebuilding wasm — surface it loudly here instead of silent-shipping the
+// stale binary.
+const wasmPath = join(wasmDir, 'esengine.wasm');
+try {
+  const wasmMTime = statSync(wasmPath).mtimeMs;
+  const componentsDir = join(vendor, 'src/esengine/ecs/components');
+  let newestHpp = 0;
+  for (const name of readdirSync(componentsDir)) {
+    const m = statSync(join(componentsDir, name)).mtimeMs;
+    if (m > newestHpp) newestHpp = m;
+  }
+  if (newestHpp > wasmMTime) {
+    console.warn('\n[copy-wasm] WARNING: esengine.wasm is older than an ecs/components/*.hpp.');
+    console.warn(
+      '[copy-wasm]   Rebuild wasm first:  cd vendor/estella && node build-tools/cli.js build -t web',
+    );
+    console.warn('[copy-wasm]   Then re-run:         pnpm run copy:wasm\n');
+  }
+} catch {
+  // Best-effort check — not worth failing the build if stat fails.
 }

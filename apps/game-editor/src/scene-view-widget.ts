@@ -108,6 +108,8 @@ export class SceneViewWidget extends BaseWidget {
 
   // Tileset palette (paint tool). Rebuilt on tool/selection change.
   private _paletteEl: HTMLElement | undefined;
+  private _paletteCanvasBox: HTMLElement | undefined;
+  private _paletteHint: HTMLElement | undefined;
   private _paletteImg: HTMLImageElement | undefined;
   private _paletteGrid: HTMLElement | undefined;
   private _paletteColumns = 0;
@@ -411,10 +413,19 @@ export class SceneViewWidget extends BaseWidget {
     this._paletteEl.style.display = 'none';
     const title = this.appendElement(this._paletteEl, 'div', 'editrix-sv-palette__title');
     title.textContent = 'Tileset';
-    const canvasBox = this.appendElement(this._paletteEl, 'div', 'editrix-sv-palette__canvas');
-    this._paletteImg = this.appendElement(canvasBox, 'img', 'editrix-sv-palette__img');
+    this._paletteCanvasBox = this.appendElement(
+      this._paletteEl,
+      'div',
+      'editrix-sv-palette__canvas',
+    );
+    this._paletteImg = this.appendElement(this._paletteCanvasBox, 'img', 'editrix-sv-palette__img');
     this._paletteImg.draggable = false;
-    this._paletteGrid = this.appendElement(canvasBox, 'div', 'editrix-sv-palette__grid');
+    this._paletteGrid = this.appendElement(
+      this._paletteCanvasBox,
+      'div',
+      'editrix-sv-palette__grid',
+    );
+    this._paletteHint = this.appendElement(this._paletteEl, 'div', 'editrix-sv-palette__hint');
   }
 
   private _refreshPalette(): void {
@@ -422,8 +433,7 @@ export class SceneViewWidget extends BaseWidget {
     if (!panel) return;
 
     const ecs = this._ecsScene;
-    const catalog = this._assetCatalog;
-    if (this._gizmo.tool !== 'paint' || !ecs || !catalog) {
+    if (this._gizmo.tool !== 'paint' || !ecs) {
       panel.style.display = 'none';
       return;
     }
@@ -437,18 +447,21 @@ export class SceneViewWidget extends BaseWidget {
       break;
     }
     if (entityId === undefined) {
-      panel.style.display = 'none';
+      this._showPaletteHint('Select a TilemapLayer entity to paint on.');
+      panel.style.display = '';
       return;
     }
 
     const uuid = ecs.getEntityMetadata(entityId, 'asset:TilemapLayer.tileset');
     if (typeof uuid !== 'string' || uuid === '') {
-      panel.style.display = 'none';
+      this._showPaletteHint('Assign a tileset in the Inspector to pick tiles.');
+      panel.style.display = '';
       return;
     }
-    const entry = catalog.getByUuid(uuid);
+    const entry = this._assetCatalog?.getByUuid(uuid);
     if (entry?.type !== 'image') {
-      panel.style.display = 'none';
+      this._showPaletteHint('Tileset asset is missing or not an image.');
+      panel.style.display = '';
       return;
     }
 
@@ -467,7 +480,20 @@ export class SceneViewWidget extends BaseWidget {
       this._paletteRows = rows;
       this._rebuildPaletteGrid(columns, rows);
     }
+    this._showPaletteGrid();
     panel.style.display = '';
+  }
+
+  private _showPaletteHint(text: string): void {
+    if (this._paletteCanvasBox) this._paletteCanvasBox.style.display = 'none';
+    if (!this._paletteHint) return;
+    this._paletteHint.textContent = text;
+    this._paletteHint.style.display = '';
+  }
+
+  private _showPaletteGrid(): void {
+    if (this._paletteHint) this._paletteHint.style.display = 'none';
+    if (this._paletteCanvasBox) this._paletteCanvasBox.style.display = '';
   }
 
   private _rebuildPaletteGrid(columns: number, rows: number): void {
@@ -642,13 +668,21 @@ export class SceneViewWidget extends BaseWidget {
 
     const { entity, beforeChunks, importChunks, tileId } = state;
     const renderCtx = this._renderContext;
+    // If the entity gets destroyed between the stroke and the undo,
+    // skip the import — tilemap_importChunks auto-creates a LayerData
+    // for unknown entities, which would leak a zombie layer keyed by
+    // a dead entity id until scene unload.
+    const entityStillLives = (): boolean =>
+      this._ecsScene?.hasComponent(entity, 'TilemapLayer') === true;
     this._undoRedo.push({
       label: tileId === 0 ? 'Erase Tiles' : 'Paint Tiles',
       undo: () => {
+        if (!entityStillLives()) return;
         importChunks(entity, beforeChunks);
         renderCtx.requestRender();
       },
       redo: () => {
+        if (!entityStillLives()) return;
         importChunks(entity, afterChunks);
         renderCtx.requestRender();
       },
@@ -2142,6 +2176,13 @@ export class SceneViewWidget extends BaseWidget {
   border-color: #ffd24a;
   background: rgba(255,210,74,0.22);
   box-shadow: inset 0 0 0 1px #ffd24a;
+}
+.editrix-sv-palette__hint {
+  padding: 16px 8px;
+  font-size: 11px;
+  color: var(--editrix-text-dim);
+  text-align: center;
+  line-height: 1.5;
 }
 `;
     document.head.appendChild(style);
