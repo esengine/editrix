@@ -614,8 +614,11 @@ export class SceneViewWidget extends BaseWidget {
     }
     if (target === undefined) return false;
 
-    const px = ecs.getProperty(target, 'Transform', 'position.x') as number;
-    const py = ecs.getProperty(target, 'Transform', 'position.y') as number;
+    // Use worldPosition so a TilemapLayer parented under another entity
+    // still grids to where the renderer actually puts its origin —
+    // TilemapRenderPlugin reads `Transform::worldPosition` not `position`.
+    const px = ecs.getProperty(target, 'Transform', 'worldPosition.x') as number;
+    const py = ecs.getProperty(target, 'Transform', 'worldPosition.y') as number;
     const cellX = ecs.getProperty(target, 'TilemapLayer', 'cellSize.x') as number;
     const cellY = ecs.getProperty(target, 'TilemapLayer', 'cellSize.y') as number;
     if (!cellX || !cellY) return false;
@@ -1675,6 +1678,24 @@ export class SceneViewWidget extends BaseWidget {
         e.preventDefault();
         this._exitPlacementMode();
         return;
+      }
+
+      // Tool shortcuts mirror the toolbar button titles.
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        const k = e.key.toLowerCase();
+        const toolByKey: Record<string, ToolId> = {
+          q: 'select',
+          w: 'move',
+          e: 'rotate',
+          r: 'scale',
+          p: 'paint',
+        };
+        const tool = toolByKey[k];
+        if (tool !== undefined) {
+          e.preventDefault();
+          this._setActiveTool(tool);
+          return;
+        }
       }
 
       // F: frame the first selected entity.
